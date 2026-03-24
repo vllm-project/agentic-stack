@@ -18,7 +18,7 @@ The metrics endpoint is unauthenticated and available at:
 
 - **Endpoint**: `GET /metrics` (configurable via `VR_METRICS_PATH`)
 - **Port**: Same as the active public API listener
-    - `vllm-responses serve`: default `5969`
+    - `agentic-stacks serve`: default `5969`
     - `vllm serve --responses`: default `8000` unless overridden by vLLM flags
 - **Format**: Prometheus text exposition format
 
@@ -29,7 +29,7 @@ Example Prometheus `scrape_configs`:
 ```yaml
 scrape_configs:
   # Gateway metrics
-  - job_name: "vllm-responses"
+  - job_name: "agentic-stacks"
     static_configs:
       - targets: ["gateway-host:5969"]
     metrics_path: "/metrics"
@@ -49,9 +49,9 @@ scrape_configs:
 
 ### Multi-Worker Support
 
-When running with multiple workers (`--gateway-workers N`), metrics are automatically aggregated across all workers when using `vllm-responses serve`.
+When running with multiple workers (`--gateway-workers N`), metrics are automatically aggregated across all workers when using `agentic-stacks serve`.
 
-**Using `vllm-responses serve` (recommended):**
+**Using `agentic-stacks serve` (recommended):**
 
 Multi-process metrics are handled automatically. The supervisor creates a temporary directory for Prometheus multi-process mode and configures the workers correctly.
 
@@ -59,22 +59,22 @@ We intentionally do not document manual multi-worker ASGI server setups here (Gu
 
 ### Available Metrics
 
-All metrics use the `vllm_responses_` prefix.
+All metrics use the `agentic_stack_` prefix.
 
 #### HTTP Metrics
 
 | Metric                                         | Type      | Labels                      | Description                                                          |
 | ---------------------------------------------- | --------- | --------------------------- | -------------------------------------------------------------------- |
-| `vllm_responses_http_requests_total`           | Counter   | `method`, `route`, `status` | Total HTTP requests completed                                        |
-| `vllm_responses_http_request_duration_seconds` | Histogram | `method`, `route`           | HTTP handler duration (excludes SSE stream lifetime)                 |
-| `vllm_responses_http_in_flight_requests`       | Gauge     | -                           | Requests currently being handled (does not include open SSE streams) |
+| `agentic_stack_http_requests_total`           | Counter   | `method`, `route`, `status` | Total HTTP requests completed                                        |
+| `agentic_stack_http_request_duration_seconds` | Histogram | `method`, `route`           | HTTP handler duration (excludes SSE stream lifetime)                 |
+| `agentic_stack_http_in_flight_requests`       | Gauge     | -                           | Requests currently being handled (does not include open SSE streams) |
 
 #### SSE Streaming Metrics
 
 | Metric                                       | Type      | Labels  | Description                                                                                |
 | -------------------------------------------- | --------- | ------- | ------------------------------------------------------------------------------------------ |
-| `vllm_responses_sse_connections_in_flight`   | Gauge     | -       | SSE connections currently open                                                             |
-| `vllm_responses_sse_stream_duration_seconds` | Histogram | `route` | Full SSE stream lifetime from request start (including time-to-first-chunk) to termination |
+| `agentic_stack_sse_connections_in_flight`   | Gauge     | -       | SSE connections currently open                                                             |
+| `agentic_stack_sse_stream_duration_seconds` | Histogram | `route` | Full SSE stream lifetime from request start (including time-to-first-chunk) to termination |
 
 SSE metrics capture the end-to-end streaming duration for the `/v1/responses` endpoint, which is the primary API path.
 
@@ -82,11 +82,11 @@ SSE metrics capture the end-to-end streaming duration for the `/v1/responses` en
 
 | Metric                                           | Type      | Labels                   | Description                          |
 | ------------------------------------------------ | --------- | ------------------------ | ------------------------------------ |
-| `vllm_responses_tool_calls_requested_total`      | Counter   | `tool_type`              | Tool calls requested by the model    |
-| `vllm_responses_tool_calls_executed_total`       | Counter   | `tool_type`              | Tool calls executed by the gateway   |
-| `vllm_responses_tool_execution_duration_seconds` | Histogram | `tool_type`              | Tool execution wall-clock duration   |
-| `vllm_responses_tool_errors_total`               | Counter   | `tool_type`              | Tool execution errors                |
-| `vllm_responses_mcp_server_startup_total`        | Counter   | `server_label`, `status` | Built-in MCP server startup outcomes |
+| `agentic_stack_tool_calls_requested_total`      | Counter   | `tool_type`              | Tool calls requested by the model    |
+| `agentic_stack_tool_calls_executed_total`       | Counter   | `tool_type`              | Tool calls executed by the gateway   |
+| `agentic_stack_tool_execution_duration_seconds` | Histogram | `tool_type`              | Tool execution wall-clock duration   |
+| `agentic_stack_tool_errors_total`               | Counter   | `tool_type`              | Tool execution errors                |
+| `agentic_stack_mcp_server_startup_total`        | Counter   | `server_label`, `status` | Built-in MCP server startup outcomes |
 
 **Tool types:**
 
@@ -98,7 +98,7 @@ SSE metrics capture the end-to-end streaming duration for the `/v1/responses` en
 Notes:
 
 - MCP metrics are not split by mode (Built-in MCP vs Remote MCP) in current metrics.
-- `vllm_responses_mcp_server_startup_total` is hosted-only (there is no startup metric for Client-Specified Remote declarations).
+- `agentic_stack_mcp_server_startup_total` is hosted-only (there is no startup metric for Client-Specified Remote declarations).
 
 #### Metric Labels
 
@@ -135,7 +135,7 @@ export VR_OPENTELEMETRY_HOST=otel-collector
 export VR_OPENTELEMETRY_PORT=4317
 
 # Service name in traces
-export VR_OTEL_SERVICE_NAME=vllm_responses
+export VR_OTEL_SERVICE_NAME=agentic_stack
 ```
 
 ### What Gets Traced

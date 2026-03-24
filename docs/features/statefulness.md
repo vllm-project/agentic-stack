@@ -51,7 +51,7 @@ print(response_2.output[0].content)
 
 Statefulness is powered by the **ResponseStore**.
 
-- **Development**: By default, `vLLM Responses` uses a local **SQLite** database (`vllm_responses.db`). This works great for local setups and single-machine deployments.
+- **Development**: By default, `agentic-stack` uses a local **SQLite** database (`agentic_stack.db`). This works great for local setups and single-machine deployments.
 - **Production**: For multi-machine deployments or high-traffic production, you should configure a **PostgreSQL** database.
 
 See [Configuration Reference](../reference/configuration.md) and [Configuration Guide](../deployment/configuration.md) for details.

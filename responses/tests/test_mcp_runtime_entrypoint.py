@@ -9,7 +9,7 @@ from pydantic import TypeAdapter
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets.abstract import ToolsetTool
 
-from vllm_responses.entrypoints.mcp_runtime import app as runtime_app
+from agentic_stack.entrypoints.mcp_runtime import app as runtime_app
 
 
 class _AlwaysMissingToolset:
@@ -91,7 +91,7 @@ class _SecretFailingRegistry:
 async def test_runtime_call_tool_keyerror_after_refresh_is_nonfatal_item_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.entrypoints.mcp_runtime as runtime_module
+    import agentic_stack.entrypoints.mcp_runtime as runtime_module
 
     monkeypatch.setattr(
         runtime_module,
@@ -116,7 +116,7 @@ async def test_runtime_call_tool_keyerror_after_refresh_is_nonfatal_item_failure
 async def test_runtime_call_tool_redacts_secret_values_in_error_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.entrypoints.mcp_runtime as runtime_module
+    import agentic_stack.entrypoints.mcp_runtime as runtime_module
 
     monkeypatch.setattr(
         runtime_module,
@@ -143,7 +143,7 @@ async def test_runtime_call_tool_redacts_secret_values_in_error_text(
 async def test_runtime_echoes_x_request_id_header(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.entrypoints.mcp_runtime as runtime_module
+    import agentic_stack.entrypoints.mcp_runtime as runtime_module
 
     monkeypatch.setattr(
         runtime_module,

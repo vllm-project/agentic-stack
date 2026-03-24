@@ -9,5 +9,5 @@ def test_console_scripts_expose_supervisor_and_vllm_shim() -> None:
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     scripts = data["project"]["scripts"]
 
-    assert scripts["vllm-responses"] == "vllm_responses.entrypoints.serve:main"
-    assert scripts["vllm"] == "vllm_responses.entrypoints.vllm_cli:main"
+    assert scripts["agentic-stacks"] == "agentic_stack.entrypoints.serve:main"
+    assert scripts["vllm"] == "agentic_stack.entrypoints.vllm_cli:main"

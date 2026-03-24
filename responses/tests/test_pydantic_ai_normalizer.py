@@ -11,7 +11,7 @@ from pydantic_ai import (
     ToolReturnPart,
 )
 
-from vllm_responses.responses_core.models import (
+from agentic_stack.responses_core.models import (
     CodeInterpreterCallCodeDelta,
     CodeInterpreterCallCodeDone,
     CodeInterpreterCallStarted,
@@ -21,7 +21,7 @@ from vllm_responses.responses_core.models import (
     WebSearchCallSearching,
     WebSearchCallStarted,
 )
-from vllm_responses.responses_core.normalizer import PydanticAINormalizer
+from agentic_stack.responses_core.normalizer import PydanticAINormalizer
 
 
 def test_code_interpreter_code_deltas_emitted_from_tool_call_args_json_fragments():

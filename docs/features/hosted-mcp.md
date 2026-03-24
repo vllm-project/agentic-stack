@@ -25,7 +25,7 @@ This page focuses on Built-in MCP setup and call flow, then summarizes Remote MC
 1. Configure MCP runtime servers via `--mcp-config` (or `--responses-mcp-config` in integrated mode).
 1. Ensure the target `server_label` is available (`GET /v1/mcp/servers`).
 1. Start the gateway with either:
-    - `vllm-responses serve --mcp-config ...`, or
+    - `agentic-stacks serve --mcp-config ...`, or
     - `vllm serve --responses --responses-mcp-config ...`
 
 ## Built-in MCP Setup
@@ -33,9 +33,9 @@ This page focuses on Built-in MCP setup and call flow, then summarizes Remote MC
 Pass the Built-in MCP config path on the entrypoint CLI:
 
 ```bash
-vllm-responses serve \
+agentic-stacks serve \
   --upstream http://127.0.0.1:8000/v1 \
-  --mcp-config /etc/vllm-responses/mcp.json
+  --mcp-config /etc/agentic-stacks/mcp.json
 ```
 
 `mcp.json` follows the common MCP client-style shape: a top-level `mcpServers` object keyed by your server labels.
@@ -50,12 +50,12 @@ Verify server availability before requests:
 --8<-- "snippets/mcp_discover_servers_tools_curl.txt"
 ```
 
-For integrated mode, set `VLLM_RESPONSES_HTTP_BASE=http://127.0.0.1:8000` first (or use your
+For integrated mode, set `AGENTIC_STACK_HTTP_BASE=http://127.0.0.1:8000` first (or use your
 custom `vllm serve` host/port).
 
 Runtime architecture note:
 
-- `vllm-responses serve` starts one internal Built-in MCP runtime process on loopback.
+- `agentic-stacks serve` starts one internal Built-in MCP runtime process on loopback.
 - `vllm serve --responses --responses-mcp-config ...` also starts one loopback Built-in MCP helper for the combined app.
 - All gateway workers share that runtime, so Built-in MCP startup/discovery/session state is not duplicated per worker.
 
@@ -89,7 +89,7 @@ base URL (default `http://127.0.0.1:8000`).
 --8<-- "snippets/openai_client_local_gateway.py"
 
 # For integrated mode, set:
-#   export VLLM_RESPONSES_BASE_URL=http://127.0.0.1:8000/v1
+#   export AGENTIC_STACK_BASE_URL=http://127.0.0.1:8000/v1
 
 with client.responses.stream(
     model="meta-llama/Llama-3.2-3B-Instruct",

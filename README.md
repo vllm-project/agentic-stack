@@ -1,4 +1,4 @@
-# vLLM Responses
+# vLLM Agentic Stack
 
 FastAPI gateway that exposes an OpenAI-style **Responses API** (`/v1/responses`) in front of a vLLM **OpenAI-compatible** server (`/v1/chat/completions`), with:
 
@@ -12,41 +12,41 @@ Current MCP boundary:
 - `tools[].type="mcp"` is gateway-hosted MCP resolved via `VR_MCP_CONFIG_PATH`.
 - Request-declared MCP targets (`server_url`, `connector_id`) are not supported yet.
 
-**[📚 Full User Documentation](https://embeddedllm.github.io/vllm-responses/)** (Guides, API Reference, Examples)
+**[📚 Full User Documentation](https://vllm-project.github.io/agentic-stack/)** (Guides, API Reference, Examples)
 
 Design docs (maintainer-facing): `design_docs/index.md`.
 
 ## Install
 
-The `vllm-responses` CLI is provided by the Python package in `responses/`.
+The `agentic-stack` CLI is provided by the Python package in `responses/`.
 
 **Prerequisites:** Python 3.12+ and `uv`.
 
 ### Install from a prebuilt wheel (Linux x86_64) (Recommended)
 
-Download a prebuilt wheel (`vllm_responses-*.whl`) from GitHub Releases (preferred) or a CI run artifact, then install it:
+Download a prebuilt wheel (`agentic_stack-*.whl`) from GitHub Releases (preferred) or a CI run artifact, then install it:
 
 ```bash
 uv venv --python=3.12
 source .venv/bin/activate
 uv pip install vllm
-uv pip install path/to/vllm_responses-*.whl
+uv pip install path/to/agentic_stack-*.whl
 ```
 
 On Linux x86_64 wheels, the Code Interpreter server binary is bundled, so **Bun is not required**.
 Currently, wheels are only built for Linux x86_64.
 
-Installing `vllm-responses` provides:
+Installing `agentic-stack` provides:
 
-- `vllm-responses` for the standalone supervisor mode
+- `agentic-stack` for the standalone supervisor mode
 - `vllm` as a CLI shim that supports `vllm serve --responses` and delegates all non-Responses paths to the upstream
   `vllm` Python package
 
 ### Install from source (repo checkout) (Development)
 
 ```bash
-git clone https://github.com/EmbeddedLLM/vllm-responses
-cd vllm-responses
+git clone https://github.com/vllm-project/agentic-stack.git
+cd agentic-stack
 
 uv venv --python=3.12
 source .venv/bin/activate
@@ -55,18 +55,18 @@ uv pip install -e ./responses
 
 # Development: enable Code Interpreter via Bun fallback
 # - Required for source checkouts when running with `code_interpreter` enabled (default)
-cd responses/python/vllm_responses/tools/code_interpreter
+cd responses/python/agentic_stack/tools/code_interpreter
 bun install
 export VR_CODE_INTERPRETER_DEV_BUN_FALLBACK=1
 cd -
 
-vllm-responses --help
+agentic-stack --help
 ```
 
 Verify installation:
 
 ```bash
-vllm-responses --help
+agentic-stack --help
 vllm --help
 ```
 
@@ -103,7 +103,7 @@ bash scripts/ci/prebuild_code_interpreter_linux_x86_64.sh responses
 
 The script writes the bundled executable under:
 
-- `responses/python/vllm_responses/tools/code_interpreter/bin/linux/x86_64/code-interpreter-server`
+- `responses/python/agentic_stack/tools/code_interpreter/bin/linux/x86_64/code-interpreter-server`
 
 ### Build wheel and sdist
 
@@ -123,7 +123,7 @@ disable Code Interpreter.
 
 ## Run
 
-### remote-upstream gateway mode (`vllm-responses serve`)
+### remote-upstream gateway mode (`agentic-stack serve`)
 
 Prereqs:
 
@@ -136,7 +136,7 @@ Prereqs:
 External upstream (you start vLLM yourself; `/v1` is optional):
 
 ```bash
-vllm-responses serve --upstream http://127.0.0.1:8457
+agentic-stack serve --upstream http://127.0.0.1:8457
 ```
 
 The Responses endpoint is:
@@ -151,7 +151,7 @@ Remote access note:
 
 Prereq:
 
-- install upstream `vllm` first, then install `vllm-responses` into the same environment
+- install upstream `vllm` first, then install `agentic-stack` into the same environment
 
 Example:
 

@@ -26,7 +26,7 @@ Notes:
 
 | Variable                                  | Description                                                                        | Default                                 |
 | :---------------------------------------- | :--------------------------------------------------------------------------------- | :-------------------------------------- |
-| **`VR_DB_PATH`**                          | Database connection string. Use `sqlite+aiosqlite:///` or `postgresql+asyncpg://`. | `sqlite+aiosqlite:///vllm_responses.db` |
+| **`VR_DB_PATH`**                          | Database connection string. Use `sqlite+aiosqlite:///` or `postgresql+asyncpg://`. | `sqlite+aiosqlite:///agentic_stack.db` |
 | **`VR_RESPONSE_STORE_CACHE`**             | Enable Redis caching for the ResponseStore.                                        | `False`                                 |
 | **`VR_RESPONSE_STORE_CACHE_TTL_SECONDS`** | Cache TTL in seconds.                                                              | `3600`                                  |
 | **`VR_REDIS_HOST`**                       | Redis host (if cache enabled).                                                     | `localhost`                             |
@@ -59,13 +59,13 @@ Notes:
 
 Built-in MCP enablement is CLI-owned on supported entrypoints:
 
-- `vllm-responses serve --mcp-config /path/to/mcp.json [--mcp-port PORT]`
+- `agentic-stacks serve --mcp-config /path/to/mcp.json [--mcp-port PORT]`
 - `vllm serve ... --responses --responses-mcp-config /path/to/mcp.json [--responses-mcp-port PORT]`
 
 Remote-upstream supervisor readiness controls are also CLI-owned:
 
-- `vllm-responses serve --upstream-ready-timeout SECONDS`
-- `vllm-responses serve --upstream-ready-interval SECONDS`
+- `agentic-stacks serve --upstream-ready-timeout SECONDS`
+- `agentic-stacks serve --upstream-ready-interval SECONDS`
 
 If the MCP config flag is omitted, Built-in MCP is disabled.
 If `VR_MCP_REQUEST_REMOTE_ENABLED=false`, Remote MCP declarations are rejected while Built-in MCP remains available.
@@ -97,7 +97,7 @@ Notes:
 | **`VR_METRICS_ENABLED`**      | Enable Prometheus-compatible metrics and the `GET /metrics` endpoint. | `True`           |
 | **`VR_METRICS_PATH`**         | Metrics endpoint path.                                                | `/metrics`       |
 | **`VR_TRACING_ENABLED`**      | Enable OpenTelemetry tracing (OTLP gRPC exporter).                    | `False`          |
-| **`VR_OTEL_SERVICE_NAME`**    | Service name used in OpenTelemetry resources.                         | `vllm-responses` |
+| **`VR_OTEL_SERVICE_NAME`**    | Service name used in OpenTelemetry resources.                         | `agentic-stacks` |
 | **`VR_TRACING_SAMPLE_RATIO`** | Trace sampling ratio in `[0.0, 1.0]` (ratio-based).                   | `0.01`           |
 | **`VR_OPENTELEMETRY_HOST`**   | OTLP endpoint host (gRPC).                                            | `otel-collector` |
 | **`VR_OPENTELEMETRY_PORT`**   | OTLP endpoint port (gRPC).                                            | `4317`           |
@@ -107,17 +107,17 @@ Notes:
 ### Local Development (Default)
 
 ```bash
-export VR_DB_PATH="sqlite+aiosqlite:///vllm_responses.db"
-vllm-responses serve --upstream http://127.0.0.1:8000/v1
+export VR_DB_PATH="sqlite+aiosqlite:///agentic_stack.db"
+agentic-stacks serve --upstream http://127.0.0.1:8000/v1
 ```
 
 ### Production with PostgreSQL & Redis
 
 ```bash
-export VR_DB_PATH="postgresql+asyncpg://user:pass@db-host:5432/vllm_responses"
+export VR_DB_PATH="postgresql+asyncpg://user:pass@db-host:5432/agentic_stack"
 export VR_RESPONSE_STORE_CACHE=1
 export VR_REDIS_HOST="redis-host"
-vllm-responses serve \
+agentic-stacks serve \
   --upstream http://vllm-service:8000/v1 \
   --gateway-workers 8
 ```
@@ -125,9 +125,9 @@ vllm-responses serve \
 ### Enable Built-in MCP
 
 ```bash
-vllm-responses serve \
+agentic-stacks serve \
   --upstream http://127.0.0.1:8000/v1 \
-  --mcp-config /etc/vllm-responses/mcp.json
+  --mcp-config /etc/agentic-stacks/mcp.json
 ```
 
 ### Integrated Mode With Built-in MCP
@@ -135,5 +135,5 @@ vllm-responses serve \
 ```bash
 vllm serve meta-llama/Llama-3.2-3B-Instruct \
   --responses \
-  --responses-mcp-config /etc/vllm-responses/mcp.json
+  --responses-mcp-config /etc/agentic-stacks/mcp.json
 ```

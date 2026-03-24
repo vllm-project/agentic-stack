@@ -48,10 +48,10 @@ Current shipped profiles:
 
 ## Enable the Tool
 
-### `vllm-responses serve`
+### `agentic-stacks serve`
 
 ```bash
-vllm-responses serve \
+agentic-stacks serve \
   --upstream http://127.0.0.1:8000/v1 \
   --web-search-profile exa_mcp
 ```

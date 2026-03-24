@@ -11,12 +11,12 @@ from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 
-from vllm_responses.configs.builders import build_runtime_config_for_integrated
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.entrypoints.gateway._app import IntegratedGatewayRoute
-from vllm_responses.entrypoints.vllm._runtime import _build_integrated_app
-from vllm_responses.routers import serving, upstream_proxy
-from vllm_responses.types.openai import OpenAIResponsesResponse
+from agentic_stack.configs.builders import build_runtime_config_for_integrated
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.entrypoints.gateway._app import IntegratedGatewayRoute
+from agentic_stack.entrypoints.vllm._runtime import _build_integrated_app
+from agentic_stack.routers import serving, upstream_proxy
+from agentic_stack.types.openai import OpenAIResponsesResponse
 
 
 def _route_endpoint(app: FastAPI, *, method: str, path: str):
@@ -201,9 +201,9 @@ def test_build_integrated_app_owns_responses_route_family(integrated_app: FastAP
         and getattr(route, "path", None) == "/v1/responses/{response_id}/cancel"
     ]
     assert cancel_routes == []
-    assert getattr(integrated_app.state, "vllm_responses", None) is not None
-    assert integrated_app.state.vllm_responses.runtime_config is not None
-    assert integrated_app.state.vllm_responses.runtime_config.runtime_mode == "integrated"
+    assert getattr(integrated_app.state, "agentic_stack", None) is not None
+    assert integrated_app.state.agentic_stack.runtime_config is not None
+    assert integrated_app.state.agentic_stack.runtime_config.runtime_mode == "integrated"
 
 
 def test_build_integrated_app_keeps_native_chat_and_models(integrated_app: FastAPI) -> None:
@@ -341,8 +341,8 @@ async def test_integrated_gateway_http_metrics_cover_only_wrapped_routes(
         "route": "/native-error",
         "status": "418",
     }
-    wrapped_before = _counter_value("vllm_responses_http_requests_total", wrapped_labels)
-    native_before = _counter_value("vllm_responses_http_requests_total", native_labels)
+    wrapped_before = _counter_value("agentic_stack_http_requests_total", wrapped_labels)
+    native_before = _counter_value("agentic_stack_http_requests_total", native_labels)
 
     wrapped_resp = await integrated_client.get("/v1/responses/resp_missing_metrics")
     native_resp = await integrated_client.get("/native-error")
@@ -350,9 +350,9 @@ async def test_integrated_gateway_http_metrics_cover_only_wrapped_routes(
     assert wrapped_resp.status_code == 404
     assert native_resp.status_code == 418
     assert (
-        _counter_value("vllm_responses_http_requests_total", wrapped_labels) == wrapped_before + 1
+        _counter_value("agentic_stack_http_requests_total", wrapped_labels) == wrapped_before + 1
     )
-    assert _counter_value("vllm_responses_http_requests_total", native_labels) == native_before
+    assert _counter_value("agentic_stack_http_requests_total", native_labels) == native_before
 
 
 @pytest.mark.anyio
@@ -377,6 +377,6 @@ async def test_integrated_metrics_endpoint_exposes_shared_gateway_metrics(
     after_scrape = await integrated_client.get("/metrics")
     assert after_scrape.status_code == 200
     assert (
-        'vllm_responses_http_requests_total{method="GET",route="/v1/responses/{response_id}",status="404"}'
+        'agentic_stack_http_requests_total{method="GET",route="/v1/responses/{response_id}",status="404"}'
         in after_scrape.text
     )

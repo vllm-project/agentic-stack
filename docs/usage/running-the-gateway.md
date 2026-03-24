@@ -9,7 +9,7 @@ For a task-first reading order, start here, then use the
 
 The repo has two first-class runtime modes:
 
-1. `vllm-responses serve`
+1. `agentic-stacks serve`
 1. `vllm serve --responses`
 
 Direct startup via `uvicorn` or `gunicorn` remains useful for development and tests, but it is not the
@@ -19,7 +19,7 @@ recommended product entrypoint.
 
 ### 1. Remote-Upstream Gateway Mode
 
-Use `vllm-responses serve` when the upstream model server is already managed elsewhere. This is ideal for:
+Use `agentic-stacks serve` when the upstream model server is already managed elsewhere. This is ideal for:
 
 - External vLLM deployments.
 - Cloud-hosted OpenAI-compatible endpoints.
@@ -27,7 +27,7 @@ Use `vllm-responses serve` when the upstream model server is already managed els
 - Multi-worker gateway deployments.
 
 ```bash
-vllm-responses serve --upstream http://127.0.0.1:8000/v1
+agentic-stacks serve --upstream http://127.0.0.1:8000/v1
 ```
 
 ### 2. Integrated Colocated Mode
@@ -49,7 +49,7 @@ ______________________________________________________________________
 On the supported entrypoints, CLI flags own runtime topology and helper wiring.
 Environment variables remain available for deployment-scoped settings such as storage, metrics, tracing, auth, and cache.
 
-For `vllm-responses serve`, the gateway-owned CLI surface is:
+For `agentic-stacks serve`, the gateway-owned CLI surface is:
 
 | CLI Flag                             | Description                           |
 | ------------------------------------ | ------------------------------------- |
@@ -67,7 +67,7 @@ For `vllm-responses serve`, the gateway-owned CLI surface is:
 | `--mcp-config`                       | Built-in MCP runtime config path      |
 | `--mcp-port`                         | Built-in MCP runtime loopback port    |
 
-When `--mcp-config` is set, `vllm-responses serve` starts a singleton Built-in MCP runtime process shared by all gateway workers.
+When `--mcp-config` is set, `agentic-stacks serve` starts a singleton Built-in MCP runtime process shared by all gateway workers.
 `--mcp-port` overrides the loopback runtime port.
 If `--mcp-port` is absent, `serve` uses `http://127.0.0.1:5981`.
 `--upstream-ready-timeout` and `--upstream-ready-interval` control how long the supervisor waits for the external upstream to become ready.
@@ -99,7 +99,7 @@ The gateway exposes a health check endpoint useful for load balancers (AWS ALB, 
 
 Base URL by mode:
 
-- `vllm-responses serve`: `http://127.0.0.1:5969/health` by default
+- `agentic-stacks serve`: `http://127.0.0.1:5969/health` by default
 - `vllm serve --responses`: same host/port as `vllm serve` (default `http://127.0.0.1:8000/health`)
 
 ```bash

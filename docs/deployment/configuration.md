@@ -31,7 +31,7 @@ Zero-configuration storage using a local SQLite database file.
 **Characteristics:**
 
 - Zero setup required
-- Single file database (`vllm_responses.db`)
+- Single file database (`agentic_stack.db`)
 - Works with multiple workers on the same machine (uses WAL mode)
 - Does NOT work across multiple machines
 
@@ -40,7 +40,7 @@ Zero-configuration storage using a local SQLite database file.
 Required for multi-machine deployments and high-availability scenarios.
 
 ```bash
-export VR_DB_PATH="postgresql+asyncpg://user:password@db-host:5432/vllm_responses"
+export VR_DB_PATH="postgresql+asyncpg://user:password@db-host:5432/agentic_stack"
 --8<-- "snippets/serve_external_upstream_cmd.txt"
 ```
 
@@ -75,7 +75,7 @@ The default configuration runs one worker process.
 Increase concurrency by running multiple worker processes.
 
 ```bash
-vllm-responses serve --gateway-workers 4 --upstream http://127.0.0.1:8000/v1
+agentic-stacks serve --gateway-workers 4 --upstream http://127.0.0.1:8000/v1
 ```
 
 **What this does:**
@@ -94,7 +94,7 @@ vllm-responses serve --gateway-workers 4 --upstream http://127.0.0.1:8000/v1
 Tune how long the supervisor waits for an external upstream to become ready.
 
 ```bash
-vllm-responses serve \
+agentic-stacks serve \
   --upstream http://127.0.0.1:8000/v1 \
   --upstream-ready-timeout 900 \
   --upstream-ready-interval 2
@@ -138,9 +138,9 @@ Enable Built-in MCP by providing a runtime config file on the active entrypoint.
 ### Minimal Setup
 
 ```bash
-vllm-responses serve \
+agentic-stacks serve \
   --upstream http://127.0.0.1:8000/v1 \
-  --mcp-config /etc/vllm-responses/mcp.json
+  --mcp-config /etc/agentic-stacks/mcp.json
 ```
 
 For `mcp.json` examples (URL + stdio styles), see
@@ -149,7 +149,7 @@ For `mcp.json` examples (URL + stdio styles), see
 ### Operational Notes
 
 - If `--mcp-config` is omitted, Built-in MCP is disabled.
-- With `vllm-responses serve`, Built-in MCP runs in a singleton internal runtime process shared by all gateway workers.
+- With `agentic-stacks serve`, Built-in MCP runs in a singleton internal runtime process shared by all gateway workers.
 - The supervisor injects `VR_MCP_BUILTIN_RUNTIME_URL` for gateway workers automatically.
 - Built-in MCP startup and call timeouts are configured globally:
     - `VR_MCP_HOSTED_STARTUP_TIMEOUT_SEC`
@@ -222,15 +222,15 @@ Integrated mode example with explicit Built-in MCP config:
 ```bash
 vllm serve meta-llama/Llama-3.2-3B-Instruct \
   --responses \
-  --responses-mcp-config /etc/vllm-responses/mcp.json
+  --responses-mcp-config /etc/agentic-stacks/mcp.json
 ```
 
 ### Remote-Upstream Gateway Mode
 
-Use `vllm-responses serve` when inference and gateway should remain separate.
+Use `agentic-stacks serve` when inference and gateway should remain separate.
 
 ```bash
-vllm-responses serve --upstream http://127.0.0.1:8000/v1
+agentic-stacks serve --upstream http://127.0.0.1:8000/v1
 ```
 
 **When to use:**

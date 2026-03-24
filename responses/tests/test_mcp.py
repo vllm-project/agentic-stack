@@ -19,35 +19,35 @@ from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets.abstract import AbstractToolset, ToolsetTool
 from sse_test_utils import extract_completed_response, parse_sse_frames, parse_sse_json_events
 
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.entrypoints import llm as mock_llm
-from vllm_responses.entrypoints._state import VRAppState
-from vllm_responses.mcp.config import (
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.entrypoints import llm as mock_llm
+from agentic_stack.entrypoints._state import VRAppState
+from agentic_stack.mcp.config import (
     McpRuntimeConfig,
     load_mcp_runtime_config,
     merge_mcp_runtime_configs,
     split_hosted_server_entry,
 )
-from vllm_responses.mcp.gateway_toolset import McpGatewayToolset
-from vllm_responses.mcp.runtime_client import (
+from agentic_stack.mcp.gateway_toolset import McpGatewayToolset
+from agentic_stack.mcp.runtime_client import (
     BuiltinMcpRuntimeTransportError,
     BuiltinMcpRuntimeUnavailableServerError,
     BuiltinMcpRuntimeUnknownServerError,
 )
-from vllm_responses.mcp.types import (
+from agentic_stack.mcp.types import (
     McpExecutionResult,
     McpServerInfo,
     McpToolInfo,
     McpToolRef,
     RequestRemoteMcpServerBinding,
 )
-from vllm_responses.mcp.utils import (
+from agentic_stack.mcp.utils import (
     build_mcp_tool_result_payload,
     canonicalize_output_text,
     parse_mcp_tool_result_payload,
 )
-from vllm_responses.responses_core.composer import ResponseComposer
-from vllm_responses.responses_core.models import (
+from agentic_stack.responses_core.composer import ResponseComposer
+from agentic_stack.responses_core.models import (
     McpCallArgumentsDelta,
     McpCallArgumentsDone,
     McpCallCompleted,
@@ -55,14 +55,14 @@ from vllm_responses.responses_core.models import (
     McpCallStarted,
     UsageFinal,
 )
-from vllm_responses.responses_core.normalizer import PydanticAINormalizer
-from vllm_responses.tools.ids import WEB_SEARCH_TOOL
-from vllm_responses.tools.profile_resolution import (
+from agentic_stack.responses_core.normalizer import PydanticAINormalizer
+from agentic_stack.tools.ids import WEB_SEARCH_TOOL
+from agentic_stack.tools.profile_resolution import (
     build_builtin_mcp_runtime_config,
     profiled_builtin_requires_mcp,
 )
-from vllm_responses.types.openai import OpenAIResponsesResponse, vLLMResponsesRequest
-from vllm_responses.utils.cassette_replay import load_cassette_yaml
+from agentic_stack.types.openai import OpenAIResponsesResponse, vLLMResponsesRequest
+from agentic_stack.utils.cassette_replay import load_cassette_yaml
 
 
 def _chat_completion_cassettes_dir() -> Path:
@@ -111,7 +111,7 @@ def test_mcp_hosted_step2_stream_cassette_has_final_assistant_completion() -> No
 def test_parse_mcp_tool_result_payload_validates_structure() -> None:
     ref, result = parse_mcp_tool_result_payload(
         {
-            "kind": "vllm_responses_mcp_result",
+            "kind": "agentic_stack_mcp_result",
             "server_label": "local_fs",
             "tool_name": "list_directory",
             "ok": True,
@@ -126,7 +126,7 @@ def test_parse_mcp_tool_result_payload_validates_structure() -> None:
     with pytest.raises(ValueError, match="invalid"):
         parse_mcp_tool_result_payload(
             {
-                "kind": "vllm_responses_mcp_result",
+                "kind": "agentic_stack_mcp_result",
                 "server_label": "",
                 "tool_name": "list_directory",
                 "ok": True,
@@ -791,17 +791,17 @@ class _FakeDiscoveryRegistry:
 
 @pytest.fixture
 def mcp_discovery_app() -> FastAPI:
-    from vllm_responses.routers import mcp as mcp_router
+    from agentic_stack.routers import mcp as mcp_router
 
     app = FastAPI(title="MCP discovery (test)")
-    app.state.vllm_responses = VRAppState()
+    app.state.agentic_stack = VRAppState()
     app.include_router(mcp_router.router)
     return app
 
 
 @pytest.mark.anyio
 async def test_list_servers_returns_configured_inventory(mcp_discovery_app: FastAPI) -> None:
-    mcp_discovery_app.state.vllm_responses.builtin_mcp_runtime_client = _FakeDiscoveryRegistry(
+    mcp_discovery_app.state.agentic_stack.builtin_mcp_runtime_client = _FakeDiscoveryRegistry(
         enabled=True,
         servers={
             "github_docs": {
@@ -836,7 +836,7 @@ async def test_list_servers_returns_configured_inventory(mcp_discovery_app: Fast
 
 @pytest.mark.anyio
 async def test_list_server_tools_returns_404_and_409(mcp_discovery_app: FastAPI) -> None:
-    mcp_discovery_app.state.vllm_responses.builtin_mcp_runtime_client = _FakeDiscoveryRegistry(
+    mcp_discovery_app.state.agentic_stack.builtin_mcp_runtime_client = _FakeDiscoveryRegistry(
         enabled=True,
         servers={
             "github_docs": {
@@ -863,7 +863,7 @@ async def test_list_server_tools_returns_404_and_409(mcp_discovery_app: FastAPI)
 async def test_list_server_tools_includes_schema_and_description_with_deterministic_order(
     mcp_discovery_app: FastAPI,
 ) -> None:
-    mcp_discovery_app.state.vllm_responses.builtin_mcp_runtime_client = _FakeDiscoveryRegistry(
+    mcp_discovery_app.state.agentic_stack.builtin_mcp_runtime_client = _FakeDiscoveryRegistry(
         enabled=True,
         servers={
             "github_docs": {
@@ -913,7 +913,7 @@ async def test_list_server_tools_includes_schema_and_description_with_determinis
 async def test_discovery_returns_empty_or_404_when_mcp_disabled(
     mcp_discovery_app: FastAPI,
 ) -> None:
-    mcp_discovery_app.state.vllm_responses.builtin_mcp_runtime_client = _FakeDiscoveryRegistry(
+    mcp_discovery_app.state.agentic_stack.builtin_mcp_runtime_client = _FakeDiscoveryRegistry(
         enabled=False, servers={}
     )
 
@@ -942,7 +942,7 @@ async def test_discovery_returns_503_when_builtin_runtime_unreachable(
             _ = server_label
             raise BuiltinMcpRuntimeTransportError("runtime down")
 
-    mcp_discovery_app.state.vllm_responses.builtin_mcp_runtime_client = _FakeRuntimeClient()
+    mcp_discovery_app.state.agentic_stack.builtin_mcp_runtime_client = _FakeRuntimeClient()
 
     transport = httpx.ASGITransport(app=mcp_discovery_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://gateway") as client:
@@ -968,7 +968,7 @@ async def test_discovery_list_servers_returns_503_when_runtime_returns_unknown_s
             _ = server_label
             return []
 
-    mcp_discovery_app.state.vllm_responses.builtin_mcp_runtime_client = _FakeRuntimeClient()
+    mcp_discovery_app.state.agentic_stack.builtin_mcp_runtime_client = _FakeRuntimeClient()
 
     transport = httpx.ASGITransport(app=mcp_discovery_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://gateway") as client:
@@ -1151,7 +1151,7 @@ def _install_request_remote_builder(
     remote_require_auth_for_list: bool = False,
     remote_require_auth_for_call: bool = False,
 ) -> _RemoteBuilderProbe:
-    import vllm_responses.types.openai as openai_types
+    import agentic_stack.types.openai as openai_types
 
     seen_bindings: list[RequestRemoteMcpServerBinding] = []
 
@@ -1218,7 +1218,7 @@ async def test_unknown_hosted_server_label_is_rejected(
     patched_gateway_clients,
     gateway_client: httpx.AsyncClient,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _FakeRequestContractRegistry(
             enabled=True,
             servers={"known_docs": ["search_docs"]},
@@ -1244,7 +1244,7 @@ async def test_duplicate_hosted_server_declarations_are_rejected(
     patched_gateway_clients,
     gateway_client: httpx.AsyncClient,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _FakeRequestContractRegistry(
             enabled=True,
             servers={"github_docs": ["search_docs"]},
@@ -1355,7 +1355,7 @@ async def test_hosted_mcp_is_rejected_when_subsystem_disabled_even_with_tool_cho
     patched_gateway_clients,
     gateway_client: httpx.AsyncClient,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _FakeRequestContractRegistry(
             enabled=False,
             servers={"github_docs": ["search_docs"]},
@@ -1570,7 +1570,7 @@ async def test_mcp_authorization_on_hosted_declaration_is_rejected(
     patched_gateway_clients,
     gateway_client: httpx.AsyncClient,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _FakeRequestContractRegistry(
             enabled=True,
             servers={"github_docs": ["search_docs"]},
@@ -1602,7 +1602,7 @@ async def test_mcp_headers_on_hosted_declaration_is_rejected(
     patched_gateway_clients,
     gateway_client: httpx.AsyncClient,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _FakeRequestContractRegistry(
             enabled=True,
             servers={"github_docs": ["search_docs"]},
@@ -1632,7 +1632,7 @@ async def test_duplicate_server_label_across_hosted_and_remote_is_rejected(
     patched_gateway_clients,
     gateway_client: httpx.AsyncClient,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _FakeRequestContractRegistry(
             enabled=True,
             servers={"github_docs": ["search_docs"]},
@@ -1864,7 +1864,7 @@ class _GatewayNativeToolset(AbstractToolset[Any]):
 async def test_gateway_toolset_refreshes_and_avoids_per_call_inventory_fetch() -> None:
     from jsonschema import Draft202012Validator
 
-    from vllm_responses.mcp.gateway_toolset import ResolvedMcpTool
+    from agentic_stack.mcp.gateway_toolset import ResolvedMcpTool
 
     mcp_toolset = _GatewayNativeToolset()
     gateway_toolset = McpGatewayToolset(
@@ -1898,7 +1898,7 @@ async def test_gateway_toolset_refreshes_and_avoids_per_call_inventory_fetch() -
 async def test_gateway_toolset_returns_item_failure_when_refresh_misses_tool() -> None:
     from jsonschema import Draft202012Validator
 
-    from vllm_responses.mcp.gateway_toolset import ResolvedMcpTool
+    from agentic_stack.mcp.gateway_toolset import ResolvedMcpTool
 
     mcp_toolset = _GatewayNativeToolset()
     mcp_toolset.clear_tools()
@@ -1929,7 +1929,7 @@ async def test_gateway_toolset_returns_item_failure_when_refresh_misses_tool() -
 
 
 def test_missing_tool_classifier_matches_expected_tool_name() -> None:
-    from vllm_responses.mcp.utils import is_mcp_tool_keyerror
+    from agentic_stack.mcp.utils import is_mcp_tool_keyerror
 
     class _Exc(Exception):
         pass
@@ -1943,7 +1943,7 @@ def test_missing_tool_classifier_matches_expected_tool_name() -> None:
 
 @pytest.mark.anyio
 async def test_hosted_mcp_toolset_validates_arguments_and_calls_router() -> None:
-    from vllm_responses.types.openai import vLLMResponsesRequest
+    from agentic_stack.types.openai import vLLMResponsesRequest
 
     class _FakeRegistry:
         def __init__(self) -> None:
@@ -2054,7 +2054,7 @@ async def test_hosted_mcp_toolset_validates_arguments_and_calls_router() -> None
 
 @pytest.mark.anyio
 async def test_hosted_mcp_toolset_uses_mcp_description_and_normalizes_missing_type() -> None:
-    from vllm_responses.types.openai import vLLMResponsesRequest
+    from agentic_stack.types.openai import vLLMResponsesRequest
 
     class _FakeRegistry:
         def is_enabled(self) -> bool:
@@ -2156,7 +2156,7 @@ async def test_hosted_mcp_toolset_uses_mcp_description_and_normalizes_missing_ty
 async def test_allowed_tools_mcp_server_wide_entry_remains_monotonic(
     allowed_tools: list[dict[str, str]],
 ) -> None:
-    from vllm_responses.types.openai import vLLMResponsesRequest
+    from agentic_stack.types.openai import vLLMResponsesRequest
 
     req = vLLMResponsesRequest.model_validate(
         {
@@ -2197,7 +2197,7 @@ async def test_allowed_tools_mcp_server_wide_entry_remains_monotonic(
 async def test_mcp_rehydration_keeps_colliding_tool_names_distinct() -> None:
     from pydantic_ai import BuiltinToolCallPart, ModelResponse
 
-    from vllm_responses.types.openai import vLLMResponsesRequest
+    from agentic_stack.types.openai import vLLMResponsesRequest
 
     class _FakeRegistry:
         def is_enabled(self) -> bool:
@@ -2307,7 +2307,7 @@ async def test_invalid_hosted_mcp_input_schema_is_rejected(
     patched_gateway_clients,
     gateway_client: httpx.AsyncClient,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _FakeRequestContractRegistry(
             enabled=True,
             servers={
@@ -2698,7 +2698,7 @@ async def test_max_tool_calls_is_not_mapped_to_runtime_usage_limits() -> None:
 
 
 def test_extract_openai_error_fields_uses_verbatim_fallback_for_non_json_body() -> None:
-    from vllm_responses.lm_failures import extract_openai_error_fields
+    from agentic_stack.lm_failures import extract_openai_error_fields
 
     fallback = "status_code: 502, model_name: some-model, body: <html>bad gateway</html>"
     code, message, param = extract_openai_error_fields(None, fallback_message=fallback)
@@ -2888,14 +2888,14 @@ async def test_gateway_stream_hosted_mcp_success_emits_mcp_event_sequence(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = _FakeGatewayRegistry(
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = _FakeGatewayRegistry(
         result=McpExecutionResult(
             ok=True,
             output_text='{"results":[{"title":"Migration Notes","url":"https://example.test/migration"}]}',
             error_text=None,
         )
     )
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -2936,7 +2936,7 @@ async def test_gateway_stream_hosted_mcp_timeout_emits_failed_item(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _FakeGatewayRegistry(
             result=McpExecutionResult(
                 ok=False,
@@ -2945,7 +2945,7 @@ async def test_gateway_stream_hosted_mcp_timeout_emits_failed_item(
             )
         )
     )
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -2985,7 +2985,7 @@ async def test_gateway_stream_hosted_mcp_failed_event_is_openai_sdk_compatible(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _FakeGatewayRegistry(
             result=McpExecutionResult(
                 ok=False,
@@ -2994,7 +2994,7 @@ async def test_gateway_stream_hosted_mcp_failed_event_is_openai_sdk_compatible(
             )
         )
     )
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -3060,7 +3060,7 @@ async def test_gateway_stream_request_remote_mcp_success_emits_mcp_event_sequenc
             error_text=None,
         ),
     )
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -3152,7 +3152,7 @@ async def test_gateway_stream_request_remote_runtime_failure_is_item_level(
             error_text="remote-call-sentinel",
         ),
     )
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -3214,7 +3214,7 @@ async def test_request_remote_missing_auth_can_fail_at_runtime_item_level(
         remote_tools=["search_docs"],
         remote_require_auth_for_call=True,
     )
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -3255,8 +3255,8 @@ async def test_gateway_stream_max_tool_calls_is_not_runtime_enforced(
             error_text=None,
         )
     )
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = manager
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = manager
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -3298,8 +3298,8 @@ async def test_gateway_non_stream_max_tool_calls_is_not_runtime_enforced(
             error_text=None,
         )
     )
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = manager
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = manager
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -3325,8 +3325,8 @@ async def test_gateway_non_stream_max_tool_calls_is_not_runtime_enforced(
 def test_lm_failure_summary_includes_last_failed_mcp_signature(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.lm as lm
-    import vllm_responses.lm_failures as lm_failures
+    import agentic_stack.lm as lm
+    import agentic_stack.lm_failures as lm_failures
 
     counters = lm._FailureCounters()
     counters.observe(
@@ -3389,8 +3389,8 @@ def test_lm_failure_summary_includes_last_failed_mcp_signature(
 def test_lm_failure_summary_tracks_request_remote_mode_counters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.lm as lm
-    import vllm_responses.lm_failures as lm_failures
+    import agentic_stack.lm as lm
+    import agentic_stack.lm_failures as lm_failures
 
     counters = lm._FailureCounters()
     counters.observe(
@@ -3442,8 +3442,8 @@ async def test_gateway_stream_hosted_mcp_input_validation_failure_emits_failed_i
     cassette_replayer_factory,
 ) -> None:
     manager = _ValidationFailGatewayManager()
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = manager
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = manager
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -3479,14 +3479,14 @@ async def test_gateway_non_stream_hosted_mcp_success_returns_mcp_call_item(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = _FakeGatewayRegistry(
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = _FakeGatewayRegistry(
         result=McpExecutionResult(
             ok=True,
             output_text='{"results":[{"title":"Migration Notes","url":"https://example.test/migration"}]}',
             error_text=None,
         )
     )
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -3517,12 +3517,12 @@ async def test_mixed_tools_keep_function_calls_client_owned(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _FakeGatewayRegistry(
             result=McpExecutionResult(ok=True, output_text='{"ok":true}', error_text=None)
         )
     )
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "vllm-code_interpreter-step1-stream.yaml"
     )
 
@@ -3645,9 +3645,9 @@ async def test_previous_response_id_reuses_mixed_effective_tools_when_omitted(
     cassette_replayer_factory,
 ) -> None:
     manager = _TrackingGatewayManager()
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = manager
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = manager
 
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
         "text-single-stream.yaml",
@@ -3691,7 +3691,7 @@ async def test_previous_response_id_reuses_mixed_effective_tools_when_omitted(
         event.get("type") == "response.function_call_arguments.delta" for event in events1
     )
 
-    import vllm_responses.lm as lm
+    import agentic_stack.lm as lm
 
     store = lm.get_default_response_store()
     stored = await store.get(response_id=r1)
@@ -3733,7 +3733,7 @@ async def test_request_remote_authorization_is_not_persisted_and_omit_tools_cont
         remote_tools=["search_docs"],
         remote_require_auth_for_call=True,
     )
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
         "mcp-hosted-step1-stream.yaml",
@@ -3747,7 +3747,7 @@ async def test_request_remote_authorization_is_not_persisted_and_omit_tools_cont
 
     response_id = _extract_completed_response_id(body1.decode("utf-8", errors="replace"))
 
-    import vllm_responses.lm as lm
+    import agentic_stack.lm as lm
 
     store = lm.get_default_response_store()
     stored = await store.get(response_id=response_id)
@@ -3780,10 +3780,10 @@ async def test_previous_response_id_fails_when_persisted_mcp_server_is_missing(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ) -> None:
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _TrackingGatewayManager()
     )
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "mcp-hosted-step1-stream.yaml",
         "mcp-hosted-step2-stream.yaml",
     )
@@ -3820,7 +3820,7 @@ async def test_previous_response_id_fails_when_persisted_mcp_server_is_missing(
         ) -> McpExecutionResult:
             raise AssertionError("call_tool should not be called for missing server.")
 
-    gateway_client._transport.app.state.vllm_responses.builtin_mcp_runtime_client = (
+    gateway_client._transport.app.state.agentic_stack.builtin_mcp_runtime_client = (
         _MissingServerGatewayManager()
     )
 

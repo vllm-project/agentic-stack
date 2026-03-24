@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from vllm_responses.entrypoints.serve import _build_root_parser
+from agentic_stack.entrypoints.serve import _build_root_parser
 
 
 def test_serve_parser_accepts_remote_upstream_flags() -> None:

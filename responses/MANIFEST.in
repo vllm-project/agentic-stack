@@ -2,9 +2,9 @@ include README.md
 include LICENSE
 
 # Never ship local dev artifacts.
-recursive-exclude python/vllm_responses/tools/code_interpreter/node_modules *
-recursive-exclude python/vllm_responses/tools/code_interpreter pyodide-*.tar.bz2
+recursive-exclude python/agentic_stack/tools/code_interpreter/node_modules *
+recursive-exclude python/agentic_stack/tools/code_interpreter pyodide-*.tar.bz2
 
 # Platform-specific executable is shipped via wheels only (v1).
-recursive-exclude python/vllm_responses/tools/code_interpreter/bin *
+recursive-exclude python/agentic_stack/tools/code_interpreter/bin *
 

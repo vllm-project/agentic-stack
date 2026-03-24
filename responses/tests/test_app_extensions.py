@@ -8,15 +8,15 @@ from types import SimpleNamespace
 
 from fastapi import FastAPI, Request, Response
 
-from vllm_responses.configs.builders import build_runtime_config_for_standalone
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.entrypoints._state import VRAppState, VRRequestState
-from vllm_responses.entrypoints.gateway._app import (
+from agentic_stack.configs.builders import build_runtime_config_for_standalone
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.entrypoints._state import VRAppState, VRRequestState
+from agentic_stack.entrypoints.gateway._app import (
     _finalize_gateway_response,
     activate_gateway_runtime,
     augment_standalone_gateway_app,
 )
-from vllm_responses.types.api import UserAgent
+from agentic_stack.types.api import UserAgent
 
 
 def test_standalone_api_imports_cleanly_in_fresh_process() -> None:
@@ -24,7 +24,7 @@ def test_standalone_api_imports_cleanly_in_fresh_process() -> None:
         [
             sys.executable,
             "-c",
-            "import vllm_responses.entrypoints.api",
+            "import agentic_stack.entrypoints.api",
         ],
         cwd=Path(__file__).resolve().parents[1],
         env=dict(os.environ),
@@ -41,7 +41,7 @@ def test_standalone_api_import_does_not_build_runtime_config_from_invalid_env() 
         [
             sys.executable,
             "-c",
-            "import vllm_responses.entrypoints.api",
+            "import agentic_stack.entrypoints.api",
         ],
         cwd=Path(__file__).resolve().parents[1],
         env={**os.environ, "VR_WEB_SEARCH_PROFILE": "missing_profile"},
@@ -58,7 +58,7 @@ def test_mcp_runtime_import_does_not_build_runtime_config_from_invalid_env() -> 
         [
             sys.executable,
             "-c",
-            "import vllm_responses.entrypoints.mcp_runtime",
+            "import agentic_stack.entrypoints.mcp_runtime",
         ],
         cwd=Path(__file__).resolve().parents[1],
         env={**os.environ, "VR_WEB_SEARCH_PROFILE": "missing_profile"},
@@ -71,7 +71,7 @@ def test_mcp_runtime_import_does_not_build_runtime_config_from_invalid_env() -> 
 
 
 def test_setup_logger_sinks_falls_back_when_enqueue_is_unavailable(monkeypatch, capsys) -> None:
-    import vllm_responses.utils.logging as logging_mod
+    import agentic_stack.utils.logging as logging_mod
 
     configure_calls: list[list[dict[str, object]]] = []
 
@@ -134,24 +134,24 @@ def test_finalize_gateway_response_matches_templated_routes_for_overhead_logging
         "route": SimpleNamespace(path="/v1/responses/{response_id}"),
     }
     request = Request(scope)
-    request.app.state.vllm_responses = VRAppState(
+    request.app.state.agentic_stack = VRAppState(
         runtime_config=build_runtime_config_for_standalone(
             env=EnvSource(environ={"VR_LOG_TIMINGS": "1"})
         )
     )
-    request.state.vllm_responses = VRRequestState(
+    request.state.agentic_stack = VRRequestState(
         id="req_123",
         user_agent=UserAgent(is_browser=False, agent=""),
     )
-    request.state.vllm_responses.model_start_time = (
-        request.state.vllm_responses.request_start_time + 0.01
+    request.state.agentic_stack.model_start_time = (
+        request.state.agentic_stack.request_start_time + 0.01
     )
-    request.state.vllm_responses.timing["normalize"] = 0.001
+    request.state.agentic_stack.timing["normalize"] = 0.001
     response = Response()
     captured_logs: list[str] = []
 
     monkeypatch.setattr(
-        "vllm_responses.entrypoints.gateway._app.logger.info",
+        "agentic_stack.entrypoints.gateway._app.logger.info",
         lambda message: captured_logs.append(message),
     )
 

@@ -1,2 +1,2 @@
-curl "${VLLM_RESPONSES_HTTP_BASE:-http://127.0.0.1:5969}"/v1/mcp/servers
-curl "${VLLM_RESPONSES_HTTP_BASE:-http://127.0.0.1:5969}"/v1/mcp/servers/github_docs/tools
+curl "${AGENTIC_STACK_HTTP_BASE:-http://127.0.0.1:5969}"/v1/mcp/servers
+curl "${AGENTIC_STACK_HTTP_BASE:-http://127.0.0.1:5969}"/v1/mcp/servers/github_docs/tools

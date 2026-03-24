@@ -1,8 +1,8 @@
 site_name: vLLM Responses
 site_description: FastAPI gateway for OpenAI-style Responses API
-site_url: https://embeddedllm.github.io/vllm-responses/
-repo_url: https://github.com/EmbeddedLLM/vllm-responses
-repo_name: EmbeddedLLM/vllm-responses
+site_url: https://embeddedllm.github.io/agentic-stacks/
+repo_url: https://github.com/EmbeddedLLM/agentic-stacks
+repo_name: EmbeddedLLM/agentic-stacks
 docs_dir: docs
 
 theme:

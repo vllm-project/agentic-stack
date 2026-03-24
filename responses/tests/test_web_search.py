@@ -3,22 +3,22 @@ from __future__ import annotations
 import pytest
 from pydantic_ai import BuiltinToolCallPart, BuiltinToolReturnPart, ModelResponse
 
-from vllm_responses.configs.builders import (
+from agentic_stack.configs.builders import (
     RuntimeConfigError,
     build_runtime_config_for_standalone,
 )
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.mcp.types import McpExecutionResult
-from vllm_responses.tools.base.runtime import bind_runtime_requirements
-from vllm_responses.tools.profile_resolution import resolve_profiled_builtin_tool
-from vllm_responses.tools.web_search.adapters import WEB_SEARCH_ADAPTER_SPECS
-from vllm_responses.tools.web_search.config import ResolvedWebSearchRequestConfig
-from vllm_responses.tools.web_search.executor import WebSearchExecutor
-from vllm_responses.tools.web_search.page_cache import WebSearchPageCache
-from vllm_responses.tools.web_search.runtime import build_web_search_tool_runtime
-from vllm_responses.tools.web_search.types import WebSearchActionRequest
-from vllm_responses.types.openai import vLLMResponsesRequest
-from vllm_responses.utils.exceptions import BadInputError
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.mcp.types import McpExecutionResult
+from agentic_stack.tools.base.runtime import bind_runtime_requirements
+from agentic_stack.tools.profile_resolution import resolve_profiled_builtin_tool
+from agentic_stack.tools.web_search.adapters import WEB_SEARCH_ADAPTER_SPECS
+from agentic_stack.tools.web_search.config import ResolvedWebSearchRequestConfig
+from agentic_stack.tools.web_search.executor import WebSearchExecutor
+from agentic_stack.tools.web_search.page_cache import WebSearchPageCache
+from agentic_stack.tools.web_search.runtime import build_web_search_tool_runtime
+from agentic_stack.tools.web_search.types import WebSearchActionRequest
+from agentic_stack.types.openai import vLLMResponsesRequest
+from agentic_stack.utils.exceptions import BadInputError
 
 
 class _FakeBuiltinMcpRuntimeClient:
@@ -119,7 +119,7 @@ def test_resolve_profiled_builtin_tool_is_import_safe_without_runtime_registry_b
 def test_resolve_profiled_builtin_tool_does_not_mutate_runtime_registry_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.tools as tools_mod
+    import agentic_stack.tools as tools_mod
 
     tools: dict[str, object] = {}
     monkeypatch.setattr(tools_mod, "TOOLS", tools)
@@ -135,8 +135,8 @@ def test_web_search_planning_validates_all_shipped_profiles_before_first_result(
 ) -> None:
     from dataclasses import dataclass
 
-    import vllm_responses.tools.web_search.profiles as profiles_mod
-    from vllm_responses.tools.base.types import ActionBindingSpec
+    import agentic_stack.tools.web_search.profiles as profiles_mod
+    from agentic_stack.tools.base.types import ActionBindingSpec
 
     profiles_mod.validate_web_search_planning_descriptors.cache_clear()
     original_profiles = profiles_mod._WEB_SEARCH_PROFILES.copy()
@@ -446,7 +446,7 @@ def test_build_request_runtime_requires_bound_mcp_runtime_for_exa_profile() -> N
 async def test_duckduckgo_plus_fetch_profile_search_open_page_and_find_in_page(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.tools.web_search.adapters.duckduckgo_common as duckduckgo_adapter
+    import agentic_stack.tools.web_search.adapters.duckduckgo_common as duckduckgo_adapter
 
     async def _fake_run_duckduckgo_search(*, query: str, max_results: int) -> list[dict[str, str]]:
         assert query == "example query"
@@ -504,8 +504,8 @@ async def test_duckduckgo_plus_fetch_profile_search_open_page_and_find_in_page(
 async def test_web_search_executor_warns_only_for_ignored_hints(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.tools.web_search.adapters.duckduckgo_common as duckduckgo_adapter
-    import vllm_responses.tools.web_search.executor as executor_mod
+    import agentic_stack.tools.web_search.adapters.duckduckgo_common as duckduckgo_adapter
+    import agentic_stack.tools.web_search.executor as executor_mod
 
     warnings: list[tuple[object, ...]] = []
     monkeypatch.setattr(
@@ -548,7 +548,7 @@ async def test_web_search_executor_warns_only_for_ignored_hints(
 async def test_web_search_executor_warns_once_when_adapter_ignores_all_hints(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.tools.web_search.executor as executor_mod
+    import agentic_stack.tools.web_search.executor as executor_mod
 
     warnings: list[tuple[object, ...]] = []
     monkeypatch.setattr(

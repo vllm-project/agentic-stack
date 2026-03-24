@@ -33,7 +33,7 @@ __pycache__/
 venv/
 responses/dist
 responses/wheelhouse/
-responses/python/vllm_responses/tools/code_interpreter/bin    
+responses/python/agentic_stack/tools/code_interpreter/bin    
 
 # pip
 **/build/
@@ -54,7 +54,7 @@ responses/python/vllm_responses/tools/code_interpreter/bin
 # JavaScript
 **/node_modules/
 **/logs
-responses/python/vllm_responses/tools/code_interpreter/pyodide-*.tar.bz2
+responses/python/agentic_stack/tools/code_interpreter/pyodide-*.tar.bz2
 
 # db related
 **/ch_data/
@@ -63,4 +63,4 @@ responses/python/vllm_responses/tools/code_interpreter/pyodide-*.tar.bz2
 /db/
 **/vl_data/
 **/rqlite_db/
-responses/python/vllm_responses/tools/code_interpreter/**/code-interpreter-server
+responses/python/agentic_stack/tools/code_interpreter/**/code-interpreter-server

@@ -7,11 +7,11 @@ open pages, and reuse page text inside the same request.
 
 Start a supported entrypoint with a shipped profile:
 
-### `vllm-responses serve`
+### `agentic-stacks serve`
 
 ```bash
 export EXA_API_KEY="your-exa-api-key"  # optional for exa_mcp
-vllm-responses serve \
+agentic-stacks serve \
   --upstream http://127.0.0.1:8000/v1 \
   --web-search-profile exa_mcp
 ```

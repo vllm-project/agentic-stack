@@ -2,19 +2,19 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from vllm_responses.configs.builders import (
+from agentic_stack.configs.builders import (
     build_runtime_config_for_integrated,
     build_runtime_config_for_standalone,
     build_runtime_config_for_supervisor,
 )
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.configs.startup import validate_responses_cli_args
-from vllm_responses.entrypoints.gateway._app import (
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.configs.startup import validate_responses_cli_args
+from agentic_stack.entrypoints.gateway._app import (
     activate_gateway_runtime,
     augment_standalone_gateway_app,
 )
-from vllm_responses.lm import INTEGRATED_LM_CLIENT, LM_CLIENT, get_openai_provider
-from vllm_responses.tools.ids import CODE_INTERPRETER_TOOL, WEB_SEARCH_TOOL
+from agentic_stack.lm import INTEGRATED_LM_CLIENT, LM_CLIENT, get_openai_provider
+from agentic_stack.tools.ids import CODE_INTERPRETER_TOOL, WEB_SEARCH_TOOL
 
 
 def test_build_runtime_config_for_standalone_reads_env_overrides() -> None:
@@ -62,7 +62,7 @@ def test_build_runtime_config_for_standalone_without_builtin_mcp_need_leaves_url
 def test_config_helpers_do_not_bootstrap_builtin_registries(
     monkeypatch,
 ) -> None:
-    import vllm_responses.tools as tools_mod
+    import agentic_stack.tools as tools_mod
 
     monkeypatch.setattr(tools_mod, "TOOLS", {})
 
@@ -135,14 +135,14 @@ def test_activate_gateway_runtime_attaches_runtime_config() -> None:
     )
     activate_gateway_runtime(app, runtime_config=runtime_config)
 
-    attached = app.state.vllm_responses.runtime_config
+    attached = app.state.agentic_stack.runtime_config
     assert attached is not None
     assert attached.runtime_mode == "standalone"
     assert attached.llm_api_base == "http://127.0.0.1:8457/v1"
 
 
 def test_activate_gateway_runtime_registers_runtime_tool_handlers(monkeypatch) -> None:
-    import vllm_responses.tools as tools_mod
+    import agentic_stack.tools as tools_mod
 
     monkeypatch.setattr(tools_mod, "TOOLS", {})
 
@@ -173,7 +173,7 @@ def test_get_openai_provider_uses_integrated_http_client(monkeypatch) -> None:
             captured["base_url"] = base_url
             captured["http_client"] = http_client
 
-    monkeypatch.setattr("vllm_responses.lm.OpenAIProvider", _FakeProvider)
+    monkeypatch.setattr("agentic_stack.lm.OpenAIProvider", _FakeProvider)
 
     runtime_config = build_runtime_config_for_integrated(
         env=EnvSource(environ={"VR_OPENAI_API_KEY": "ctx-key"}),
@@ -221,7 +221,7 @@ def test_get_openai_provider_defaults_to_standalone_client(monkeypatch) -> None:
             captured["base_url"] = base_url
             captured["http_client"] = http_client
 
-    monkeypatch.setattr("vllm_responses.lm.OpenAIProvider", _FakeProvider)
+    monkeypatch.setattr("agentic_stack.lm.OpenAIProvider", _FakeProvider)
 
     runtime_config = build_runtime_config_for_standalone(env=EnvSource(environ={}))
 

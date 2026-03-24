@@ -11,16 +11,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
 
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.entrypoints._helper_runtime import SpawnCodeInterpreterSpec
-from vllm_responses.entrypoints._state import CURRENT_REQUEST_ID
-from vllm_responses.entrypoints.vllm._runtime import (
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.entrypoints._helper_runtime import SpawnCodeInterpreterSpec
+from agentic_stack.entrypoints._state import CURRENT_REQUEST_ID
+from agentic_stack.entrypoints.vllm._runtime import (
     HelperProcess,
     _start_helper_watchdog,
     run_integrated_serve,
 )
-from vllm_responses.entrypoints.vllm._spec import IntegratedServeSpec
-from vllm_responses.utils.io import get_async_client
+from agentic_stack.entrypoints.vllm._spec import IntegratedServeSpec
+from agentic_stack.utils.io import get_async_client
 
 
 class _FakeStore:
@@ -106,9 +106,9 @@ def _patch_runtime_dependencies(
     env: EnvSource,
     popen_factory=None,
 ) -> None:
-    import vllm_responses.entrypoints._helper_runtime as helper_runtime_mod
-    import vllm_responses.entrypoints.vllm._runtime as runtime_mod
-    import vllm_responses.responses_core.store as store_mod
+    import agentic_stack.entrypoints._helper_runtime as helper_runtime_mod
+    import agentic_stack.entrypoints.vllm._runtime as runtime_mod
+    import agentic_stack.responses_core.store as store_mod
 
     monkeypatch.setattr(store_mod, "get_default_response_store", lambda: _FakeStore())
     monkeypatch.setattr(runtime_mod.EnvSource, "from_env", classmethod(lambda cls: env))
@@ -124,8 +124,8 @@ def _patch_runtime_dependencies(
 def test_run_integrated_serve_starts_helpers_and_cleans_them_up(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.entrypoints._helper_runtime as helper_runtime_mod
-    import vllm_responses.entrypoints.vllm._runtime as runtime_mod
+    import agentic_stack.entrypoints._helper_runtime as helper_runtime_mod
+    import agentic_stack.entrypoints.vllm._runtime as runtime_mod
 
     seen: dict[str, object] = {}
     popen_calls: list[dict[str, object]] = []
@@ -133,7 +133,7 @@ def test_run_integrated_serve_starts_helpers_and_cleans_them_up(
 
     def _fake_upstream_main() -> None:
         app = api_server_mod.build_app(SimpleNamespace(), ["generate"])
-        seen["mcp_url"] = app.state.vllm_responses.runtime_config.mcp_builtin_runtime_url
+        seen["mcp_url"] = app.state.agentic_stack.runtime_config.mcp_builtin_runtime_url
         seen["argv"] = list(sys.argv)
         raise SystemExit(0)
 
@@ -201,7 +201,7 @@ def test_run_integrated_serve_starts_helpers_and_cleans_them_up(
         sys.executable,
         "-m",
         "uvicorn",
-        "vllm_responses.entrypoints.mcp_runtime:app",
+        "agentic_stack.entrypoints.mcp_runtime:app",
     ]
     assert popen_calls[1]["env"]["VR_MCP_CONFIG_PATH"] == "/tmp/mcp.json"
     assert terminate_calls == ["mcp-runtime", "code-interpreter"]
@@ -215,7 +215,7 @@ def test_run_integrated_serve_cli_mcp_port_sets_runtime_url(
 
     def _fake_upstream_main() -> None:
         app = api_server_mod.build_app(SimpleNamespace(), ["generate"])
-        seen["mcp_url"] = app.state.vllm_responses.runtime_config.mcp_builtin_runtime_url
+        seen["mcp_url"] = app.state.agentic_stack.runtime_config.mcp_builtin_runtime_url
         raise SystemExit(0)
 
     api_server_mod = _install_fake_vllm(monkeypatch, upstream_main=_fake_upstream_main)
@@ -255,7 +255,7 @@ def test_run_integrated_serve_cli_mcp_port_sets_runtime_url(
         sys.executable,
         "-m",
         "uvicorn",
-        "vllm_responses.entrypoints.mcp_runtime:app",
+        "agentic_stack.entrypoints.mcp_runtime:app",
         "--host",
         "127.0.0.1",
         "--port",
@@ -271,7 +271,7 @@ def test_run_integrated_serve_web_search_profile_spawns_builtin_mcp_runtime_with
 
     def _fake_upstream_main() -> None:
         app = api_server_mod.build_app(SimpleNamespace(), ["generate"])
-        seen["mcp_url"] = app.state.vllm_responses.runtime_config.mcp_builtin_runtime_url
+        seen["mcp_url"] = app.state.agentic_stack.runtime_config.mcp_builtin_runtime_url
         raise SystemExit(0)
 
     api_server_mod = _install_fake_vllm(monkeypatch, upstream_main=_fake_upstream_main)
@@ -312,7 +312,7 @@ def test_run_integrated_serve_web_search_profile_spawns_builtin_mcp_runtime_with
         sys.executable,
         "-m",
         "uvicorn",
-        "vllm_responses.entrypoints.mcp_runtime:app",
+        "agentic_stack.entrypoints.mcp_runtime:app",
         "--host",
         "127.0.0.1",
         "--port",
@@ -325,7 +325,7 @@ def test_run_integrated_serve_web_search_profile_spawns_builtin_mcp_runtime_with
 def test_run_integrated_serve_validates_external_code_interpreter_readiness(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.entrypoints._helper_runtime as helper_runtime_mod
+    import agentic_stack.entrypoints._helper_runtime as helper_runtime_mod
 
     ready_calls: list[dict[str, object]] = []
 
@@ -363,8 +363,8 @@ def test_run_integrated_serve_validates_external_code_interpreter_readiness(
 def test_run_integrated_serve_cleans_spawned_helpers_on_interrupt_during_startup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.entrypoints._helper_runtime as helper_runtime_mod
-    import vllm_responses.entrypoints.vllm._runtime as runtime_mod
+    import agentic_stack.entrypoints._helper_runtime as helper_runtime_mod
+    import agentic_stack.entrypoints.vllm._runtime as runtime_mod
 
     terminate_calls: list[str] = []
 
@@ -454,7 +454,7 @@ def test_run_integrated_serve_rejects_mcp_port_without_config(
 def test_helper_watchdog_terminates_other_helpers_and_exits_nonzero(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.entrypoints.vllm._runtime as runtime_mod
+    import agentic_stack.entrypoints.vllm._runtime as runtime_mod
 
     terminated: list[str] = []
     exit_codes: list[int] = []

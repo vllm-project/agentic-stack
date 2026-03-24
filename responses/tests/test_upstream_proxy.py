@@ -9,18 +9,18 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 
-from vllm_responses.configs.builders import build_runtime_config_for_standalone
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.entrypoints._state import VRAppState, VRRequestState
-from vllm_responses.routers import mcp, serving, upstream_proxy
-from vllm_responses.types.api import UserAgent
-from vllm_responses.utils.exceptions import VRException
-from vllm_responses.utils.handlers import exception_handler, path_not_found_handler
+from agentic_stack.configs.builders import build_runtime_config_for_standalone
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.entrypoints._state import VRAppState, VRRequestState
+from agentic_stack.routers import mcp, serving, upstream_proxy
+from agentic_stack.types.api import UserAgent
+from agentic_stack.utils.exceptions import VRException
+from agentic_stack.utils.handlers import exception_handler, path_not_found_handler
 
 
 def _build_gateway_app() -> FastAPI:
     app = FastAPI(title="VR Gateway (proxy test)")
-    app.state.vllm_responses = VRAppState(
+    app.state.agentic_stack = VRAppState(
         runtime_config=build_runtime_config_for_standalone(
             env=EnvSource(environ={"VR_LLM_API_BASE": "http://upstream/v1"})
         )
@@ -31,13 +31,13 @@ def _build_gateway_app() -> FastAPI:
 
     @app.middleware("http")
     async def _init_request_state(request, call_next):
-        request.state.vllm_responses = VRRequestState(
+        request.state.agentic_stack = VRRequestState(
             id="test-request-id",
             user_agent=UserAgent.from_user_agent_string("pytest"),
             timing=defaultdict(float),
         )
         response = await call_next(request)
-        response.headers["x-request-id"] = request.state.vllm_responses.id
+        response.headers["x-request-id"] = request.state.agentic_stack.id
         return response
 
     app.add_exception_handler(VRException, exception_handler)
@@ -118,7 +118,7 @@ async def proxy_gateway_client() -> AsyncIterator[httpx.AsyncClient]:
     gateway_app = _build_gateway_app()
     gateway_transport = httpx.ASGITransport(app=gateway_app)
 
-    gateway_app.state.vllm_responses.runtime_config = build_runtime_config_for_standalone(
+    gateway_app.state.agentic_stack.runtime_config = build_runtime_config_for_standalone(
         env=EnvSource(
             environ={
                 "VR_LLM_API_BASE": "http://upstream/v1",
@@ -137,7 +137,7 @@ async def proxy_gateway_client() -> AsyncIterator[httpx.AsyncClient]:
         async def aclose(self) -> None:
             return
 
-    gateway_app.state.vllm_responses.proxy_client_manager = _FixedManager(upstream_client)
+    gateway_app.state.agentic_stack.proxy_client_manager = _FixedManager(upstream_client)
     try:
         async with httpx.AsyncClient(
             transport=gateway_transport,
@@ -145,7 +145,7 @@ async def proxy_gateway_client() -> AsyncIterator[httpx.AsyncClient]:
         ) as gateway_client:
             yield gateway_client
     finally:
-        gateway_app.state.vllm_responses.runtime_config = None
+        gateway_app.state.agentic_stack.runtime_config = None
         await upstream_client.aclose()
 
 
@@ -247,7 +247,7 @@ async def test_proxy_chat_stream_mid_stream_failure_closes_without_synthetic_eve
             return
 
     app = _build_gateway_app()
-    app.state.vllm_responses.proxy_client_manager = _MidStreamFailManager()
+    app.state.agentic_stack.proxy_client_manager = _MidStreamFailManager()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://gateway") as client:
         async with client.stream(
@@ -297,7 +297,7 @@ async def test_proxy_transport_connect_error_maps_to_502() -> None:
             return
 
     app = _build_gateway_app()
-    app.state.vllm_responses.proxy_client_manager = _ConnectErrorManager()
+    app.state.agentic_stack.proxy_client_manager = _ConnectErrorManager()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://gateway") as client:
         resp = await client.get("/v1/models")
@@ -324,7 +324,7 @@ async def test_proxy_transport_timeout_maps_to_504() -> None:
             return
 
     app = _build_gateway_app()
-    app.state.vllm_responses.proxy_client_manager = _TimeoutManager()
+    app.state.agentic_stack.proxy_client_manager = _TimeoutManager()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://gateway") as client:
         resp = await client.get("/v1/models")

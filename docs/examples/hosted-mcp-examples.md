@@ -7,9 +7,9 @@ Use MCP tools through the Responses API in either Built-in MCP mode or Remote MC
 Pass `--mcp-config` (or `--responses-mcp-config` in integrated mode) to point to an MCP runtime config file:
 
 ```bash
-vllm-responses serve \
+agentic-stacks serve \
   --upstream http://127.0.0.1:8000/v1 \
-  --mcp-config /etc/vllm-responses/mcp.json
+  --mcp-config /etc/agentic-stacks/mcp.json
 ```
 
 Expected shape: top-level `mcpServers`, with each key as your `server_label` and each value as one MCP server entry.
@@ -25,7 +25,7 @@ Before sending tool requests, inspect runtime availability:
 
 Start with a supported entrypoint that enables Built-in MCP:
 
-- `vllm-responses serve --mcp-config ...`
+- `agentic-stacks serve --mcp-config ...`
 - `vllm serve --responses --responses-mcp-config ...`
 
 ```bash
@@ -33,7 +33,7 @@ Start with a supported entrypoint that enables Built-in MCP:
 ```
 
 The snippet defaults to `http://127.0.0.1:5969`. In integrated mode, set
-`VLLM_RESPONSES_HTTP_BASE=http://127.0.0.1:8000` first, or replace the base URL with your
+`AGENTIC_STACK_HTTP_BASE=http://127.0.0.1:8000` first, or replace the base URL with your
 configured `vllm serve` address.
 
 ## Built-in MCP: Force an MCP Tool Call

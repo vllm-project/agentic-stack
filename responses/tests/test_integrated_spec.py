@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from vllm_responses.entrypoints.vllm._spec import (
+from agentic_stack.entrypoints.vllm._spec import (
     IntegratedSpecError,
     build_integrated_serve_spec,
     format_integrated_help,

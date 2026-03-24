@@ -95,7 +95,7 @@ The code interpreter runs in a sandboxed environment:
 !!! note "Concurrency"
 
     If you need more code-interpreter throughput, you can configure a worker pool for the Code Interpreter service via
-    `--code-interpreter-workers` under `vllm-responses serve`, or
+    `--code-interpreter-workers` under `agentic-stacks serve`, or
     `--responses-code-interpreter-workers` in integrated mode. This uses [Bun Workers
     **experimental**](https://bun.com/docs/runtime/workers). Use `2+` for actual parallelism; `1` enables worker mode
     but does not increase throughput. Each worker loads its own Pyodide runtime, so higher worker counts increase RAM

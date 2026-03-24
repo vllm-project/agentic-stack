@@ -4707,7 +4707,7 @@ wheels = [
 ]
 
 [[package]]
-name = "vllm-responses"
+name = "agentic-stacks"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -4833,7 +4833,7 @@ requires-dist = [
     { name = "uuid-utils", specifier = "~=0.9" },
     { name = "uuid7", specifier = "~=0.1" },
     { name = "uvicorn", extras = ["standard"], specifier = "~=0.28" },
-    { name = "vllm-responses", extras = ["build", "docs", "lint", "test", "tracing"], marker = "extra == 'all'" },
+    { name = "agentic-stacks", extras = ["build", "docs", "lint", "test", "tracing"], marker = "extra == 'all'" },
 ]
 provides-extras = ["docs", "lint", "tracing", "test", "build", "all"]
 

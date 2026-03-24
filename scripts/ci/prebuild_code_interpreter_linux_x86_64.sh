@@ -5,7 +5,7 @@ RESPONSES_DIR="${1:-$(pwd)}"
 # Normalize to an absolute path so later `cd` calls don't accidentally make `--outfile`
 # relative to a different working directory.
 RESPONSES_DIR="$(cd "${RESPONSES_DIR}" && pwd)"
-CODE_DIR="${RESPONSES_DIR}/python/vllm_responses/tools/code_interpreter"
+CODE_DIR="${RESPONSES_DIR}/python/agentic_stack/tools/code_interpreter"
 TARGET="${CODE_DIR}/bin/linux/x86_64/code-interpreter-server"
 
 if [[ ! -d "${CODE_DIR}" ]]; then

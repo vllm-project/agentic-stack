@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from vllm_responses.configs.builders import build_runtime_config_for_supervisor
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.entrypoints._serve._runtime import run_serve_spec
-from vllm_responses.entrypoints._serve._spec import (
+from agentic_stack.configs.builders import build_runtime_config_for_supervisor
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.entrypoints._serve._runtime import run_serve_spec
+from agentic_stack.entrypoints._serve._spec import (
     DisabledCodeInterpreterSpec,
     ExternalUpstreamSpec,
     GatewaySpec,
@@ -81,16 +81,16 @@ def _base_spec(
 def _patch_supervisor_runtime_dependencies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[dict[str, object]]:
-    import vllm_responses.entrypoints._helper_runtime as helper_runtime_module
-    import vllm_responses.entrypoints._serve._runtime as supervisor_module
-    import vllm_responses.responses_core.store as store_module
+    import agentic_stack.entrypoints._helper_runtime as helper_runtime_module
+    import agentic_stack.entrypoints._serve._runtime as supervisor_module
+    import agentic_stack.responses_core.store as store_module
 
     popen_calls: list[dict[str, object]] = []
 
     def _fake_popen(cmd, *args, **kwargs):  # type: ignore[no-untyped-def]
         _ = args
         cmd_list = [str(c) for c in cmd]
-        is_mcp_runtime = "vllm_responses.entrypoints.mcp_runtime:app" in cmd_list
+        is_mcp_runtime = "agentic_stack.entrypoints.mcp_runtime:app" in cmd_list
         proc = _FakeProc(poll_code=None if is_mcp_runtime else 0)
         popen_calls.append(
             {

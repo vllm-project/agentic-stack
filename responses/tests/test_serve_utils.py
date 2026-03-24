@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.configs.startup import find_flag_value
-from vllm_responses.entrypoints._serve_utils import (
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.configs.startup import find_flag_value
+from agentic_stack.entrypoints._serve_utils import (
     cleanup_prometheus_multiproc_dir,
     cleanup_stale_prometheus_multiproc_dirs,
     create_prometheus_multiproc_dir,
     is_port_available,
     wait_http_ready,
 )
-from vllm_responses.utils.urls import is_ready_url_host
+from agentic_stack.utils.urls import is_ready_url_host
 
 
 def test_find_flag_value_supports_space_and_equals() -> None:
@@ -134,7 +134,7 @@ def test_prometheus_multiproc_dir_lifecycle(tmp_path: Path) -> None:
 
 
 def test_cleanup_stale_prometheus_multiproc_dirs_removes_dead_pids(tmp_path: Path) -> None:
-    root = tmp_path / "vllm_responses-prom-multiproc"
+    root = tmp_path / "agentic_stack-prom-multiproc"
     root.mkdir()
     stale = root / "999999-abcdef"
     stale.mkdir()
@@ -148,8 +148,8 @@ def test_cleanup_stale_prometheus_multiproc_dirs_removes_dead_pids(tmp_path: Pat
 async def test_sqlite_engine_pragmas_do_not_crash(tmp_path):
     # Regression: SQLite PRAGMAs (notably `journal_mode=WAL`) must not fail due to running
     # "within a transaction" on async sqlite drivers.
-    from vllm_responses import db as vllm_responses_db
-    from vllm_responses.configs.builders import build_runtime_config_for_standalone
+    from agentic_stack import db as agentic_stack_db
+    from agentic_stack.configs.builders import build_runtime_config_for_standalone
 
     runtime_config = build_runtime_config_for_standalone(
         env=EnvSource(
@@ -159,11 +159,11 @@ async def test_sqlite_engine_pragmas_do_not_crash(tmp_path):
             }
         )
     )
-    vllm_responses_db.configure_db(runtime_config)
-    engine = vllm_responses_db.create_db_engine_async(runtime_config)
+    agentic_stack_db.configure_db(runtime_config)
+    engine = agentic_stack_db.create_db_engine_async(runtime_config)
     try:
         async with engine.connect() as conn:
             await conn.exec_driver_sql("SELECT 1")
     finally:
         await engine.dispose()
-        vllm_responses_db.create_db_engine_async.cache_clear()
+        agentic_stack_db.create_db_engine_async.cache_clear()

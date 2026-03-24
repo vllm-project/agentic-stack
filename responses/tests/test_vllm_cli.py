@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from vllm_responses.entrypoints import vllm_cli
+from agentic_stack.entrypoints import vllm_cli
 
 
 def test_vllm_cli_delegates_when_responses_flag_absent(
@@ -53,7 +53,7 @@ def test_vllm_cli_runs_integrated_serve_when_responses_flag_present(
 def test_vllm_cli_bootstraps_builtin_registries_before_integrated_spec_parse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.tools as tools_mod
+    import agentic_stack.tools as tools_mod
 
     seen: dict[str, object] = {}
 

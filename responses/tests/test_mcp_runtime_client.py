@@ -6,14 +6,14 @@ from pydantic import TypeAdapter
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets.abstract import ToolsetTool
 
-from vllm_responses.mcp.runtime_client import (
+from agentic_stack.mcp.runtime_client import (
     MCP_TOOL_NOT_FOUND_PREFIX,
     BuiltinMcpRuntimeClient,
     BuiltinMcpRuntimeToolMissingError,
     BuiltinMcpRuntimeTransportError,
     BuiltinMcpRuntimeUnknownServerError,
 )
-from vllm_responses.mcp.runtime_toolset import BuiltinMcpRuntimeToolset
+from agentic_stack.mcp.runtime_toolset import BuiltinMcpRuntimeToolset
 
 
 @pytest.mark.anyio

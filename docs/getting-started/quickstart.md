@@ -28,7 +28,7 @@ ______________________________________________________________________
 
 Base URL by mode:
 
-- `vllm-responses serve`: `http://127.0.0.1:5969` by default
+- `agentic-stacks serve`: `http://127.0.0.1:5969` by default
 - `vllm serve --responses`: same host/port as `vllm serve` (default `http://127.0.0.1:8000`)
 
 ______________________________________________________________________
@@ -37,7 +37,7 @@ ______________________________________________________________________
 
 Now, send a request to the **Responses API** endpoint (`/v1/responses`).
 
-The cURL examples below use the default `vllm-responses serve` URL (`http://127.0.0.1:5969`).
+The cURL examples below use the default `agentic-stacks serve` URL (`http://127.0.0.1:5969`).
 If you started integrated mode with `vllm serve --responses`, replace that base URL with your
 vLLM bind address (default `http://127.0.0.1:8000`).
 
@@ -76,9 +76,9 @@ vLLM bind address (default `http://127.0.0.1:8000`).
     --8<-- "snippets/openai_client_local_gateway.py"
 
     # For integrated mode, export:
-    #   VLLM_RESPONSES_BASE_URL=http://127.0.0.1:8000/v1
+    #   AGENTIC_STACK_BASE_URL=http://127.0.0.1:8000/v1
     #
-    # For `vllm-responses serve`, the default snippet base URL already matches:
+    # For `agentic-stacks serve`, the default snippet base URL already matches:
     #   http://127.0.0.1:5969/v1
 
     with client.responses.stream(
@@ -120,7 +120,7 @@ data: {"response":{...}}
 
 If you enabled Built-in MCP on your active entrypoint, you can run a minimal forced tool call:
 
-- `vllm-responses serve ... --mcp-config /path/to/mcp.json`
+- `agentic-stacks serve ... --mcp-config /path/to/mcp.json`
 - `vllm serve ... --responses --responses-mcp-config /path/to/mcp.json`
 
 Need the Built-in MCP `mcp.json` format first? See:

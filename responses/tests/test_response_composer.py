@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from vllm_responses.responses_core.composer import ResponseComposer
-from vllm_responses.responses_core.models import (
+from agentic_stack.responses_core.composer import ResponseComposer
+from agentic_stack.responses_core.models import (
     CodeInterpreterCallCodeDone,
     CodeInterpreterCallCompleted,
     CodeInterpreterCallInterpreting,
@@ -19,7 +19,7 @@ from vllm_responses.responses_core.models import (
     WebSearchCallSearching,
     WebSearchCallStarted,
 )
-from vllm_responses.types.openai import OpenAIResponsesResponse
+from agentic_stack.types.openai import OpenAIResponsesResponse
 
 
 def _drain(composer: ResponseComposer, events: Iterable[object]):

@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from vllm_responses.configs.builders import (
+from agentic_stack.configs.builders import (
     RuntimeConfigError,
     build_runtime_config_for_supervisor,
 )
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.entrypoints._helper_runtime import SpawnCodeInterpreterSpec
-from vllm_responses.entrypoints._serve._spec import (
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.entrypoints._helper_runtime import SpawnCodeInterpreterSpec
+from agentic_stack.entrypoints._serve._spec import (
     ExternalCodeInterpreterSpec,
     ExternalUpstreamSpec,
     ServeSpecError,
@@ -83,8 +83,8 @@ def test_build_runtime_config_for_supervisor_rejects_unknown_web_search_profile(
 def test_run_serve_bootstraps_builtin_registries_before_runtime_config_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vllm_responses.entrypoints.serve as serve_entrypoint
-    import vllm_responses.tools as tools_mod
+    import agentic_stack.entrypoints.serve as serve_entrypoint
+    import agentic_stack.tools as tools_mod
 
     monkeypatch.setattr(tools_mod, "TOOLS", {})
     monkeypatch.setattr(
@@ -105,7 +105,7 @@ def test_run_serve_bootstraps_builtin_registries_before_runtime_config_build(
 def test_build_serve_spec_code_interpreter_prefers_bundled_binary(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import vllm_responses.entrypoints._helper_runtime as helper_runtime_mod
+    import agentic_stack.entrypoints._helper_runtime as helper_runtime_mod
 
     class _FakeSpec:
         def __init__(self, path: Path) -> None:
@@ -136,7 +136,7 @@ def test_build_serve_spec_code_interpreter_prefers_bundled_binary(
 
 
 def test_build_serve_spec_code_interpreter_uses_bun_fallback(tmp_path: Path, monkeypatch) -> None:
-    import vllm_responses.entrypoints._helper_runtime as helper_runtime_mod
+    import agentic_stack.entrypoints._helper_runtime as helper_runtime_mod
 
     class _FakeSpec:
         def __init__(self, path: Path) -> None:
@@ -174,7 +174,7 @@ def test_build_serve_spec_code_interpreter_uses_bun_fallback(tmp_path: Path, mon
 def test_build_serve_spec_code_interpreter_errors_without_binary_or_fallback(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import vllm_responses.entrypoints._helper_runtime as helper_runtime_mod
+    import agentic_stack.entrypoints._helper_runtime as helper_runtime_mod
 
     class _FakeSpec:
         def __init__(self, path: Path) -> None:

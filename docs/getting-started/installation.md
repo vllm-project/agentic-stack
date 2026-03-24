@@ -18,13 +18,13 @@ We recommend setting up a virtual environment using `uv`.
 
 ### Install from a prebuilt wheel (Linux x86_64) (Recommended)
 
-Download a prebuilt wheel (`vllm_responses-*.whl`) from GitHub Releases (preferred) or a CI run artifact, then install it:
+Download a prebuilt wheel (`agentic_stack-*.whl`) from GitHub Releases (preferred) or a CI run artifact, then install it:
 
 ```bash
 uv venv --python=3.12
 source .venv/bin/activate
-uv pip install path/to/vllm_responses-*.whl
-vllm-responses --help
+uv pip install path/to/agentic_stack-*.whl
+agentic-stacks --help
 ```
 
 On Linux x86_64 wheels, the Code Interpreter server binary is bundled, so **Bun is not required**.
@@ -41,19 +41,19 @@ If you are working from a source checkout and want the gateway to work with the 
 enabled), use the Bun fallback:
 
 ```bash
-git clone https://github.com/EmbeddedLLM/vllm-responses
-cd vllm-responses
+git clone https://github.com/EmbeddedLLM/agentic-stacks
+cd agentic-stacks
 
 uv venv --python=3.12
 source .venv/bin/activate
 uv pip install -e ./responses
 
-cd responses/python/vllm_responses/tools/code_interpreter
+cd responses/python/agentic_stack/tools/code_interpreter
 bun install
 export VR_CODE_INTERPRETER_DEV_BUN_FALLBACK=1
 cd -
 
-vllm-responses --help
+agentic-stacks --help
 ```
 
 ### First start: Pyodide download (Code Interpreter)
@@ -61,7 +61,7 @@ vllm-responses --help
 If `code_interpreter` is enabled (default), the first start may download the Pyodide runtime (~400MB) into a cache
 directory and extract it. Subsequent starts reuse the cache.
 
-- Default cache: `${XDG_CACHE_HOME:-$HOME/.cache}/vllm-responses/pyodide`
+- Default cache: `${XDG_CACHE_HOME:-$HOME/.cache}/agentic-stacks/pyodide`
 - Override: set `VR_PYODIDE_CACHE_DIR` to a persistent directory with enough free disk space.
 
 ## Build a wheel from a source checkout

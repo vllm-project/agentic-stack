@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from vllm_responses.configs.builders import build_runtime_config_for_standalone
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.responses_core.store import DBResponseStore
+from agentic_stack.configs.builders import build_runtime_config_for_standalone
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.responses_core.store import DBResponseStore
 
 
 def _install_store_runtime_config(
@@ -14,7 +14,7 @@ def _install_store_runtime_config(
     *,
     workers: int,
 ) -> None:
-    import vllm_responses.responses_core.store as store_mod
+    import agentic_stack.responses_core.store as store_mod
 
     runtime_config = build_runtime_config_for_standalone(
         env=EnvSource(

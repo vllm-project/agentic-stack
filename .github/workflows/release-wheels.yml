@@ -88,9 +88,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "[inspect] wheels:"
-          python -m zipfile -l wheelhouse/*.whl | grep -E "vllm_responses/tools/code_interpreter/(node_modules/|pyodide-.*\\.tar\\.bz2)" && exit 1 || true
+          python -m zipfile -l wheelhouse/*.whl | grep -E "agentic_stack/tools/code_interpreter/(node_modules/|pyodide-.*\\.tar\\.bz2)" && exit 1 || true
           echo "[inspect] sdist:"
-          tar -tzf dist/*.tar.gz | grep -E "vllm_responses/tools/code_interpreter/(node_modules/|pyodide-.*\\.tar\\.bz2)" && exit 1 || true
+          tar -tzf dist/*.tar.gz | grep -E "agentic_stack/tools/code_interpreter/(node_modules/|pyodide-.*\\.tar\\.bz2)" && exit 1 || true
 
       - name: Minimal container smoke test (tar missing is actionable)
         working-directory: responses

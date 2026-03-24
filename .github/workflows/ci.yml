@@ -37,7 +37,7 @@ jobs:
     name: Pytest
     runs-on: ubuntu-latest
     env:
-      VR_PYODIDE_CACHE_DIR: ~/.cache/vllm-responses/pyodide
+      VR_PYODIDE_CACHE_DIR: ~/.cache/agentic-stacks/pyodide
 
     steps:
       - name: Checkout code
@@ -57,7 +57,7 @@ jobs:
       - name: Cache Pyodide runtime
         uses: actions/cache@v4
         with:
-          path: ~/.cache/vllm-responses/pyodide
+          path: ~/.cache/agentic-stacks/pyodide
           key: pyodide-0.29.1-${{ runner.os }}
 
       - name: Sync (locked)

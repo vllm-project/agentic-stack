@@ -4,16 +4,16 @@ from pathlib import Path
 
 import pytest
 
-from vllm_responses.configs.builders import build_runtime_config_for_standalone
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.responses_core.store import DBResponseStore
-from vllm_responses.types.openai import (
+from agentic_stack.configs.builders import build_runtime_config_for_standalone
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.responses_core.store import DBResponseStore
+from agentic_stack.types.openai import (
     OpenAIOutputItem,
     OpenAIOutputTextContent,
     OpenAIResponsesResponse,
     vLLMResponsesRequest,
 )
-from vllm_responses.utils.exceptions import BadInputError
+from agentic_stack.utils.exceptions import BadInputError
 
 
 @pytest.mark.anyio
@@ -120,7 +120,7 @@ def _install_store_runtime_config(
     cache_ttl_seconds: int = 3600,
     workers: int = 1,
 ) -> None:
-    import vllm_responses.responses_core.store as store_mod
+    import agentic_stack.responses_core.store as store_mod
 
     runtime_config = build_runtime_config_for_standalone(
         env=EnvSource(
@@ -140,7 +140,7 @@ def _install_store_runtime_config(
 async def test_store_get_prefers_cache_when_enabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    import vllm_responses.responses_core.store as store_mod
+    import agentic_stack.responses_core.store as store_mod
 
     db_path = tmp_path / "state.db"
     store = DBResponseStore.from_db_url(db_url=f"sqlite+aiosqlite:///{db_path}")
@@ -183,7 +183,7 @@ async def test_store_get_prefers_cache_when_enabled(
 
 @pytest.mark.anyio
 async def test_store_get_populates_cache_on_miss(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    import vllm_responses.responses_core.store as store_mod
+    import agentic_stack.responses_core.store as store_mod
 
     db_path = tmp_path / "state.db"
     store = DBResponseStore.from_db_url(db_url=f"sqlite+aiosqlite:///{db_path}")
@@ -213,7 +213,7 @@ async def test_store_get_populates_cache_on_miss(tmp_path: Path, monkeypatch: py
 async def test_store_get_falls_back_to_db_on_cache_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    import vllm_responses.responses_core.store as store_mod
+    import agentic_stack.responses_core.store as store_mod
 
     class _ExplodingCache(_StubCache):
         async def get_json(self, key: str) -> object | None:
@@ -264,7 +264,7 @@ async def test_store_false_does_not_persist_response(tmp_path: Path) -> None:
 async def test_store_false_does_not_populate_cache(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import vllm_responses.responses_core.store as store_mod
+    import agentic_stack.responses_core.store as store_mod
 
     db_path = tmp_path / "state.db"
     store = DBResponseStore.from_db_url(db_url=f"sqlite+aiosqlite:///{db_path}")

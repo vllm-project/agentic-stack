@@ -1,16 +1,16 @@
 # Command Reference
 
-Comprehensive reference for the `vllm-responses` CLI.
+Comprehensive reference for the `agentic-stacks` CLI.
 
 ## Synopsis
 
 ```bash
-vllm-responses serve [OPTIONS]
+agentic-stacks serve [OPTIONS]
 ```
 
 ## Description
 
-`vllm-responses serve` is the remote-upstream gateway supervisor.
+`agentic-stacks serve` is the remote-upstream gateway supervisor.
 
 It does not spawn vLLM. For the single-command colocated local stack, use `vllm serve --responses`.
 
@@ -41,7 +41,7 @@ These options control where the gateway finds the inference server.
 
 ### Gateway Configuration
 
-These options control the `vllm-responses` server itself.
+These options control the `agentic-stacks` server itself.
 
 #### `--gateway-host HOST`
 
@@ -64,7 +64,7 @@ These options control the `vllm-responses` server itself.
 **Notes**:
 
 - This is a gateway-owned feature-selection flag.
-- For `vllm-responses serve`, web search enablement is CLI-owned.
+- For `agentic-stacks serve`, web search enablement is CLI-owned.
 - If the flag is omitted, `web_search` is disabled.
 - Shipped MCP-backed profiles provision their helper runtime entries automatically.
 - For the shipped `exa_mcp` profile, setting `EXA_API_KEY` in the gateway environment appends the operator key to the default Exa MCP URL automatically.
@@ -76,7 +76,7 @@ These options control the `vllm-responses` server itself.
 
 **Description**: Runtime policy for the code interpreter. **Default**: `spawn` **Values**:
 
-- `spawn`: The `vllm-responses serve` supervisor starts and manages the Bun/Pyodide server, then wires gateway workers to it.
+- `spawn`: The `agentic-stacks serve` supervisor starts and manages the Bun/Pyodide server, then wires gateway workers to it.
 - `external`: Connects to an already-running server (supervisor does not spawn one).
 - `disabled`: Disables the tool entirely.
 
@@ -105,7 +105,7 @@ ______________________________________________________________________
 
 ## Configuration Precedence
 
-`vllm-responses serve` resolves config in this order:
+`agentic-stacks serve` resolves config in this order:
 
 1. CLI flags
 1. Built-in defaults
@@ -143,7 +143,7 @@ vllm serve meta-llama/Llama-3.2-3B-Instruct --responses
 ### Run the Remote-Upstream Gateway With More Workers
 
 ```bash
-vllm-responses serve \
+agentic-stacks serve \
   --gateway-workers 4 \
   --upstream http://127.0.0.1:8000/v1
 ```
@@ -151,7 +151,7 @@ vllm-responses serve \
 ### Enable Web Search
 
 ```bash
-vllm-responses serve \
+agentic-stacks serve \
   --upstream http://127.0.0.1:8000/v1 \
   --web-search-profile exa_mcp
 ```

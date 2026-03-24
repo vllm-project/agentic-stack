@@ -16,7 +16,7 @@ def _pick_free_port() -> int:
 
 
 def main() -> None:
-    import vllm_responses.tools.code_interpreter as code_interpreter
+    import agentic_stack.tools.code_interpreter as code_interpreter
 
     code_dir = Path(code_interpreter.__file__).resolve().parent
     binary = code_dir / "bin" / "linux" / "x86_64" / "code-interpreter-server"

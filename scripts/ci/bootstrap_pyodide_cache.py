@@ -19,7 +19,7 @@ def _default_cache_dir() -> Path:
         base = Path(os.path.expanduser(xdg))
     else:
         base = Path.home() / ".cache"
-    return base / "vllm-responses" / "pyodide"
+    return base / "agentic-stacks" / "pyodide"
 
 
 def _download(url: str, dest: Path) -> None:
@@ -30,7 +30,7 @@ def _download(url: str, dest: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Bootstrap a Pyodide cache directory for vllm-responses code interpreter tests."
+        description="Bootstrap a Pyodide cache directory for agentic-stacks code interpreter tests."
     )
     parser.add_argument("--cache-dir", type=str, default=None)
     parser.add_argument("--version", type=str, default=PYODIDE_VERSION)

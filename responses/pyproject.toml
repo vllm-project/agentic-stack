@@ -27,7 +27,7 @@ markers = ["onprem: Tests that deploys on-prem models and requires SkyPilot"]
 # https://coverage.readthedocs.io/en
 
 [tool.coverage.run]
-source = ["vllm_responses"]
+source = ["agentic_stack"]
 relative_files = true
 concurrency = ["multiprocessing", "thread", "greenlet"]
 parallel = true
@@ -72,7 +72,7 @@ unfixable = ["B"]
 "**/{tests,docs,tools}/*" = ["E402"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["vllm_responses"]
+known-first-party = ["agentic_stack"]
 
 [tool.ruff.lint.flake8-bugbear]
 # Allow default arguments like, e.g., `data: List[str] = fastapi.Query(None)`.
@@ -93,7 +93,7 @@ requires = ["setuptools>=62.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vllm-responses"
+name = "agentic-stack"
 description = "FastAPI gateway exposing an OpenAI-style Responses API in front of an OpenAI-compatible upstream (e.g. vLLM)."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -165,26 +165,26 @@ build = [
     "twine",
 ] # https://realpython.com/pypi-publish-python-package/#build-your-package
 all = [
-    "vllm-responses[docs,lint,tracing,test,build]", # https://hynek.me/articles/python-recursive-optional-dependencies/
+    "agentic-stack[docs,lint,tracing,test,build]", # https://hynek.me/articles/python-recursive-optional-dependencies/
 ]
 
 [project.scripts]
-vllm-responses = "vllm_responses.entrypoints.serve:main"
-vllm = "vllm_responses.entrypoints.vllm_cli:main"
+agentic-stack = "agentic_stack.entrypoints.serve:main"
+vllm = "agentic_stack.entrypoints.vllm_cli:main"
 
 [tool.setuptools.dynamic]
-version = { attr = "vllm_responses.version.__version__" }
+version = { attr = "agentic_stack.version.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["python"]
 
 [tool.setuptools.package-data]
-vllm_responses = [
+agentic_stack = [
     "tools/code_interpreter/bin/**",
 ]
 
 [tool.setuptools.exclude-package-data]
-vllm_responses = [
+agentic_stack = [
     "tools/code_interpreter/node_modules/**",
     "tools/code_interpreter/pyodide-*.tar.bz2",
 ]

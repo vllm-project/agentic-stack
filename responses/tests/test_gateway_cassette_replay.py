@@ -10,7 +10,7 @@ from sse_test_utils import (
     sse_has_done_marker,
 )
 
-from vllm_responses.entrypoints import llm as mock_llm
+from agentic_stack.entrypoints import llm as mock_llm
 
 
 @pytest.mark.anyio
@@ -19,7 +19,7 @@ async def test_responses_stream_text_single_from_chat_completion_cassette(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ):
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "text-single-stream.yaml"
     )
 
@@ -68,7 +68,7 @@ async def test_responses_stream_upstream_http_error_emits_error_then_failed(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ):
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "model-not-found-stream.yaml"
     )
 
@@ -104,7 +104,7 @@ async def test_responses_non_stream_text_single_from_streaming_upstream_cassette
 ):
     # NOTE: LMEngine currently uses `pydantic_ai.Agent.run_stream_events(...)` even when the
     # downstream Responses request is non-streaming, so the upstream Chat Completions call is streaming.
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "text-single-stream.yaml"
     )
 
@@ -135,7 +135,7 @@ async def test_responses_stream_finish_reason_length_emits_incomplete(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ):
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "text-max_tokens-length-stream.yaml"
     )
 
@@ -176,7 +176,7 @@ async def test_responses_non_stream_finish_reason_length_returns_incomplete(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ):
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "text-max_tokens-length-stream.yaml"
     )
 
@@ -203,7 +203,7 @@ async def test_responses_stream_code_interpreter_tool_loop_from_vllm_cassettes(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ):
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "vllm-code_interpreter-step1-stream.yaml",
         "vllm-code_interpreter-step2-stream.yaml",
     )

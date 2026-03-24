@@ -7,21 +7,21 @@ from pathlib import Path
 import httpx
 import pytest
 
-from vllm_responses.configs.builders import build_runtime_config_for_standalone
-from vllm_responses.configs.sources import EnvSource
-from vllm_responses.tools.code_interpreter import (
+from agentic_stack.configs.builders import build_runtime_config_for_standalone
+from agentic_stack.configs.sources import EnvSource
+from agentic_stack.tools.code_interpreter import (
     HTTP_ACLIENT,
     bind_runtime_config,
     configure_code_interpreter,
     run_code,
     start_server,
 )
-from vllm_responses.tools.runtime import (
+from agentic_stack.tools.runtime import (
     ToolRuntimeContext,
     bind_tool_runtime_context,
     get_tool_runtime_context,
 )
-from vllm_responses.utils.exceptions import BadInputError
+from agentic_stack.utils.exceptions import BadInputError
 
 pytestmark = pytest.mark.anyio
 
@@ -37,7 +37,7 @@ async def code_interpreter_server() -> None:
             base = Path(os.path.expanduser(xdg))
         else:
             base = Path.home() / ".cache"
-        cache_path = base / "vllm-responses" / "pyodide"
+        cache_path = base / "agentic-stacks" / "pyodide"
 
     marker = cache_path / ".pyodide_version"
     if not marker.exists():
@@ -198,7 +198,7 @@ async def test_bind_runtime_config_preserves_existing_tool_runtime_context() -> 
 
 
 async def test_start_server_uses_runtime_config_startup_timeout(monkeypatch) -> None:
-    import vllm_responses.tools.code_interpreter as code_interpreter_mod
+    import agentic_stack.tools.code_interpreter as code_interpreter_mod
 
     class _FakeProcess:
         def __init__(self) -> None:

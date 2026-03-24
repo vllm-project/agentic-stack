@@ -9,12 +9,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 
-from vllm_responses.observability.metrics import install_prometheus_metrics, instrument_sse_stream
+from agentic_stack.observability.metrics import install_prometheus_metrics, instrument_sse_stream
 
 
 @pytest.fixture
 def metrics_app() -> FastAPI:
-    app = FastAPI(title="vllm_responses observability (test)")
+    app = FastAPI(title="agentic_stack observability (test)")
     install_prometheus_metrics(app)
 
     @app.get("/hello")
@@ -46,16 +46,16 @@ async def test_metrics_endpoint_exposes_expected_names(metrics_app: FastAPI) -> 
         assert "version=" in resp.headers["content-type"]
 
         text = resp.text
-        assert "vllm_responses_http_requests_total" in text
-        assert "vllm_responses_http_request_duration_seconds" in text
-        assert "vllm_responses_http_in_flight_requests" in text
-        assert "vllm_responses_sse_connections_in_flight" in text
-        assert "vllm_responses_sse_stream_duration_seconds" in text
-        assert "vllm_responses_tool_calls_requested_total" in text
-        assert "vllm_responses_tool_calls_executed_total" in text
-        assert "vllm_responses_tool_execution_duration_seconds" in text
-        assert "vllm_responses_tool_errors_total" in text
-        assert "vllm_responses_mcp_server_startup_total" in text
+        assert "agentic_stack_http_requests_total" in text
+        assert "agentic_stack_http_request_duration_seconds" in text
+        assert "agentic_stack_http_in_flight_requests" in text
+        assert "agentic_stack_sse_connections_in_flight" in text
+        assert "agentic_stack_sse_stream_duration_seconds" in text
+        assert "agentic_stack_tool_calls_requested_total" in text
+        assert "agentic_stack_tool_calls_executed_total" in text
+        assert "agentic_stack_tool_execution_duration_seconds" in text
+        assert "agentic_stack_tool_errors_total" in text
+        assert "agentic_stack_mcp_server_startup_total" in text
 
 
 @pytest.mark.anyio
@@ -68,7 +68,7 @@ async def test_http_metrics_include_route_template(metrics_app: FastAPI) -> None
         metrics = await client.get("/metrics")
         assert metrics.status_code == 200
         assert (
-            'vllm_responses_http_requests_total{method="GET",route="/hello",status="200"}'
+            'agentic_stack_http_requests_total{method="GET",route="/hello",status="200"}'
             in metrics.text
         )
 
@@ -84,7 +84,7 @@ async def test_sse_metrics_record_stream_lifetime(metrics_app: FastAPI) -> None:
         metrics = await client.get("/metrics")
         assert metrics.status_code == 200
         match = re.search(
-            r'^vllm_responses_sse_stream_duration_seconds_count\{route="/sse"\} ([0-9.]+)\s*$',
+            r'^agentic_stack_sse_stream_duration_seconds_count\{route="/sse"\} ([0-9.]+)\s*$',
             metrics.text,
             flags=re.MULTILINE,
         )

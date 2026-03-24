@@ -4,7 +4,7 @@ import httpx
 import pytest
 from sse_test_utils import extract_completed_response, parse_sse_frames, parse_sse_json_events
 
-from vllm_responses.entrypoints import llm as mock_llm
+from agentic_stack.entrypoints import llm as mock_llm
 
 
 def _extract_completed_response(sse_text: str) -> dict:
@@ -105,7 +105,7 @@ async def test_openresponses_conformance_basic_text_response_shape(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ):
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "text-single-stream.yaml"
     )
 
@@ -130,7 +130,7 @@ async def test_openresponses_conformance_streaming_response_shape(
     gateway_client: httpx.AsyncClient,
     cassette_replayer_factory,
 ):
-    mock_llm.app.state.vllm_responses.cassette_replayer = cassette_replayer_factory(
+    mock_llm.app.state.agentic_stack.cassette_replayer = cassette_replayer_factory(
         "text-single-stream.yaml"
     )
 
