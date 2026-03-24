@@ -1,0 +1,82 @@
+name: Pre-commit
+
+run-name: Run pre-commit checks
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            **/requirements*.txt
+            .pre-commit-config.yaml
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@e06108dd0aef18192324c70427afc47652e63a82 # v7.5.0
+
+      - name: Install pre-commit
+        run: python -m pip install 'pre-commit>=4.4.0'
+
+      - name: Cache pre-commit
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-3|${{ env.pythonLocation }}|${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run pre-commit
+        id: precommit
+        run: |
+          set +e
+          pre-commit run --show-diff-on-failure --color=always --all-files 2>&1 | tee /tmp/precommit.log
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> $GITHUB_OUTPUT
+          exit 0
+        env:
+          SKIP: no-commit-to-branch
+          RUFF_OUTPUT_FORMAT: github
+
+      - name: Check pre-commit results
+        if: steps.precommit.outputs.status != '0'
+        run: |
+          echo "::error::Pre-commit hooks failed. Please run 'pre-commit run --all-files' locally and commit the fixes."
+          echo ""
+          echo "Failed hooks output:"
+          cat /tmp/precommit.log
+          exit 1
+
+      - name: Verify no uncommitted changes
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::There are uncommitted changes after pre-commit. Please run 'pre-commit run --all-files' locally and commit the fixes."
+            echo "::warning::Files with changes:"
+            git diff --name-status
+            exit 1
+          fi
+
+      - name: Verify no new untracked files
+        run: |
+          unstaged_files=$(git ls-files --others --exclude-standard)
+          if [ -n "$unstaged_files" ]; then
+            echo "::error::There are new untracked files after pre-commit. Please run 'pre-commit run --all-files' locally and commit the fixes."
+            echo "::warning::New files:"
+            echo "$unstaged_files"
+            exit 1
+          fi
