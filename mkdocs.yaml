@@ -1,0 +1,100 @@
+site_name: vLLM Agentic Stack
+site_description: Stateful API logic for agentic applications using vLLM
+site_url: https://agentic-stack.readthedocs.io/
+repo_url: https://github.com/vllm-project/agentic-stack
+repo_name: vllm-project/agentic-stack
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  custom_dir: docs/mkdocs/overrides
+  features:
+    - content.action.edit
+    - content.code.copy
+    - content.tabs.link
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - search.highlight
+    - search.share
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: white
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      toggle:
+        icon: material/brightness-2
+        name: Switch to system preference
+  font:
+    text: Roboto
+    code: Roboto Mono
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+
+extra_css:
+  - mkdocs/stylesheets/extra.css
+
+plugins:
+  - search
+  - autorefs
+  - git-revision-date-localized:
+      type: datetime
+      timezone: UTC
+      fallback_to_build_date: true
+      enable_creation_date: true
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
+      htmlmin_opts:
+        remove_comments: true
+      cache_safe: true
+
+markdown_extensions:
+  - attr_list
+  - def_list
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+nav:
+  - Home: index.md
+  - API Reference: api/index.md
+  - Community: community/index.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/vllm-project/agentic-stack
