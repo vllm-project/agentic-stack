@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions
+    url: https://vllm-workspace.slack.com/archives/feat-responses
+    about: Join #feat-responses on the vLLM Slack workspace for discussion.
