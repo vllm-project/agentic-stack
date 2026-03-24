@@ -1,0 +1,18 @@
+[project]
+name = "agentic-stack"
+version = "0.1.0"
+description = "Stateful API logic for agentic applications using vLLM"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocs-autorefs>=1.0.0",
+    "mkdocs-awesome-nav>=0.11.0",
+    "mkdocs-glightbox>=0.4.0",
+    "mkdocs-git-revision-date-localized-plugin>=1.2.0",
+    "mkdocs-minify-plugin>=0.8.0",
+    "mkdocstrings[python]>=0.25.0",
+]
