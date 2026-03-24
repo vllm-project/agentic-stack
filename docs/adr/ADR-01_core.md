@@ -43,7 +43,7 @@ We voted. Red Hat, DaoCloud, EmbeddedLLM all went Python. Andrew (Meta) pushed f
 
 GPT-OSS is a top priority for vLLM and a top concern for Red Hat (Flora Feng). But Andrew flagged that "GPT-OSS is so Harmony-specific, it may not generalize because it does not use the Jinja formats" other models rely on. Francisco's take: separate Harmony parsing from the API layer so the gateway stays generic, and allow Jinja template usage for everything else. Andrew pointed to two relevant vLLM efforts — the Parser (issue [#32713](https://github.com/vllm-project/vllm/issues/32713)) and the Renderer (PR [#30200](https://github.com/vllm-project/vllm/pull/30200)).
 
-Francisco suggested starting with two models (GPT-OSS and Kimi) to validate the architecture works for both Harmony and non-Harmony. Tun noted vLLM's Responses API "is also lossy" and that core doesn't want to make it "gigantic" with all Harmony-exclusive fields — so the gateway might need its own way of passing model-specific data.
+Francisco suggested starting with two models (GPT-OSS and Kimi) to validate the architecture works for both Harmony and non-Harmony. Tun Jian noted vLLM's Responses API "is also lossy" and that core doesn't want to make it "gigantic" with all Harmony-exclusive fields — so the gateway might need its own way of passing model-specific data.
 
 No consensus yet on how Harmony fields should flow through the system. See open questions.
 
@@ -109,7 +109,7 @@ Some notes:
 - The tool call loop can iterate multiple times if the model makes sequential tool calls.
 - SSE stream to the client is interleaved with the tool loop — events go out in real time, not buffered until done.
 - "vLLM Server" represents any Responses API-compatible upstream, doesn't have to literally be vLLM. That said, current consensus points at vLLM's existing Responses API endpoint specifically, with the eventual goal of migrating that logic into this project.
-- Tun proposed defining an internal protocol between vLLM and agentic-stack (similar to how vLLM does the KVConnectors API). This would let the gateway access vLLM's Renderer and output parser without reimplementing them. Hasn't been discussed broadly yet — captured as an open question.
+- Tun Jian proposed defining an internal protocol between vLLM and agentic-stack (similar to how vLLM does the KVConnectors API). This would let the gateway access vLLM's Renderer and output parser without reimplementing them. Hasn't been discussed broadly yet — captured as an open question.
 
 ---
 
@@ -152,7 +152,7 @@ If these hold:
 
 - Gateway is a thin stateful layer. The heavy stuff (tokenization, model support) stays in vLLM.
 - Adding support for a new model shouldn't require changes here unless it needs special Responses API handling.
-- Tests can run without GPUs — the gateway doesn't touch tokenization. As Tun put it, "this is a frontend component — model requests and output should be replayed instead."
+- Tests can run without GPUs — the gateway doesn't touch tokenization. As Tun Jian put it, "this is a frontend component — model requests and output should be replayed instead."
 - MVP is achievable with a small team, focused on statefulness and protocol translation.
 - Harmony/GPT-OSS support depends on upstream vLLM work on the Renderer ([#30200](https://github.com/vllm-project/vllm/pull/30200)) and Parser ([#32713](https://github.com/vllm-project/vllm/issues/32713)).
 
@@ -170,7 +170,7 @@ These are explicitly left open for discussion.
 
 **On upstream interface and model support:**
 
-4. **Internal protocol.** Tun proposed a vLLM Agentic Protocol for structured communication between vLLM and this project (like KVConnectors). Worth pursuing? What would it look like? This could change whether we talk to the public Responses API or something lower-level.
+4. **Internal protocol.** Tun Jian proposed a vLLM Agentic Protocol for structured communication between vLLM and this project (like KVConnectors). Worth pursuing? What would it look like? This could change whether we talk to the public Responses API or something lower-level.
 5. **Harmony field handling.** vLLM core doesn't want the Responses API bloated with Harmony-exclusive fields. How should that data flow through the gateway? Internal protocol? Sidecar? Something else?
 6. **Eventual migration into vLLM core.** A few people mentioned this project could eventually merge back into core as an optional dep. Under what conditions? Should we design for that now?
 7. **Relationship to llm-d.** Ben noted llm-d has overlapping needs around tokenization reuse. Should we coordinate explicitly?
