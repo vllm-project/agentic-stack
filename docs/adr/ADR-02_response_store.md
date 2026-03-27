@@ -285,7 +285,7 @@ Observed OpenAI-compatible behavior from exploratory testing suggests that:
 
 - omitted `tools` may still be recoverable across continuation when the prior turn established them
 - an explicit `tool_choice` should not be assumed valid if the continuation request omits the corresponding `tools`
-- prior `instructions` are needs to be provided at every new turn, so it's not supposed to be stored (or at the very least not to be applied). 
+- prior `instructions` need to be provided on each new turn, so they should not be assumed to persist automatically even if they are stored.
 
 That suggests two useful guardrails for this ADR:
 
