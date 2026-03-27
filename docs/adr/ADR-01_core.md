@@ -206,7 +206,8 @@ These are explicitly left open for discussion.
 
 **From PR review discussion:**
 
-8. **Batch API.** How should the gateway handle batch API requests if vLLM lacks a corresponding endpoint?
-9. **Skills / agent capabilities.** Should the gateway expose a skills endpoint for agent capabilities that don't require LLM inference? Could follow a "local shell mode" pattern.
+8. **Batch API.** How should the gateway handle batch API requests given that vLLM does not provide a native batch endpoint? The proposed approach is to implement batch functionality within this repository by dispatching multiple individual requests (e.g., `/v1/chat/completions`, `/v1/responses`, or embedding/rerank endpoints) to the vLLM server.
+9. **Skills / agent capabilities.** Should the gateway expose a skills endpoint for agent capabilities that don't require LLM inference? Could follow a "local shell mode" pattern similar to OpenAI local shell mode https://developers.openai.com/api/docs/guides/tools-skills#use-skills-with-local-shell-mode .
 10. **CLI integration surface.** Should the Entry Points layer own a CLI integration like `vllm serve --agentic-stack <model>`?
 11. **Connectors API pattern.** Should the internal vLLM protocol (if pursued) follow OpenAI's Connectors API pattern, or is MCP sufficient as the standard?
+- Proposed approach is to set MCP as the primary interface following the OpenAI standard of handling remote MCP and connectors https://developers.openai.com/api/docs/guides/tools-connectors-mcp . Connectors are just OpenAI-maintained MCP wrappers (as written in their docs).
