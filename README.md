@@ -1,4 +1,4 @@
-# agentic-stack
+# agentic-api
 Stateful API logic for agentic applications using vLLM
 
 A lightweight gateway that sits in front of vLLM and exposes the OpenAI Responses API (`POST /v1/responses`).

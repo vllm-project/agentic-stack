@@ -1,14 +1,14 @@
-# Contributing to vLLM Agentic Stack
+# Contributing to vLLM Agentic API
 
-Thank you for your interest in contributing to the vLLM Agentic Stack. This guide covers
+Thank you for your interest in contributing to the vLLM Agentic API. This guide covers
 everything you need to get started.
 
 ## Getting Started
 
 1. Fork and clone the repository:
    ```bash
-   git clone https://github.com/vllm-project/agentic-stack.git
-   cd agentic-stack
+   git clone https://github.com/vllm-project/agentic-api.git
+   cd agentic-api
    ```
 
 2. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) (the project's
@@ -76,7 +76,7 @@ Do not worry about manually formatting code -- the pre-commit hooks will handle 
 ## Reporting Issues
 
 Use the issue templates provided on the
-[GitHub Issues](https://github.com/vllm-project/agentic-stack/issues) page. Choose the
+[GitHub Issues](https://github.com/vllm-project/agentic-api/issues) page. Choose the
 template that best matches your report (bug report, feature request, etc.).
 
 ## Code of Conduct
