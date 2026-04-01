@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-This ADR covers the foundational architecture of **agentic-stack** — an open-source gateway that sits in front of a stateless LLM inference backend and turns it into a stateful, tool-capable Responses API endpoint.
+This ADR covers the foundational architecture of **agentic-api** — an open-source gateway that sits in front of a stateless LLM inference backend and turns it into a stateful, tool-capable Responses API endpoint.
 
 Three core challenges:
 
@@ -109,7 +109,7 @@ Some notes:
 - The tool call loop can iterate multiple times if the model makes sequential tool calls.
 - SSE stream to the client is interleaved with the tool loop — events go out in real time, not buffered until done.
 - "vLLM Server" represents any Responses API-compatible upstream, doesn't have to literally be vLLM. That said, current consensus points at vLLM's existing Responses API endpoint specifically, with the eventual goal of migrating that logic into this project.
-- A proposal exists for defining an internal protocol between vLLM and agentic-stack (similar to how vLLM does the KVConnectors API). This would let the gateway access vLLM's Renderer and output parser without reimplementing them. Hasn't been discussed broadly yet — captured as an open question.
+- A proposal exists for defining an internal protocol between vLLM and agentic-api (similar to how vLLM does the KVConnectors API). This would let the gateway access vLLM's Renderer and output parser without reimplementing them. Hasn't been discussed broadly yet — captured as an open question.
 
 ---
 
@@ -142,7 +142,7 @@ The MVP **explicitly excludes**: file search, vector search, MCP integration, we
 1. *Single-table with flattened JSON* — each row holds the full conversation history as a JSON blob. Rehydrating a conversation for `previous_response_id` is always one DB read, no chain walking. Simple, but conversation compaction becomes a concern as histories grow.
 2. *Normalized multi-table* — separate tables for Responses, Prompts, and Conversations. Avoids compaction issues and enables more flexible querying, but adds schema complexity.
 
-SQLite as the default backend (zero-config), PostgreSQL when you need multi-worker. Database provider classes should be generic to allow swapping backends. Detailed database design discussion is tracked in [issue #14](https://github.com/vllm-project/agentic-stack/issues/14).
+SQLite as the default backend (zero-config), PostgreSQL when you need multi-worker. Database provider classes should be generic to allow swapping backends. Detailed database design discussion is tracked in [issue #14](https://github.com/vllm-project/agentic-api/issues/14).
 
 ---
 
@@ -167,7 +167,7 @@ These reflect where things stand. Still open for discussion while we're in Draft
 This section captures the current state of PR review feedback to keep the discussion legible.
 
 - **MVP scope.** Converging toward a minimal proposal: single `POST /v1/responses` endpoint + SQLite persistence + httpx forwarding + SSE normalization. No tools, no plugins, no MCP in the first cut.
-- **Database design.** Two proposals on the table — single-table flattened JSON vs. normalized multi-table. Detailed discussion moved to [issue #14](https://github.com/vllm-project/agentic-stack/issues/14).
+- **Database design.** Two proposals on the table — single-table flattened JSON vs. normalized multi-table. Detailed discussion moved to [issue #14](https://github.com/vllm-project/agentic-api/issues/14).
 - **Tool integration.** Reviewers favor MCP as the primary interface over OpenAI's Connectors API pattern. MCP is the more general standard; Connectors are effectively an OpenAI-maintained wrapper around it.
 - **ADR style.** Feedback to remove personal attributions and focus on decisions and rationale rather than who said what. Addressed in this revision.
 - **Installation model.** Proposal to distribute as an optional vLLM extra (`vllm[responses]`) received positive reception.
@@ -208,6 +208,6 @@ These are explicitly left open for discussion.
 
 8. **Batch API.** How should the gateway handle batch API requests given that vLLM does not provide a native batch endpoint? The proposed approach is to implement batch functionality within this repository by dispatching multiple individual requests (e.g., `/v1/chat/completions`, `/v1/responses`, or embedding/rerank endpoints) to the vLLM server.
 9. **Skills / agent capabilities.** Should the gateway expose a skills endpoint for agent capabilities that don't require LLM inference? Could follow a "local shell mode" pattern similar to OpenAI local shell mode https://developers.openai.com/api/docs/guides/tools-skills#use-skills-with-local-shell-mode .
-10. **CLI integration surface.** Should the Entry Points layer own a CLI integration like `vllm serve --agentic-stack <model>`?
+10. **CLI integration surface.** Should the Entry Points layer own a CLI integration like `vllm serve --agentic-api <model>`?
 11. **Connectors API pattern.** Should the internal vLLM protocol (if pursued) follow OpenAI's Connectors API pattern, or is MCP sufficient as the standard?
 - Proposed approach is to set MCP as the primary interface following the OpenAI standard of handling remote MCP and connectors https://developers.openai.com/api/docs/guides/tools-connectors-mcp . Connectors are just OpenAI-maintained MCP wrappers (as written in their docs).

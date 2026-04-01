@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "agentic-stack"
+name = "agentic-api"
 version = "0.1.0"
 source = { virtual = "." }
 

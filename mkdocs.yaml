@@ -1,8 +1,8 @@
-site_name: vLLM Agentic Stack
+site_name: vLLM Agentic API
 site_description: Stateful API logic for agentic applications using vLLM
-site_url: https://agentic-stack.readthedocs.io/
-repo_url: https://github.com/vllm-project/agentic-stack
-repo_name: vllm-project/agentic-stack
+site_url: https://agentic-api.readthedocs.io/
+repo_url: https://github.com/vllm-project/agentic-api
+repo_name: vllm-project/agentic-api
 edit_uri: edit/main/docs/
 
 theme:
@@ -97,4 +97,4 @@ nav:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/vllm-project/agentic-stack
+      link: https://github.com/vllm-project/agentic-api

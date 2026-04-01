@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentic-stack"
+name = "agentic-api"
 version = "0.1.0"
 description = "Stateful API logic for agentic applications using vLLM"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"
 authors = [
-    { name = "Agentic Stack Community" },
+    { name = "Agentic API Community" },
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -23,10 +23,10 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/vllm-project/agentic-stack"
-Repository = "https://github.com/vllm-project/agentic-stack"
-Issues = "https://github.com/vllm-project/agentic-stack/issues"
-Documentation = "https://github.com/vllm-project/agentic-stack"
+Homepage = "https://github.com/vllm-project/agentic-api"
+Repository = "https://github.com/vllm-project/agentic-api"
+Issues = "https://github.com/vllm-project/agentic-api/issues"
+Documentation = "https://github.com/vllm-project/agentic-api"
 
 [dependency-groups]
 docs = [
