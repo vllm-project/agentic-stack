@@ -5,7 +5,7 @@ import httpx
 import pytest
 from asgi_lifespan import LifespanManager
 from fastapi import FastAPI, Request
-from fastapi.responses import ORJSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from agentic_api.config.runtime import RuntimeConfig
 from agentic_api.core.proxy import ProxyClientManager
@@ -67,7 +67,7 @@ def build_upstream_stub() -> FastAPI:
             )
 
         if body.get("force_error") == 429:
-            return ORJSONResponse(
+            return JSONResponse(
                 status_code=429,
                 content={"error": {"message": "rate limited", "code": "rate_limit"}},
                 headers={"x-upstream": "error"},

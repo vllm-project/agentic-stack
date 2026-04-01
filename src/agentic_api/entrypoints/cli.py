@@ -15,8 +15,8 @@ def _normalize_base_url(url: str) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        prog="agentic-stack",
-        description="Start the agentic-stack gateway in front of a running vLLM server.",
+        prog="agentic-API",
+        description="Start the agentic-API gateway in front of a running vLLM server.",
     )
     parser.add_argument(
         "--llm-api-base",

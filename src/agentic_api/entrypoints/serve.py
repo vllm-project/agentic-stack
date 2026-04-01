@@ -8,9 +8,9 @@ from agentic_api.entrypoints.app import create_app
 
 
 def _wait_upstream_ready(runtime_config: RuntimeConfig) -> None:
-    """Poll vLLM /v1/models until it responds 200 or timeout is reached."""
+    """Poll vLLM /health until it responds 200 or timeout is reached."""
     base = runtime_config.llm_api_base.rstrip("/")
-    url = f"{base}/v1/models"
+    url = f"{base}/health"
     headers: dict[str, str] = {}
     if runtime_config.openai_api_key:
         headers["Authorization"] = f"Bearer {runtime_config.openai_api_key}"

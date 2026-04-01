@@ -1,20 +1,21 @@
-from dataclasses import dataclass
-from typing import Literal
-
-RuntimeMode = Literal["standalone", "integrated"]
+from pydantic import BaseModel, Field
 
 
-@dataclass(frozen=True, slots=True)
-class RuntimeConfig:
-    # Upstream vLLM server
-    llm_api_base: str
-    openai_api_key: str | None
+class RuntimeConfig(BaseModel):
+    llm_api_base: str = Field(
+        description="Base URL of the upstream vLLM server (e.g. http://127.0.0.1:8000)."
+    )
+    openai_api_key: str | None = Field(
+        description="API key forwarded to the upstream server."
+    )
 
-    # Gateway process
-    gateway_host: str
-    gateway_port: int
-    gateway_workers: int
+    gateway_host: str = Field(description="Host address the gateway binds to.")
+    gateway_port: int = Field(description="Port the gateway listens on.")
+    gateway_workers: int = Field(description="Number of uvicorn worker processes.")
 
-    # Startup behaviour
-    upstream_ready_timeout_s: float
-    upstream_ready_interval_s: float
+    upstream_ready_timeout_s: float = Field(
+        description="Seconds to wait for the upstream to become ready before aborting."
+    )
+    upstream_ready_interval_s: float = Field(
+        description="Polling interval in seconds when waiting for the upstream to become ready."
+    )

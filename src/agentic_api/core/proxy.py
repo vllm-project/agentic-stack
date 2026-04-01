@@ -2,7 +2,7 @@ from collections.abc import Iterable
 
 import httpx
 from fastapi import Request
-from fastapi.responses import ORJSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from agentic_api.config.runtime import RuntimeConfig
 
@@ -54,8 +54,8 @@ class ProxyClientManager:
             self._non_stream_client = None
 
 
-def proxy_error(*, status_code: int, code: str, message: str) -> ORJSONResponse:
-    return ORJSONResponse(
+def proxy_error(*, status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
         status_code=status_code,
         content={
             "error": {

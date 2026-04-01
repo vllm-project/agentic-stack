@@ -32,7 +32,7 @@ The gateway starts on port `9000` by default and waits up to 10 minutes for vLLM
 If vLLM is already running separately, point the gateway at it:
 
 ```bash
-agentic-stack --llm-api-base http://127.0.0.1:8000
+agentic-api --llm-api-base http://127.0.0.1:8000
 ```
 
 The `/v1` suffix on `--llm-api-base` is optional.
