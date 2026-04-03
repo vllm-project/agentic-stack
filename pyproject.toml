@@ -20,7 +20,22 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dependencies = []
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.7.0",
+]
+
+[project.scripts]
+agentic-api = "agentic_api.entrypoints.cli:main"
+vllm = "agentic_api.entrypoints.vllm_cli:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.anyio]
+backend = "asyncio"
 
 [project.urls]
 Homepage = "https://github.com/vllm-project/agentic-api"
@@ -29,6 +44,13 @@ Issues = "https://github.com/vllm-project/agentic-api/issues"
 Documentation = "https://github.com/vllm-project/agentic-api"
 
 [dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "anyio[trio]>=4.4.0",
+    "pytest-anyio>=0.0.0",
+    "httpx>=0.27.0",
+    "asgi-lifespan>=2.1.0",
+]
 docs = [
     "mkdocs>=1.6.0",
     "mkdocs-material>=9.5.0",
