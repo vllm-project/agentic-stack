@@ -123,6 +123,22 @@ async fn execute_messages(
     }
 }
 
+#[cfg_attr(feature = "openapi", utoipa::path(
+    post,
+    path = "/v1/messages",
+    request_body = agentic_core::types::messages::MessagesRequest,
+    responses(
+        (status = 200, description = "JSON when stream=false, SSE when stream=true",
+            content(
+                (() = "application/json"),
+                (() = "text/event-stream"),
+            )),
+        (status = 400, description = "Invalid request", body = crate::openapi::AnthropicErrorResponse),
+        (status = 502, description = "Upstream error", body = crate::openapi::AnthropicErrorResponse),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "messages",
+))]
 pub async fn messages(State(state): State<AppState>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
     let bytes: Bytes = match read_bytes_with_auth(body, ProxyAuth::Anthropic).await {
@@ -148,6 +164,17 @@ pub async fn messages(State(state): State<AppState>, request: Request) -> Respon
     proxy_messages(&state, parts, bytes, "/v1/messages").await
 }
 
+#[cfg_attr(feature = "openapi", utoipa::path(
+    post,
+    path = "/v1/messages/count_tokens",
+    responses(
+        (status = 200, description = "Token count result"),
+        (status = 400, description = "Invalid request", body = crate::openapi::AnthropicErrorResponse),
+        (status = 502, description = "Upstream error", body = crate::openapi::AnthropicErrorResponse),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "messages",
+))]
 pub async fn count_tokens(State(state): State<AppState>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
     let mut bytes: Bytes = match read_bytes_with_auth(body, ProxyAuth::Anthropic).await {

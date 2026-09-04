@@ -4,6 +4,7 @@ use serde_json::Value;
 use crate::types::tools::{NonEmptyToolName, ResponsesTool};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct FunctionTool {
     #[serde(rename = "type")]
     pub type_: String,
@@ -33,6 +34,7 @@ pub enum ToolChoice {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AllowedTool {
     #[serde(rename = "type")]
     pub type_: NonEmptyToolName,
@@ -40,10 +42,57 @@ pub struct AllowedTool {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AllowedToolsMode {
     Auto,
     Required,
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for ToolChoice {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::{
+            ObjectBuilder, Ref,
+            schema::{ArrayBuilder, OneOfBuilder, SchemaType, Type},
+        };
+
+        let str_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::String));
+
+        OneOfBuilder::new()
+            .item(str_type().enum_values(Some(["auto", "none", "required"])))
+            .item(
+                ObjectBuilder::new()
+                    .property("type", str_type().enum_values(Some(["function"])))
+                    .required("type")
+                    .property("name", str_type())
+                    .required("name")
+                    .property("namespace", str_type()),
+            )
+            .item(
+                ObjectBuilder::new()
+                    .property("type", str_type().enum_values(Some(["custom"])))
+                    .required("type")
+                    .property("name", str_type())
+                    .required("name"),
+            )
+            .item(
+                ObjectBuilder::new()
+                    .property("type", str_type().enum_values(Some(["allowed_tools"])))
+                    .required("type")
+                    .property("mode", Ref::from_schema_name("AllowedToolsMode"))
+                    .required("mode")
+                    .property("tools", ArrayBuilder::new().items(Ref::from_schema_name("AllowedTool")))
+                    .required("tools"),
+            )
+            .into()
+    }
+}
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for ToolChoice {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ToolChoice")
+    }
 }
 
 impl Serialize for ToolChoice {

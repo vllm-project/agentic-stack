@@ -14,7 +14,13 @@ exclude = [
 [lib]
 name = "agentic_core"
 
+[features]
+default = []
+openapi = ["dep:utoipa"]
+
 [dependencies]
+utoipa = { workspace = true, optional = true }
+
 async-stream.workspace = true
 bytes.workspace = true
 dirs.workspace = true

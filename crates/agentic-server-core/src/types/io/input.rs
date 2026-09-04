@@ -10,11 +10,13 @@ use crate::utils::common::deserialize_from_value;
 use super::output::{CustomToolCall, FunctionToolCall, McpListTools, ReasoningOutput, ToolSearchCall};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct InputTextContent {
     pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct InputImageContent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_id: Option<String>,
@@ -25,6 +27,7 @@ pub struct InputImageContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct InputFileContent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_data: Option<String>,
@@ -59,6 +62,7 @@ pub enum InputContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct InputMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -76,6 +80,7 @@ pub enum InputMessageContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct FunctionToolResultMessage {
     pub call_id: String,
     pub output: ToolCallOutput,
@@ -95,11 +100,165 @@ pub enum ToolCallOutput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ToolOutputContent {
     InputText(InputTextContent),
     InputImage(InputImageContent),
     InputFile(InputFileContent),
+}
+
+#[cfg(feature = "openapi")]
+mod openapi_schemas {
+    use super::{InputContent, InputItem, InputMessageContent, ResponsesInput, ToolCallOutput};
+    use utoipa::openapi::schema::{ArrayBuilder, OneOfBuilder, Schema, SchemaType, Type};
+    use utoipa::openapi::{ObjectBuilder, Ref, RefOr};
+
+    fn string_schema() -> RefOr<Schema> {
+        ObjectBuilder::new().schema_type(SchemaType::new(Type::String)).into()
+    }
+
+    impl utoipa::PartialSchema for InputMessageContent {
+        fn schema() -> RefOr<Schema> {
+            OneOfBuilder::new()
+                .item(string_schema())
+                .item(ArrayBuilder::new().items(Ref::from_schema_name("InputContent")))
+                .into()
+        }
+    }
+    impl utoipa::ToSchema for InputMessageContent {
+        fn name() -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("InputMessageContent")
+        }
+    }
+
+    impl utoipa::PartialSchema for ToolCallOutput {
+        fn schema() -> RefOr<Schema> {
+            OneOfBuilder::new()
+                .item(string_schema())
+                .item(ArrayBuilder::new().items(Ref::from_schema_name("ToolOutputContent")))
+                .into()
+        }
+    }
+    impl utoipa::ToSchema for ToolCallOutput {
+        fn name() -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("ToolCallOutput")
+        }
+    }
+
+    impl utoipa::PartialSchema for ResponsesInput {
+        fn schema() -> RefOr<Schema> {
+            OneOfBuilder::new()
+                .item(string_schema())
+                .item(ArrayBuilder::new().items(Ref::from_schema_name("InputItem")))
+                .into()
+        }
+    }
+    impl utoipa::ToSchema for ResponsesInput {
+        fn name() -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("ResponsesInput")
+        }
+    }
+
+    fn tagged_text_variant(type_value: &str) -> RefOr<Schema> {
+        ObjectBuilder::new()
+            .property(
+                "type",
+                ObjectBuilder::new()
+                    .schema_type(SchemaType::new(Type::String))
+                    .enum_values(Some([type_value])),
+            )
+            .required("type")
+            .property("text", ObjectBuilder::new().schema_type(SchemaType::new(Type::String)))
+            .required("text")
+            .into()
+    }
+
+    impl utoipa::PartialSchema for InputContent {
+        fn schema() -> RefOr<Schema> {
+            OneOfBuilder::new()
+                .discriminator(Some(utoipa::openapi::schema::Discriminator::new("type")))
+                .item(tagged_text_variant("input_text"))
+                .item(
+                    ObjectBuilder::new()
+                        .property(
+                            "type",
+                            ObjectBuilder::new()
+                                .schema_type(SchemaType::new(Type::String))
+                                .enum_values(Some(["input_image"])),
+                        )
+                        .required("type")
+                        .property(
+                            "file_id",
+                            ObjectBuilder::new().schema_type(SchemaType::new(Type::String)),
+                        )
+                        .property(
+                            "image_url",
+                            ObjectBuilder::new().schema_type(SchemaType::new(Type::String)),
+                        )
+                        .property(
+                            "detail",
+                            ObjectBuilder::new().schema_type(SchemaType::new(Type::String)),
+                        ),
+                )
+                .item(tagged_text_variant("output_text"))
+                .item(tagged_text_variant("reasoning_text"))
+                .into()
+        }
+    }
+    impl utoipa::ToSchema for InputContent {
+        fn name() -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("InputContent")
+        }
+    }
+
+    fn tagged_ref(type_value: &str, schema_name: &str) -> RefOr<Schema> {
+        use utoipa::openapi::schema::AllOfBuilder;
+        AllOfBuilder::new()
+            .item(
+                ObjectBuilder::new()
+                    .property(
+                        "type",
+                        ObjectBuilder::new()
+                            .schema_type(SchemaType::new(Type::String))
+                            .enum_values(Some([type_value])),
+                    )
+                    .required("type"),
+            )
+            .item(Ref::from_schema_name(schema_name))
+            .into()
+    }
+
+    impl utoipa::PartialSchema for InputItem {
+        fn schema() -> RefOr<Schema> {
+            OneOfBuilder::new()
+                .discriminator(Some(utoipa::openapi::schema::Discriminator::new("type")))
+                .item(tagged_ref("message", "InputMessage"))
+                .item(tagged_ref("function_call", "InputFunctionToolCall"))
+                .item(tagged_ref("function_call_output", "FunctionToolResultMessage"))
+                .item(tagged_ref("custom_tool_call", "CustomToolCall"))
+                .item(tagged_ref("custom_tool_call_output", "CustomToolCallOutputMessage"))
+                .item(tagged_ref("reasoning", "ReasoningOutput"))
+                .item(tagged_ref("mcp_list_tools", "McpListTools"))
+                .item(tagged_ref("compaction", "CompactionItem"))
+                .item(
+                    ObjectBuilder::new()
+                        .property(
+                            "type",
+                            ObjectBuilder::new()
+                                .schema_type(SchemaType::new(Type::String))
+                                .enum_values(Some(["compaction_trigger"])),
+                        )
+                        .required("type"),
+                )
+                .into()
+        }
+    }
+    impl utoipa::ToSchema for InputItem {
+        fn name() -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("InputItem")
+        }
+    }
 }
 
 impl ToolCallOutput {
@@ -130,6 +289,7 @@ impl From<&str> for ToolCallOutput {
 /// output: clients may omit `id` and `status` when passing prior items to a
 /// later request or to the compact endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct InputFunctionToolCall {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -224,6 +384,7 @@ pub struct ToolSearchOutputMessage {
 
 /// An opaque compacted context checkpoint accepted as Responses input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CompactionItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -232,6 +393,7 @@ pub struct CompactionItem {
 
 /// Client result for a freeform custom tool call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CustomToolCallOutputMessage {
     pub call_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]

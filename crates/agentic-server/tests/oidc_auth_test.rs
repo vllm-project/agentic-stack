@@ -73,6 +73,8 @@ async fn spawn_gateway(authenticator: OidcAuthenticator, upstream_url: &str) -> 
         test_state(&config),
         &ServerConfig {
             cors_allowed_origins: Vec::new(),
+            #[cfg(feature = "openapi")]
+            enable_openapi_docs: false,
         },
         Some(authenticator),
     );

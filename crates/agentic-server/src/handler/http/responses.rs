@@ -42,6 +42,22 @@ async fn execute_responses(state: &AppState, parts: Parts, payload: RequestPaylo
     }
 }
 
+#[cfg_attr(feature = "openapi", utoipa::path(
+    post,
+    path = "/v1/responses",
+    request_body = agentic_core::types::request_response::RequestPayload,
+    responses(
+        (status = 200, description = "JSON when stream=false, SSE when stream=true",
+            content(
+                (agentic_core::types::request_response::ResponsePayload = "application/json"),
+                (() = "text/event-stream"),
+            )),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiErrorResponse),
+        (status = 502, description = "Upstream error", body = crate::openapi::ApiErrorResponse),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "responses",
+))]
 pub async fn responses(State(state): State<AppState>, req: Request) -> Response {
     let (parts, body) = req.into_parts();
     let bytes = match read_bytes(body).await {
@@ -85,6 +101,18 @@ pub async fn responses(State(state): State<AppState>, req: Request) -> Response 
     }
 }
 
+#[cfg_attr(feature = "openapi", utoipa::path(
+    post,
+    path = "/v1/responses/compact",
+    request_body = agentic_core::types::request_response::CompactRequest,
+    responses(
+        (status = 200, description = "Compacted response", body = agentic_core::types::request_response::CompactedResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiErrorResponse),
+        (status = 502, description = "Upstream error", body = crate::openapi::ApiErrorResponse),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "responses",
+))]
 pub async fn compact_response(State(state): State<AppState>, req: Request) -> Response {
     let (parts, body) = req.into_parts();
     let request: CompactRequest = match read_json(body).await {

@@ -7,6 +7,17 @@ use agentic_core::executor::{ExecutorError, create_conversation};
 use super::super::common::{executor_error_response, extract_store, read_bytes};
 use crate::app::AppState;
 
+#[cfg_attr(feature = "openapi", utoipa::path(
+    post,
+    path = "/v1/conversations",
+    request_body = crate::openapi::CreateConversationRequest,
+    responses(
+        (status = 200, description = "Conversation created", body = crate::openapi::ConversationResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiErrorResponse),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "conversations",
+))]
 pub async fn conversations(State(state): State<AppState>, req: Request) -> Response {
     let (_, body) = req.into_parts();
     let bytes = match read_bytes(body).await {

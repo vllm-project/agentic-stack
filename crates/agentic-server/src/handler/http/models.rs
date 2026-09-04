@@ -103,6 +103,14 @@ fn build_codex_models_response(upstream_bytes: &[u8]) -> Value {
     json!({ "models": models })
 }
 
+#[cfg_attr(feature = "openapi", utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, description = "Server is alive"),
+    ),
+    tag = "health",
+))]
 pub async fn health() -> impl IntoResponse {
     StatusCode::OK
 }
@@ -173,6 +181,15 @@ async fn dependencies_are_ready(
     }
 }
 
+#[cfg_attr(feature = "openapi", utoipa::path(
+    get,
+    path = "/ready",
+    responses(
+        (status = 200, description = "Server and dependencies are ready"),
+        (status = 503, description = "One or more dependencies are not ready"),
+    ),
+    tag = "health",
+))]
 pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     let Some(probe) = state.readiness_tracker.try_start_probe() else {
         let cached_ready = state.readiness_tracker.last_result().unwrap_or(false);
@@ -222,6 +239,19 @@ pub struct ModelsParams {
 /// [`proxy_get`] and transforms it into the Codex `ModelsResponse` shape
 /// (`{ "models": [...] }` with rich metadata). Without `client_version`, the
 /// upstream response is returned unchanged via [`proxy_get`].
+#[cfg_attr(feature = "openapi", utoipa::path(
+    get,
+    path = "/v1/models",
+    params(
+        ("client_version" = Option<String>, Query, description = "Codex CLI version; triggers Codex-compatible model list shape"),
+    ),
+    responses(
+        (status = 200, description = "Model list"),
+        (status = 502, description = "Upstream unavailable", body = crate::openapi::ApiErrorResponse),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "models",
+))]
 pub async fn models(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<ModelsParams>) -> Response {
     let upstream = proxy_get("/v1/models", &headers, &state.proxy_state).await;
 

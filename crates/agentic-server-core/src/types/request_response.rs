@@ -13,6 +13,7 @@ use crate::utils::common::serialize_to_string;
 
 /// Standard Responses API reasoning generation settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ReasoningConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
@@ -28,6 +29,7 @@ pub struct ReasoningConfig {
 
 /// Responses text-generation settings forwarded to the upstream service.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ResponseTextConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<ResponseTextFormat>,
@@ -68,6 +70,106 @@ pub enum ResponseTextFormat {
         #[serde(flatten)]
         extra: Map<String, Value>,
     },
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for ResponseTextFormat {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::schema::{AllOfBuilder, ObjectBuilder, OneOfBuilder, SchemaType, Type};
+
+        let str_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::String));
+
+        OneOfBuilder::new()
+            .discriminator(Some(utoipa::openapi::schema::Discriminator::new("type")))
+            .item(
+                AllOfBuilder::new().item(
+                    ObjectBuilder::new()
+                        .property("type", str_type().enum_values(Some(["text"])))
+                        .required("type"),
+                ),
+            )
+            .item(
+                AllOfBuilder::new().item(
+                    ObjectBuilder::new()
+                        .property("type", str_type().enum_values(Some(["json_object"])))
+                        .required("type"),
+                ),
+            )
+            .item(
+                AllOfBuilder::new().item(
+                    ObjectBuilder::new()
+                        .property("type", str_type().enum_values(Some(["json_schema"])))
+                        .required("type")
+                        .property("name", str_type())
+                        .required("name")
+                        .property("schema", ObjectBuilder::new())
+                        .required("schema")
+                        .property("description", str_type())
+                        .property(
+                            "strict",
+                            ObjectBuilder::new().schema_type(SchemaType::new(Type::Boolean)),
+                        ),
+                ),
+            )
+            .into()
+    }
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for ResponseTextFormat {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ResponseTextFormat")
+    }
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for RequestPayload {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::schema::{ArrayBuilder, ObjectBuilder, SchemaType, Type};
+        use utoipa::openapi::{Ref, RefOr};
+        let str_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::String));
+        let bool_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::Boolean));
+        let num_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::Number));
+        let int_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::Integer));
+        let schema: RefOr<_> = ObjectBuilder::new()
+            .property("model", str_type())
+            .required("model")
+            .property("input", Ref::from_schema_name("ResponsesInput"))
+            .required("input")
+            .property("instructions", str_type())
+            .property("previous_response_id", str_type())
+            .property("conversation_id", str_type())
+            .property(
+                "tools",
+                ArrayBuilder::new().items(Ref::from_schema_name("ResponsesTool")),
+            )
+            .property("tool_choice", Ref::from_schema_name("ToolChoice"))
+            .property("stream", bool_type())
+            .property("store", bool_type())
+            .property("include", ArrayBuilder::new().items(str_type()))
+            .property("reasoning", Ref::from_schema_name("ReasoningConfig"))
+            .property("text", Ref::from_schema_name("ResponseTextConfig"))
+            .property("temperature", num_type())
+            .property("top_p", num_type())
+            .property("max_output_tokens", int_type())
+            .property("truncation", str_type())
+            .property("metadata", ObjectBuilder::new())
+            .property("parallel_tool_calls", bool_type())
+            .property("cache_salt", str_type())
+            .property(
+                "context_management",
+                ArrayBuilder::new().items(Ref::from_schema_name("ContextManagement")),
+            )
+            .into();
+        schema
+    }
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for RequestPayload {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("RequestPayload")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -309,6 +411,7 @@ impl RequestPayload {
 
 /// Server-side context management configuration for a Responses request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ContextManagement {
     #[serde(rename = "type")]
     pub type_: String,
@@ -318,6 +421,7 @@ pub struct ContextManagement {
 
 /// Request body accepted by `POST /v1/responses/compact`.
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CompactRequest {
     pub model: String,
     #[serde(default)]
@@ -333,6 +437,7 @@ pub struct CompactRequest {
 
 /// Result returned by `POST /v1/responses/compact`.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CompactedResponse {
     pub id: String,
     pub object: String,
@@ -342,11 +447,13 @@ pub struct CompactedResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct IncompleteDetails {
     pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ResponsePayload {
     pub id: String,
     pub object: String,

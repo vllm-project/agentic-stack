@@ -6,7 +6,14 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+openapi = ["agentic-core/openapi", "dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui"]
+
 [dependencies]
+utoipa = { workspace = true, optional = true }
+utoipa-axum = { workspace = true, optional = true }
+utoipa-swagger-ui = { workspace = true, optional = true }
 agentic-core.workspace = true
 axum.workspace = true
 bytes.workspace = true
@@ -40,6 +47,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "any", "sqlite"] }
 serde_yml = "0.0.12"
 tokio = { workspace = true, features = ["test-util"] }
 tokio-tungstenite.workspace = true
+jsonschema = "0.28"
 uuid = { version = "1", features = ["v7"] }
 
 [[bench]]

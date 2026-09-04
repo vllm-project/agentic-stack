@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Response completion status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ResponseStatus {
     /// Response is being generated.
@@ -51,6 +52,7 @@ impl FromStr for ResponseStatus {
 
 /// Message item completion status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum MessageStatus {
     /// Message is being generated.

@@ -13,6 +13,7 @@ use serde_json::Value;
 
 /// Top-level Anthropic Messages request body.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MessagesRequest {
     pub model: String,
     pub max_tokens: u32,
@@ -39,6 +40,7 @@ pub struct MessagesRequest {
 
 /// Anthropic `output_config` object. Unmodeled keys are preserved via `extra`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct OutputConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<ReasoningEffort>,
@@ -60,6 +62,7 @@ pub enum ReasoningEffort {
 /// Effort tiers understood by the gateway: the Anthropic/OpenAI standard
 /// `low`/`medium`/`high`/`max` plus the `xhigh` top tier used by Qwen chat templates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffortLevel {
     Low,
@@ -67,6 +70,23 @@ pub enum ReasoningEffortLevel {
     High,
     Xhigh,
     Max,
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for ReasoningEffort {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::ObjectBuilder::new()
+            .schema_type(utoipa::openapi::schema::SchemaType::new(
+                utoipa::openapi::schema::Type::String,
+            ))
+            .into()
+    }
+}
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for ReasoningEffort {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ReasoningEffort")
+    }
 }
 
 impl ReasoningEffort {
@@ -91,6 +111,26 @@ pub enum SystemPrompt {
     Blocks(Vec<SystemBlock>),
 }
 
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for SystemPrompt {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::{
+            ObjectBuilder,
+            schema::{ArrayBuilder, OneOfBuilder, SchemaType, Type},
+        };
+        OneOfBuilder::new()
+            .item(ObjectBuilder::new().schema_type(SchemaType::new(Type::String)))
+            .item(ArrayBuilder::new().items(utoipa::openapi::Ref::from_schema_name("SystemBlock")))
+            .into()
+    }
+}
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for SystemPrompt {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("SystemPrompt")
+    }
+}
+
 impl SystemPrompt {
     /// Flatten into a single instructions string (block texts joined by newlines).
     #[must_use]
@@ -103,6 +143,7 @@ impl SystemPrompt {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SystemBlock {
     #[serde(default)]
     pub text: String,
@@ -110,6 +151,7 @@ pub struct SystemBlock {
 
 /// One entry in the `messages` array.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MessageParam {
     pub role: String,
     pub content: MessageContent,
@@ -121,6 +163,26 @@ pub struct MessageParam {
 pub enum MessageContent {
     Text(String),
     Blocks(Vec<ContentBlock>),
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for MessageContent {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::{
+            ObjectBuilder,
+            schema::{ArrayBuilder, OneOfBuilder, SchemaType, Type},
+        };
+        OneOfBuilder::new()
+            .item(ObjectBuilder::new().schema_type(SchemaType::new(Type::String)))
+            .item(ArrayBuilder::new().items(utoipa::openapi::Ref::from_schema_name("ContentBlock")))
+            .into()
+    }
+}
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for MessageContent {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("MessageContent")
+    }
 }
 
 /// A content block inside a message. Internally tagged by `type`.
@@ -162,6 +224,79 @@ pub enum ToolResultContent {
     Blocks(Vec<ToolResultBlock>),
 }
 
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for ContentBlock {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::{
+            ObjectBuilder,
+            schema::{OneOfBuilder, SchemaType, Type},
+        };
+
+        let str_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::String));
+
+        OneOfBuilder::new()
+            .discriminator(Some(utoipa::openapi::schema::Discriminator::new("type")))
+            .item(
+                ObjectBuilder::new()
+                    .property("type", str_type().enum_values(Some(["text"])))
+                    .required("type")
+                    .property("text", str_type()),
+            )
+            .item(
+                ObjectBuilder::new()
+                    .property("type", str_type().enum_values(Some(["thinking"])))
+                    .required("type")
+                    .property("thinking", str_type())
+                    .property("signature", str_type()),
+            )
+            .item(
+                ObjectBuilder::new()
+                    .property("type", str_type().enum_values(Some(["tool_use"])))
+                    .required("type")
+                    .property("id", str_type())
+                    .required("id")
+                    .property("name", str_type())
+                    .required("name")
+                    .property("input", ObjectBuilder::new()),
+            )
+            .item(
+                ObjectBuilder::new()
+                    .property("type", str_type().enum_values(Some(["tool_result"])))
+                    .required("type")
+                    .property("tool_use_id", str_type())
+                    .required("tool_use_id")
+                    .property("content", utoipa::openapi::Ref::from_schema_name("ToolResultContent")),
+            )
+            .into()
+    }
+}
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for ContentBlock {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ContentBlock")
+    }
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for ToolResultContent {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::{
+            ObjectBuilder,
+            schema::{ArrayBuilder, OneOfBuilder, SchemaType, Type},
+        };
+        OneOfBuilder::new()
+            .item(ObjectBuilder::new().schema_type(SchemaType::new(Type::String)))
+            .item(ArrayBuilder::new().items(utoipa::openapi::Ref::from_schema_name("ToolResultBlock")))
+            .into()
+    }
+}
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for ToolResultContent {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ToolResultContent")
+    }
+}
+
 impl Default for ToolResultContent {
     fn default() -> Self {
         Self::Text(String::new())
@@ -184,6 +319,7 @@ impl ToolResultContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ToolResultBlock {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -192,6 +328,7 @@ pub struct ToolResultBlock {
 /// A tool declared in the request. Anthropic's shape is `{name, description,
 /// input_schema}`; server tools may additionally carry a versioned `type`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ToolParam {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
