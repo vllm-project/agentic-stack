@@ -196,28 +196,37 @@ pub async fn wait_for_gateway(
     let deadline = Instant::now() + timeout;
     let health_url = format!("{}/health", gateway_url.trim_end_matches('/'));
     let ready_url = format!("{}/ready", gateway_url.trim_end_matches('/'));
-    loop {
-        if Instant::now() >= deadline {
-            return Err(Error::Config(format!(
-                "gateway did not become ready at {}",
-                redact_url(gateway_url)
-            )));
-        }
-        let health_ok = client
-            .get(&health_url)
-            .send()
-            .await
-            .is_ok_and(|response| response.status().is_success());
-        let ready_ok = skip_llm_ready_check
-            || client
-                .get(&ready_url)
+    let ready = tokio::time::timeout_at(deadline, async {
+        while Instant::now() < deadline {
+            let health_ok = client
+                .get(&health_url)
                 .send()
                 .await
                 .is_ok_and(|response| response.status().is_success());
-        if health_ok && ready_ok {
-            return Ok(());
+            let ready_ok = skip_llm_ready_check
+                || client
+                    .get(&ready_url)
+                    .send()
+                    .await
+                    .is_ok_and(|response| response.status().is_success());
+            if health_ok && ready_ok {
+                // A completed future can win timeout polling after the deadline.
+                return Instant::now() < deadline;
+            }
+            sleep(interval).await;
         }
-        sleep(interval).await;
+        false
+    })
+    .await
+    .unwrap_or(false);
+
+    if ready {
+        Ok(())
+    } else {
+        Err(Error::Config(format!(
+            "gateway did not become ready at {}",
+            redact_url(gateway_url)
+        )))
     }
 }
 
@@ -959,6 +968,163 @@ mod tests {
 
         assert!(!message.contains("gateway-secret"));
         assert!(message.contains("https://[REDACTED]@example.com"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn readiness_timeout_bounds_retry_sleep() {
+        let timeout = std::time::Duration::from_secs(1);
+        let started = tokio::time::Instant::now();
+        // Make probe failure immediate so this test measures only the retry timer.
+        let result = super::wait_for_gateway(
+            &super::gateway_client().expect("gateway client"),
+            "http://[invalid",
+            timeout,
+            std::time::Duration::from_secs(60),
+            false,
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(started.elapsed(), timeout, "retry sleep exceeded the readiness budget");
+    }
+
+    async fn check_readiness_timeout_interrupts_probe(stalled_path: &'static str, skip_llm_ready_check: bool) {
+        use axum::{Router, http::StatusCode, routing::get};
+
+        let (started_tx, mut started_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut application = Router::new();
+        for path in ["/health", "/ready"] {
+            let started_tx = started_tx.clone();
+            application = application.route(
+                path,
+                get(move || async move {
+                    if path == stalled_path {
+                        started_tx.send(()).expect("probe observer");
+                        std::future::pending::<()>().await;
+                    }
+                    StatusCode::OK
+                }),
+            );
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let gateway_url = format!("http://{}", listener.local_addr().expect("listener address"));
+        let server = tokio::spawn(async move { axum::serve(listener, application).await.expect("test server") });
+        let timeout = std::time::Duration::from_secs(60);
+        let client = reqwest::Client::builder()
+            .timeout(timeout * 2)
+            .build()
+            .expect("gateway client");
+        let readiness = super::wait_for_gateway(
+            &client,
+            &gateway_url,
+            timeout,
+            std::time::Duration::from_secs(1),
+            skip_llm_ready_check,
+        );
+        tokio::pin!(readiness);
+        tokio::select! {
+            started = started_rx.recv() => started.expect("stalled probe must reach the HTTP server"),
+            result = &mut readiness => panic!("readiness finished before the stalled probe: {result:?}"),
+        }
+
+        // Start virtual time only after real HTTP I/O reaches the blocked endpoint.
+        tokio::time::pause();
+        tokio::time::advance(timeout).await;
+        // Allow the runtime to process the expired timer without reaching the request timeout.
+        let result = tokio::time::timeout(std::time::Duration::from_secs(1), readiness).await;
+        server.abort();
+
+        assert!(
+            matches!(result, Ok(Err(agentic_core::error::Error::Config(_)))),
+            "readiness remained blocked in {stalled_path} after its deadline: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn readiness_timeout_interrupts_health_probe() {
+        check_readiness_timeout_interrupts_probe("/health", false).await;
+    }
+
+    #[tokio::test]
+    async fn readiness_timeout_interrupts_upstream_probe() {
+        check_readiness_timeout_interrupts_probe("/ready", false).await;
+    }
+
+    #[tokio::test]
+    async fn readiness_timeout_still_bounds_health_when_upstream_probe_is_skipped() {
+        check_readiness_timeout_interrupts_probe("/health", true).await;
+    }
+
+    #[tokio::test]
+    async fn readiness_rejects_success_observed_after_deadline() {
+        use axum::{Router, routing::get};
+
+        let (ready_tx, mut ready_rx) = tokio::sync::mpsc::unbounded_channel();
+        let application = Router::new().route("/health", get(|| async {})).route(
+            "/ready",
+            get(move || async move { ready_tx.send(()).expect("probe observer") }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let gateway_url = format!("http://{}", listener.local_addr().expect("listener address"));
+        let server = tokio::spawn(async move { axum::serve(listener, application).await.expect("test server") });
+        let timeout = std::time::Duration::from_secs(60);
+        let client = reqwest::Client::builder()
+            .timeout(timeout * 2)
+            .build()
+            .expect("gateway client");
+        let readiness = super::wait_for_gateway(&client, &gateway_url, timeout, timeout, false);
+        tokio::pin!(readiness);
+        tokio::select! {
+            biased;
+            ready = ready_rx.recv() => ready.expect("both probes must reach the HTTP server"),
+            result = &mut readiness => panic!("readiness finished before the final response: {result:?}"),
+        }
+
+        tokio::time::pause();
+        tokio::time::advance(timeout).await;
+        tokio::time::resume();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), readiness)
+            .await
+            .expect("readiness must finish after its deadline");
+        server.abort();
+
+        assert!(result.is_err(), "successful probes bypassed the readiness deadline");
+    }
+
+    #[tokio::test]
+    async fn readiness_accepts_healthy_gateway_and_skips_only_upstream_probe() {
+        use axum::{Router, routing::get};
+
+        for skip_llm_ready_check in [false, true] {
+            let (probe_tx, mut probe_rx) = tokio::sync::mpsc::unbounded_channel();
+            let mut application = Router::new();
+            for path in ["/health", "/ready"] {
+                let probe_tx = probe_tx.clone();
+                application = application.route(
+                    path,
+                    get(move || async move { probe_tx.send(path).expect("probe observer") }),
+                );
+            }
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("listener");
+            let gateway_url = format!("http://{}", listener.local_addr().expect("listener address"));
+            let server = tokio::spawn(async move { axum::serve(listener, application).await.expect("test server") });
+            let result = super::wait_for_gateway(
+                &super::gateway_client().expect("gateway client"),
+                &gateway_url,
+                std::time::Duration::from_secs(60),
+                std::time::Duration::from_secs(1),
+                skip_llm_ready_check,
+            )
+            .await;
+            server.abort();
+
+            assert!(result.is_ok());
+            assert_eq!(probe_rx.try_recv(), Ok("/health"));
+            if !skip_llm_ready_check {
+                assert_eq!(probe_rx.try_recv(), Ok("/ready"));
+            }
+            assert!(probe_rx.try_recv().is_err(), "unexpected readiness probe");
+        }
     }
 
     #[tokio::test]
