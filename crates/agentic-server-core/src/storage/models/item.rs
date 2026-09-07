@@ -232,22 +232,6 @@ pub async fn get_items_by_conversation(pool: &DbPool, conversation_id: &str) -> 
         .await
 }
 
-/// Get a conversation item ID by its sequence number.
-///
-/// # Errors
-/// Returns `DbResult::Err` if the database query fails.
-pub async fn get_id_by_conversation_sequence(
-    pool: &DbPool,
-    conversation_id: &str,
-    sequence: i64,
-) -> DbResult<Option<String>> {
-    sqlx::query_scalar("SELECT id FROM items WHERE conversation_id = $1 AND seq = $2")
-        .bind(conversation_id)
-        .bind(sequence)
-        .fetch_optional(pool)
-        .await
-}
-
 /// Returns the last stored item sequence for a conversation inside a transaction.
 ///
 /// # Errors

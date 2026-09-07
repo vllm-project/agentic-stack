@@ -100,7 +100,7 @@ impl ConversationHandler {
     pub(crate) async fn response_metadata_at_version(
         &self,
         ctx: &RequestContext,
-        version: ConversationVersion,
+        version: &ConversationVersion,
     ) -> ExecutorResult<Option<ResponseMetadata>> {
         let conv_id = ctx.original_request.conversation_id.as_deref().ok_or_else(|| {
             ExecutorError::InvalidRequest("conversation_id is required for response metadata lookup".into())
@@ -286,7 +286,13 @@ mod tests {
 
         let snapshot = store.rehydrate_snapshot(&conversation.conversation_id).await?;
         assert_eq!(snapshot.items.len(), 1);
-        assert_eq!(snapshot.version, ConversationVersion::LastSequence(0));
+        assert_eq!(
+            snapshot.version,
+            ConversationVersion::LastResponse {
+                response_id: "resp_test".to_owned(),
+                last_sequence: Some(0),
+            }
+        );
         Ok(())
     }
 

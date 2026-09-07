@@ -29,7 +29,7 @@ use agentic_core::storage::{
 };
 use agentic_core::tool::{WebSearchHandler, model_visible_namespace_member_name};
 use agentic_core::types::RequestPayload;
-use agentic_core::types::io::{InputItem, ResponsesInput};
+use agentic_core::types::io::{CompactionItem, InputItem, ResponsesInput};
 use agentic_core::types::tools::ResponsesTool;
 use agentic_server::app::{AppState, WebSocketTracker};
 
@@ -1191,6 +1191,102 @@ async fn test_websocket_generate_false_persists_valid_tool_search_state_for_reus
             .unwrap()
             .iter()
             .any(|item| item["type"] == "function_call_output")
+    );
+}
+
+#[tokio::test]
+async fn websocket_empty_prewarm_replaces_compacted_conversation_tool_search_state() {
+    let mock = MockResponsesServer::start(vec![sse_tool_search_call_response()]).await;
+    let fixture = storage_backed_state(&mock.url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let conversation_id = create_conversation(&gateway_url).await;
+    let conversation_store = ConversationStore::new(Arc::clone(&fixture.pool));
+    conversation_store
+        .persist(
+            &conversation_id,
+            "resp_before_prewarm",
+            None,
+            vec![InOutItem::Input(InputItem::Compaction(CompactionItem {
+                id: Some("cmp_before_prewarm".to_owned()),
+                encrypted_content: "Existing compacted conversation state".to_owned(),
+            }))],
+            &ResponseMetadata::default(),
+        )
+        .await
+        .expect("seed compacted conversation state");
+    let mut ws = connect_responses_ws(&gateway_url).await;
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "conversation_id": conversation_id,
+            "input": [],
+            "tools": [tool_search_declaration(), deferred_weather_function()],
+            "parallel_tool_calls": false,
+            "generate": false,
+            "store": false,
+            "stream": true
+        }),
+    )
+    .await;
+    let prewarm = recv_until_completed(&mut ws).await;
+    let prewarm_response_id = prewarm.last().unwrap()["response"]["id"]
+        .as_str()
+        .expect("prewarm response ID")
+        .to_owned();
+    assert!(
+        mock.request_bodies().await.is_empty(),
+        "generate:false must not run inference"
+    );
+    let item_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM items WHERE conversation_id = $1")
+        .bind(&conversation_id)
+        .fetch_one(fixture.pool.as_ref())
+        .await
+        .expect("conversation item count");
+    assert_eq!(item_count, 1, "an empty prewarm must not advance item history");
+    let prewarm_checkpoint: String = sqlx::query_scalar("SELECT latest_response_id FROM conversations WHERE id = $1")
+        .bind(&conversation_id)
+        .fetch_one(fixture.pool.as_ref())
+        .await
+        .expect("prewarm conversation checkpoint");
+    assert_eq!(prewarm_checkpoint, prewarm_response_id);
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "conversation_id": conversation_id,
+            "input": "find the weather tool",
+            "store": true,
+            "stream": true
+        }),
+    )
+    .await;
+    let response = recv_until_completed(&mut ws).await;
+    assert_eq!(
+        response.last().unwrap()["response"]["output"][0]["type"],
+        "tool_search_call"
+    );
+
+    let requests = mock.request_bodies().await;
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["type"] == "function" && tool["name"] == "tool_search")
+    );
+    assert!(
+        requests[0]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|tool| tool["name"] != "get_weather"),
+        "deferred definitions remain withheld until the client returns them"
     );
 }
 

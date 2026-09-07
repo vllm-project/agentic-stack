@@ -388,7 +388,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn existing_conversation_rehydration_captures_last_sequence() -> Result<(), Box<dyn std::error::Error>> {
+    async fn existing_conversation_rehydration_captures_last_response() -> Result<(), Box<dyn std::error::Error>> {
         let pool = create_pool_with_schema(Some("sqlite://?mode=memory")).await?;
         let conversation_store = ConversationStore::new(pool);
         let conversation = conversation_store.create().await?;
@@ -409,7 +409,13 @@ mod tests {
 
         let ctx = rehydrate_conversation(request(Some(&conversation.conversation_id), None), &exec_ctx).await?;
 
-        assert_eq!(ctx.conversation_version, Some(ConversationVersion::LastSequence(0)));
+        assert_eq!(
+            ctx.conversation_version,
+            Some(ConversationVersion::LastResponse {
+                response_id: "resp_prior".to_owned(),
+                last_sequence: Some(0),
+            })
+        );
         Ok(())
     }
 

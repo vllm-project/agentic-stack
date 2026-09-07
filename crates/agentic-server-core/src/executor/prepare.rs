@@ -42,7 +42,7 @@ async fn restored_loaded_tools(
             .unwrap_or_default());
     }
 
-    let Some(version) = ctx.conversation_version else {
+    let Some(version) = ctx.conversation_version.as_ref() else {
         return Ok(Vec::new());
     };
     let metadata = conv_handler.response_metadata_at_version(ctx, version).await?;

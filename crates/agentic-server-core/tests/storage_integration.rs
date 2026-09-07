@@ -61,7 +61,7 @@ async fn test_conversation_store_persist_and_rehydrate() {
 }
 
 #[tokio::test]
-async fn conversation_snapshot_reports_empty_and_last_sequence() -> Result<(), Box<dyn std::error::Error>> {
+async fn conversation_snapshot_reports_empty_and_last_response() -> Result<(), Box<dyn std::error::Error>> {
     let pool = setup_pool().await;
     let store = ConversationStore::new(pool);
     let conversation = store.create().await?;
@@ -82,7 +82,13 @@ async fn conversation_snapshot_reports_empty_and_last_sequence() -> Result<(), B
 
     let snapshot = store.rehydrate_snapshot(&conversation.conversation_id).await?;
     assert_eq!(snapshot.items.len(), 2);
-    assert_eq!(snapshot.version, ConversationVersion::LastSequence(1));
+    assert_eq!(
+        snapshot.version,
+        ConversationVersion::LastResponse {
+            response_id: "resp_1".to_owned(),
+            last_sequence: Some(1),
+        }
+    );
     assert_eq!(store.rehydrate(&conversation.conversation_id).await?, snapshot.items);
 
     Ok(())
@@ -116,7 +122,13 @@ async fn conversation_snapshot_version_includes_an_undecodable_final_row() -> Re
     let snapshot = store.rehydrate_snapshot(&conversation.conversation_id).await?;
 
     assert_eq!(snapshot.items, vec![stored_item]);
-    assert_eq!(snapshot.version, ConversationVersion::LastSequence(1));
+    assert_eq!(
+        snapshot.version,
+        ConversationVersion::LastResponse {
+            response_id: "resp_1".to_owned(),
+            last_sequence: Some(1),
+        }
+    );
 
     Ok(())
 }
@@ -162,6 +174,46 @@ async fn conversation_snapshot_rejects_items_without_a_sequence() -> Result<(), 
 }
 
 #[tokio::test]
+async fn legacy_item_only_version_upgrades_on_the_next_persist() -> Result<(), Box<dyn std::error::Error>> {
+    let pool = setup_pool().await;
+    let store = ConversationStore::new(Arc::clone(&pool));
+    let conversation = store.create().await?;
+    let legacy_item = create_input_item("legacy");
+    sqlx::query("INSERT INTO items (id, data, created_at, conversation_id, seq) VALUES ($1, $2, $3, $4, $5)")
+        .bind("item_legacy")
+        .bind(String::try_from(&legacy_item)?)
+        .bind(0_i64)
+        .bind(&conversation.conversation_id)
+        .bind(0_i64)
+        .execute(pool.as_ref())
+        .await?;
+
+    let legacy = store.rehydrate_snapshot(&conversation.conversation_id).await?;
+    assert_eq!(legacy.version, ConversationVersion::LastSequence(0));
+
+    store
+        .persist_if_version(
+            &conversation.conversation_id,
+            legacy.version,
+            "resp_after_legacy",
+            None,
+            Vec::new(),
+            &ResponseMetadata::default(),
+        )
+        .await?;
+    let upgraded = store.rehydrate_snapshot(&conversation.conversation_id).await?;
+    assert_eq!(
+        upgraded.version,
+        ConversationVersion::LastResponse {
+            response_id: "resp_after_legacy".to_owned(),
+            last_sequence: Some(0),
+        }
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn conversation_version_empty_checked_persist_succeeds() -> Result<(), Box<dyn std::error::Error>> {
     let pool = setup_pool().await;
     let store = ConversationStore::new(pool);
@@ -181,7 +233,105 @@ async fn conversation_version_empty_checked_persist_succeeds() -> Result<(), Box
 
     let snapshot = store.rehydrate_snapshot(&conversation.conversation_id).await?;
     assert_eq!(snapshot.items, items);
-    assert_eq!(snapshot.version, ConversationVersion::LastSequence(1));
+    assert_eq!(
+        snapshot.version,
+        ConversationVersion::LastResponse {
+            response_id: "resp_first".to_owned(),
+            last_sequence: Some(1),
+        }
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn zero_item_turn_advances_version_and_retains_exact_metadata() -> Result<(), Box<dyn std::error::Error>> {
+    let pool = setup_pool().await;
+    let store = ConversationStore::new(Arc::clone(&pool));
+    let response_store = ResponseStore::new(pool);
+    let conversation = store.create().await?;
+    let empty = store.rehydrate_snapshot(&conversation.conversation_id).await?;
+    let first_metadata = ResponseMetadata {
+        model: "first-zero-item-turn".to_owned(),
+        ..ResponseMetadata::default()
+    };
+
+    store
+        .persist_if_version(
+            &conversation.conversation_id,
+            empty.version,
+            "resp_zero_items_first",
+            None,
+            Vec::new(),
+            &first_metadata,
+        )
+        .await?;
+
+    let first = store.rehydrate_snapshot(&conversation.conversation_id).await?;
+    assert!(first.items.is_empty());
+    assert_eq!(
+        first.version,
+        ConversationVersion::LastResponse {
+            response_id: "resp_zero_items_first".to_owned(),
+            last_sequence: None,
+        }
+    );
+    assert_eq!(
+        store
+            .response_metadata_at_version(&conversation.conversation_id, &first.version)
+            .await?
+            .map(|metadata| metadata.model)
+            .as_deref(),
+        Some("first-zero-item-turn")
+    );
+
+    store
+        .persist_if_version(
+            &conversation.conversation_id,
+            first.version.clone(),
+            "resp_zero_items_second",
+            None,
+            Vec::new(),
+            &ResponseMetadata {
+                model: "second-zero-item-turn".to_owned(),
+                ..ResponseMetadata::default()
+            },
+        )
+        .await?;
+
+    let second = store.rehydrate_snapshot(&conversation.conversation_id).await?;
+    assert!(second.items.is_empty());
+    assert_ne!(second.version, first.version);
+    assert_eq!(
+        store
+            .response_metadata_at_version(&conversation.conversation_id, &first.version)
+            .await?
+            .map(|metadata| metadata.model)
+            .as_deref(),
+        Some("first-zero-item-turn")
+    );
+    assert_eq!(
+        store
+            .response_metadata_at_version(&conversation.conversation_id, &second.version)
+            .await?
+            .map(|metadata| metadata.model)
+            .as_deref(),
+        Some("second-zero-item-turn")
+    );
+
+    let error = store
+        .persist_if_version(
+            &conversation.conversation_id,
+            first.version,
+            "resp_zero_items_stale",
+            None,
+            Vec::new(),
+            &ResponseMetadata::default(),
+        )
+        .await
+        .expect_err("an earlier zero-item turn must be stale");
+    assert!(error.is_conversation_conflict());
+    assert!(response_store.get("resp_zero_items_stale").await.is_err());
 
     Ok(())
 }
@@ -250,6 +400,7 @@ async fn conversation_version_racing_checked_persists_allow_exactly_one_winner()
         let store = ConversationStore::new(Arc::clone(&pool));
         let conversation_id = conversation.conversation_id.clone();
         let barrier = Arc::clone(&barrier);
+        let version = version.clone();
         tokio::spawn(async move {
             let items = vec![create_input_item("writer one"), create_output_item("msg_writer_one")];
             barrier.wait().await;
@@ -967,7 +1118,7 @@ async fn test_tool_search_conversation_metadata_matches_snapshot_version() {
         .await
         .expect("persist a newer conversation turn");
     let metadata = store
-        .response_metadata_at_version(&conversation.conversation_id, snapshot.version)
+        .response_metadata_at_version(&conversation.conversation_id, &snapshot.version)
         .await
         .expect("load response metadata at snapshot version")
         .expect("response metadata accompanies conversation items");
@@ -1014,7 +1165,7 @@ async fn test_tool_search_conversation_conflict_does_not_persist_stale_loaded_st
     store
         .persist_if_version(
             &conversation.conversation_id,
-            snapshot.version,
+            snapshot.version.clone(),
             "resp_tool_search_winner",
             None,
             vec![create_input_item("winner")],
@@ -1040,7 +1191,7 @@ async fn test_tool_search_conversation_conflict_does_not_persist_stale_loaded_st
         .await
         .expect("rehydrate winning state");
     let latest = store
-        .response_metadata_at_version(&conversation.conversation_id, snapshot.version)
+        .response_metadata_at_version(&conversation.conversation_id, &snapshot.version)
         .await
         .expect("load winning metadata")
         .expect("winning metadata");
