@@ -6,6 +6,8 @@
 //! and processed metadata headers (`retry-after`, request IDs, rate-limit headers) and must not
 //! relabel a non-JSON error body as `application/json`.
 
+// `common` is compiled into every test binary; this one never calls `spawn_mock_llm`,
+// so silence the resulting dead-code warning (same as the other tests that skip it).
 #[allow(dead_code)]
 mod common;
 
