@@ -205,6 +205,28 @@ fn streaming_response(events: impl IntoIterator<Item = Value>) -> String {
     response
 }
 
+fn synthetic_search_call(suffix: &str, arguments: &str, status: &str) -> Value {
+    json!({
+        "type": "function_call",
+        "id": format!("fc_{suffix}"),
+        "call_id": format!("call_{suffix}"),
+        "name": "tool_search",
+        "arguments": arguments,
+        "status": status
+    })
+}
+
+fn native_search_call(suffix: &str, arguments: &Value, status: &str) -> Value {
+    json!({
+        "type": "tool_search_call",
+        "id": format!("tsc_{suffix}"),
+        "call_id": format!("call_{suffix}"),
+        "execution": "client",
+        "arguments": arguments,
+        "status": status
+    })
+}
+
 fn streaming_partial_search_failure_response() -> String {
     let events = [
         json!({
@@ -355,6 +377,15 @@ async fn run(request: RequestPayload, context: Arc<ExecutionContext>) -> Respons
         Either::Left(response) => response,
         Either::Right(_) => panic!("blocking helper received a streaming response"),
     }
+}
+
+fn disabled_execution_context(llm_url: String) -> Arc<ExecutionContext> {
+    Arc::new(ExecutionContext::new(
+        ConversationHandler::new(ConversationStore::disabled()),
+        ResponseHandler::new(ResponseStore::disabled()),
+        Arc::new(reqwest::Client::new()),
+        llm_url,
+    ))
 }
 
 fn assert_public_search_call(response: &ResponsePayload) -> Value {
@@ -574,6 +605,168 @@ async fn function_only_streaming_search_has_public_lifecycle_terminal_and_privat
 }
 
 #[tokio::test]
+async fn streaming_incomplete_search_preserves_public_item_in_terminal_response() {
+    let cases = [
+        (
+            "synthetic",
+            streaming_response([
+                json!({
+                    "type": "response.created",
+                    "response": {"id": "upstream_incomplete", "status": "in_progress"}
+                }),
+                json!({
+                    "type": "response.in_progress",
+                    "response": {"id": "upstream_incomplete", "status": "in_progress"}
+                }),
+                json!({
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": synthetic_search_call("partial", "", "in_progress")
+                }),
+                json!({
+                    "type": "response.function_call_arguments.delta",
+                    "output_index": 0,
+                    "item_id": "fc_partial",
+                    "delta": "{\"query\":\"weather"
+                }),
+                json!({
+                    "type": "response.incomplete",
+                    "response": {
+                        "id": "upstream_incomplete",
+                        "status": "incomplete",
+                        "output": [synthetic_search_call(
+                            "partial",
+                            "{\"query\":\"weather",
+                            "in_progress"
+                        )]
+                    }
+                }),
+            ]),
+            json!({}),
+        ),
+        (
+            "native",
+            streaming_response([
+                json!({
+                    "type": "response.created",
+                    "response": {"id": "upstream_incomplete", "status": "in_progress"}
+                }),
+                json!({
+                    "type": "response.in_progress",
+                    "response": {"id": "upstream_incomplete", "status": "in_progress"}
+                }),
+                json!({
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": native_search_call("partial", &json!({}), "in_progress")
+                }),
+                json!({
+                    "type": "response.output_item.done",
+                    "output_index": 0,
+                    "item": native_search_call("partial", &json!({"query": "weather"}), "incomplete")
+                }),
+                json!({
+                    "type": "response.incomplete",
+                    "response": {
+                        "id": "upstream_incomplete",
+                        "status": "incomplete",
+                        "output": [native_search_call(
+                            "partial",
+                            &json!({"query": "weather"}),
+                            "incomplete"
+                        )]
+                    }
+                }),
+            ]),
+            json!({"query": "weather"}),
+        ),
+    ];
+
+    for (case, upstream, expected_arguments) in cases {
+        let (llm_url, _requests, _server) = spawn_sequenced_streaming_llm(vec![upstream]).await;
+        let context = disabled_execution_context(llm_url);
+        let mut payload = request(
+            &json!("find weather"),
+            &json!([search_declaration(), deferred_weather()]),
+        );
+        payload.stream = true;
+
+        let events = run_streaming(payload, context).await;
+        let added = events
+            .iter()
+            .find(|event| event["type"] == "response.output_item.added" && event["item"]["type"] == "tool_search_call")
+            .unwrap_or_else(|| panic!("{case}: public added event"));
+        let terminal = events
+            .iter()
+            .find(|event| event["type"] == "response.incomplete")
+            .unwrap_or_else(|| panic!("{case}: terminal incomplete event"));
+        let terminal_call = &terminal["response"]["output"][0];
+
+        assert_eq!(terminal_call["type"], "tool_search_call", "{case}");
+        assert_eq!(terminal_call["id"], added["item"]["id"], "{case}");
+        assert_eq!(terminal_call["call_id"], added["item"]["call_id"], "{case}");
+        assert_eq!(terminal_call["arguments"], expected_arguments, "{case}");
+        assert_eq!(terminal_call["status"], "incomplete", "{case}");
+    }
+}
+
+#[tokio::test]
+async fn streaming_rejects_a_second_search_call_before_its_added_event() {
+    let cases = [
+        (
+            "synthetic",
+            synthetic_search_call("first", "", "in_progress"),
+            synthetic_search_call("second", "", "in_progress"),
+        ),
+        (
+            "native",
+            native_search_call("first", &json!({}), "in_progress"),
+            native_search_call("second", &json!({}), "in_progress"),
+        ),
+        (
+            "mixed",
+            native_search_call("first", &json!({}), "in_progress"),
+            synthetic_search_call("second", "", "in_progress"),
+        ),
+    ];
+
+    for (case, first, second) in cases {
+        let upstream = streaming_response([
+            json!({
+                "type": "response.created",
+                "response": {"id": "upstream_multiple", "status": "in_progress"}
+            }),
+            json!({
+                "type": "response.in_progress",
+                "response": {"id": "upstream_multiple", "status": "in_progress"}
+            }),
+            json!({"type": "response.output_item.added", "output_index": 0, "item": first}),
+            json!({"type": "response.output_item.added", "output_index": 1, "item": second}),
+        ]);
+        let (llm_url, _requests, _server) = spawn_sequenced_streaming_llm(vec![upstream]).await;
+        let context = disabled_execution_context(llm_url);
+        let mut payload = request(
+            &json!("find weather"),
+            &json!([search_declaration(), deferred_weather()]),
+        );
+        payload.stream = true;
+
+        let events = run_streaming(payload, context).await;
+        let public_added = events
+            .iter()
+            .filter(|event| {
+                event["type"] == "response.output_item.added" && event["item"]["type"] == "tool_search_call"
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(public_added.len(), 1, "{case}: second added event must not be exposed");
+        assert_eq!(public_added[0]["item"]["call_id"], "call_first", "{case}");
+        let failed = events.last().unwrap_or_else(|| panic!("{case}: failed response"));
+        assert_eq!(failed["type"], "response.failed", "{case}");
+        assert_eq!(failed["response"]["error"]["type"], "tool_error", "{case}");
+    }
+}
+
+#[tokio::test]
 async fn malformed_streaming_search_finishes_with_response_failed_not_completed() {
     let (llm_url, _requests, _server) =
         spawn_sequenced_streaming_llm(vec![streaming_search_response("not valid JSON")]).await;
@@ -750,6 +943,91 @@ async fn malformed_streaming_search_is_not_dispatched_or_persisted_after_start()
         .await
         .expect_err("malformed streamed response must not persist");
     assert!(error.is_not_found());
+}
+
+#[tokio::test]
+async fn blocking_incomplete_search_preserves_a_non_replayable_public_item() {
+    let cases = [
+        (
+            "synthetic",
+            synthetic_search_call("partial", "{\"query\":\"weather", "in_progress"),
+            json!({}),
+        ),
+        (
+            "native",
+            native_search_call("partial", &json!({"query": "weather"}), "in_progress"),
+            json!({"query": "weather"}),
+        ),
+    ];
+
+    for (case, item, expected_arguments) in cases {
+        let (llm_url, _requests, _server) = spawn_sequenced_llm(vec![json!({
+            "id": "upstream_incomplete",
+            "object": "response",
+            "status": "incomplete",
+            "model": "test",
+            "created_at": 0,
+            "output": [item]
+        })])
+        .await;
+        let context = disabled_execution_context(llm_url);
+
+        let response = run(
+            request(
+                &json!("find weather"),
+                &json!([search_declaration(), deferred_weather()]),
+            ),
+            context,
+        )
+        .await;
+
+        assert_eq!(response.status, "incomplete", "{case}");
+        let [OutputItem::ToolSearchCall(call)] = response.output.as_slice() else {
+            panic!("{case}: incomplete search call must use the public shape");
+        };
+        assert_eq!(call.id, "tsc_partial", "{case}");
+        assert_eq!(call.call_id, "call_partial", "{case}");
+        assert_eq!(call.arguments, expected_arguments, "{case}");
+        assert_eq!(call.status, agentic_core::types::ToolSearchStatus::Incomplete, "{case}");
+        assert!(response.output[0].to_input_item().is_none(), "{case}");
+    }
+}
+
+#[tokio::test]
+async fn blocking_rejects_multiple_search_calls_in_native_synthetic_or_mixed_output() {
+    let completed_synthetic = |suffix| synthetic_search_call(suffix, "{}", "completed");
+    let completed_native = |suffix| native_search_call(suffix, &json!({}), "completed");
+    let cases = [
+        (
+            "synthetic",
+            vec![completed_synthetic("first"), completed_synthetic("second")],
+        ),
+        ("native", vec![completed_native("first"), completed_native("second")]),
+        ("mixed", vec![completed_native("first"), completed_synthetic("second")]),
+    ];
+
+    for (case, output) in cases {
+        let (llm_url, _requests, _server) = spawn_sequenced_llm(vec![json!({
+            "id": "upstream_multiple",
+            "object": "response",
+            "status": "completed",
+            "model": "test",
+            "created_at": 0,
+            "output": output
+        })])
+        .await;
+        let context = disabled_execution_context(llm_url);
+        let request = request(
+            &json!("find weather"),
+            &json!([search_declaration(), deferred_weather()]),
+        );
+
+        let Err(error) = ExecuteRequest::new(request, context).run().await else {
+            panic!("{case}: multiple search calls must be rejected");
+        };
+        assert_eq!(error.http_status(), http::StatusCode::BAD_GATEWAY, "{case}");
+        assert_eq!(error.error_type(), "tool_error", "{case}");
+    }
 }
 
 #[tokio::test]

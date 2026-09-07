@@ -27,6 +27,19 @@ enum StreamTerminalState {
     Aborted,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolSearchCallSource {
+    Synthetic,
+    Native,
+}
+
+#[derive(Debug)]
+struct ToolSearchIdentity {
+    source: ToolSearchCallSource,
+    output_index: u32,
+    call_id: String,
+}
+
 #[derive(Debug)]
 struct CustomCallState {
     public_item_id: String,
@@ -67,6 +80,7 @@ pub(super) struct FunctionSseTranslator<'a> {
     pending_bytes: usize,
     first_gateway_output_index: Option<u32>,
     active_native_tool_search: HashSet<u32>,
+    tool_search_identity: Option<ToolSearchIdentity>,
     terminal: StreamTerminalState,
 }
 
@@ -79,6 +93,7 @@ impl<'a> FunctionSseTranslator<'a> {
             pending_bytes: 0,
             first_gateway_output_index: None,
             active_native_tool_search: HashSet::new(),
+            tool_search_identity: None,
             terminal: StreamTerminalState::Open,
         }
     }
@@ -202,6 +217,7 @@ impl<'a> FunctionSseTranslator<'a> {
             ToolType::ToolSearch => {
                 let call = call.ok_or_else(|| ExecutorError::Tool(tool_search::invalid_upstream_search_call()))?;
                 let public = tool_search::started_public_call(call.item)?;
+                self.start_tool_search_call(ToolSearchCallSource::Synthetic, output_index, &call.item.call_id)?;
                 self.active.insert(
                     output_index,
                     FunctionCallShape::ToolSearch {
@@ -405,12 +421,17 @@ impl<'a> FunctionSseTranslator<'a> {
             return Ok(());
         };
         let completed = frame.event_type == SSEEventType::ResponseCompleted;
+        let mut saw_tool_search_call = false;
         for item in output {
             match item.get("type").and_then(Value::as_str) {
                 Some("function_call") => {
                     let name = item.get("name").and_then(Value::as_str).unwrap_or_default();
                     tool_search::ensure_function_is_available(self.registry.is_withheld_function(name))?;
                     if self.registry.tool_type(name) == ToolType::ToolSearch {
+                        if saw_tool_search_call {
+                            return Err(tool_search::invalid_upstream_search_call().into());
+                        }
+                        saw_tool_search_call = true;
                         let call = tool_search::strict_function_call(item)?;
                         ensure_function_call_size(&call.arguments)?;
                         if completed && call.status != crate::types::event::MessageStatus::Completed {
@@ -419,6 +440,10 @@ impl<'a> FunctionSseTranslator<'a> {
                     }
                 }
                 Some("tool_search_call") => {
+                    if saw_tool_search_call {
+                        return Err(tool_search::invalid_upstream_search_call().into());
+                    }
+                    saw_tool_search_call = true;
                     let call = tool_search::strict_native_call(item.clone())?;
                     let arguments = serialize_to_string(&call.arguments).map_err(ExecutorError::JsonError)?;
                     ensure_function_call_size(&arguments)?;
@@ -439,7 +464,8 @@ impl<'a> FunctionSseTranslator<'a> {
                 output_index,
                 ..
             } => {
-                validate_native_tool_search_frame(frame)?;
+                let call = validate_native_tool_search_frame(frame)?;
+                self.start_tool_search_call(ToolSearchCallSource::Native, *output_index, &call.call_id)?;
                 self.active_native_tool_search.insert(*output_index);
             }
             EventPayload::OutputItemDone {
@@ -448,6 +474,7 @@ impl<'a> FunctionSseTranslator<'a> {
                 ..
             } => {
                 let call = validate_native_tool_search_frame(frame)?;
+                self.observe_tool_search_call(ToolSearchCallSource::Native, *output_index, &call.call_id)?;
                 if call.status == crate::types::tools::ToolSearchStatus::Completed {
                     self.active_native_tool_search.remove(output_index);
                 } else {
@@ -457,6 +484,49 @@ impl<'a> FunctionSseTranslator<'a> {
             _ => {}
         }
         Ok(())
+    }
+
+    fn start_tool_search_call(
+        &mut self,
+        source: ToolSearchCallSource,
+        output_index: u32,
+        call_id: &str,
+    ) -> ExecutorResult<()> {
+        if self.tool_search_identity.is_some() {
+            return Err(tool_search::invalid_upstream_search_call().into());
+        }
+        self.tool_search_identity = Some(ToolSearchIdentity {
+            source,
+            output_index,
+            call_id: call_id.to_owned(),
+        });
+        Ok(())
+    }
+
+    fn observe_tool_search_call(
+        &mut self,
+        source: ToolSearchCallSource,
+        output_index: u32,
+        call_id: &str,
+    ) -> ExecutorResult<()> {
+        match self.tool_search_identity.as_ref() {
+            Some(identity)
+                if identity.source != source
+                    || identity.output_index != output_index
+                    || identity.call_id != call_id =>
+            {
+                Err(tool_search::invalid_upstream_search_call().into())
+            }
+            Some(_) => Ok(()),
+            None => {
+                self.tool_search_identity = Some(ToolSearchIdentity {
+                    source,
+                    output_index,
+                    call_id: call_id.to_owned(),
+                });
+                Ok(())
+            }
+        }
     }
 
     fn unfinished_tool_search_item_ids(&self) -> HashSet<String> {
@@ -1430,6 +1500,155 @@ mod tests {
     }
 
     #[test]
+    fn second_tool_search_call_is_rejected_across_native_and_synthetic_shapes() {
+        let synthetic = |output_index: u32, suffix: &str| {
+            serde_json::json!({
+                "type": "response.output_item.added",
+                "output_index": output_index,
+                "item": {
+                    "id": format!("fc_{suffix}"),
+                    "type": "function_call",
+                    "call_id": format!("call_{suffix}"),
+                    "name": "tool_search",
+                    "arguments": "",
+                    "status": "in_progress"
+                }
+            })
+        };
+        let native = |output_index: u32, suffix: &str| {
+            serde_json::json!({
+                "type": "response.output_item.added",
+                "output_index": output_index,
+                "item": {
+                    "id": format!("tsc_{suffix}"),
+                    "type": "tool_search_call",
+                    "call_id": format!("call_{suffix}"),
+                    "execution": "client",
+                    "arguments": {},
+                    "status": "in_progress"
+                }
+            })
+        };
+        let cases = [
+            (
+                "synthetic then synthetic",
+                synthetic(0, "first"),
+                synthetic(1, "second"),
+            ),
+            ("native then native", native(0, "first"), native(1, "second")),
+            ("synthetic then native", synthetic(0, "first"), native(1, "second")),
+            ("native then synthetic", native(0, "first"), synthetic(1, "second")),
+        ];
+
+        for (case, first, second) in cases {
+            let mut accumulator = ResponseAccumulator::new("resp_1".to_owned(), None);
+            let registry = test_registry(HashMap::from([("tool_search".to_owned(), ToolType::ToolSearch)]));
+            let mut translator = FunctionSseTranslator::new(&registry);
+            let first = accumulator
+                .process_sse_line_with_translator(&sse(&first), &mut translator)
+                .expect(case)
+                .expect("first search event");
+            assert_eq!(first.frames.len(), 1, "{case}: first added frame remains public");
+
+            let error = accumulator
+                .process_sse_line_with_translator(&sse(&second), &mut translator)
+                .expect_err(case);
+            assert!(
+                matches!(
+                    error,
+                    ExecutorError::Tool(crate::tool::ToolError::InvalidUpstreamToolSearch)
+                ),
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_output_rejects_multiple_tool_search_calls() {
+        let mut accumulator = ResponseAccumulator::new("resp_1".to_owned(), None);
+        let registry = test_registry(HashMap::from([("tool_search".to_owned(), ToolType::ToolSearch)]));
+        let mut translator = FunctionSseTranslator::new(&registry);
+        let terminal = serde_json::json!({
+            "type": "response.incomplete",
+            "response": {
+                "id": "resp_1",
+                "status": "incomplete",
+                "output": [
+                    {
+                        "id": "tsc_native",
+                        "type": "tool_search_call",
+                        "call_id": "call_native",
+                        "execution": "client",
+                        "arguments": {},
+                        "status": "incomplete"
+                    },
+                    {
+                        "id": "fc_synthetic",
+                        "type": "function_call",
+                        "call_id": "call_synthetic",
+                        "name": "tool_search",
+                        "arguments": "",
+                        "status": "in_progress"
+                    }
+                ]
+            }
+        });
+
+        let error = accumulator
+            .process_sse_line_with_translator(&sse(&terminal), &mut translator)
+            .expect_err("terminal response must not contain two search calls");
+        assert!(matches!(
+            error,
+            ExecutorError::Tool(crate::tool::ToolError::InvalidUpstreamToolSearch)
+        ));
+    }
+
+    #[test]
+    fn native_done_cannot_reuse_synthetic_identity_after_terminal_event() {
+        let mut accumulator = ResponseAccumulator::new("resp_1".to_owned(), None);
+        let registry = test_registry(HashMap::from([("tool_search".to_owned(), ToolType::ToolSearch)]));
+        let mut translator = FunctionSseTranslator::new(&registry);
+        for event in [
+            serde_json::json!({
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {
+                    "id": "fc_search", "type": "function_call", "call_id": "call_search",
+                    "name": "tool_search", "arguments": "", "status": "in_progress"
+                }
+            }),
+            serde_json::json!({
+                "type": "response.incomplete",
+                "response": {
+                    "id": "resp_1", "status": "incomplete",
+                    "output": [{
+                        "id": "fc_search", "type": "function_call", "call_id": "call_search",
+                        "name": "tool_search", "arguments": "", "status": "in_progress"
+                    }]
+                }
+            }),
+        ] {
+            translate(&mut accumulator, &mut translator, &event);
+        }
+        let native_done = serde_json::json!({
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "id": "tsc_search", "type": "tool_search_call", "call_id": "call_search",
+                "execution": "client", "arguments": {}, "status": "completed"
+            }
+        });
+
+        let error = accumulator
+            .process_sse_line_with_translator(&sse(&native_done), &mut translator)
+            .expect_err("native done must not reuse a synthetic call identity");
+        assert!(matches!(
+            error,
+            ExecutorError::Tool(crate::tool::ToolError::InvalidUpstreamToolSearch)
+        ));
+    }
+
+    #[test]
     fn synthetic_tool_search_rejects_non_string_name_in_buffered_added_item() {
         let mut accumulator = ResponseAccumulator::new("resp_1".to_owned(), None);
         let registry = test_registry(HashMap::from([("tool_search".to_owned(), ToolType::ToolSearch)]));
@@ -1601,10 +1820,11 @@ mod tests {
     }
 
     #[test]
-    fn aborted_stream_reports_and_discards_unfinished_synthetic_search() {
+    fn incomplete_stream_preserves_unfinished_synthetic_search() {
         let mut accumulator = ResponseAccumulator::new("resp_1".to_owned(), None);
         let registry = test_registry(HashMap::from([("tool_search".to_owned(), ToolType::ToolSearch)]));
         let mut translator = FunctionSseTranslator::new(&registry);
+        let mut public_frames = Vec::new();
         for event in [
             serde_json::json!({
                 "type": "response.output_item.added",
@@ -1627,7 +1847,7 @@ mod tests {
                 "response": {"id": "resp_1", "status": "incomplete", "output": []}
             }),
         ] {
-            translate(&mut accumulator, &mut translator, &event);
+            public_frames.extend(translate(&mut accumulator, &mut translator, &event).frames);
         }
 
         let outcome = translator.finish().expect("aborted lifecycle may remain unfinished");
@@ -1642,8 +1862,78 @@ mod tests {
             crate::types::event::ResponseStatus::Incomplete,
             &outcome.unfinished_tool_search_item_ids,
         )
-        .expect("unfinished synthetic call is discarded");
-        assert!(payload.output.is_empty());
+        .expect("unfinished synthetic call is preserved as incomplete");
+        let [OutputItem::ToolSearchCall(call)] = payload.output.as_slice() else {
+            panic!("unfinished synthetic call must use the public tool-search shape");
+        };
+        let added = public_frames
+            .iter()
+            .find(|frame| frame.event_type == SSEEventType::OutputItemAdded)
+            .expect("public added frame");
+        assert_eq!(call.id, added.wire.rest["item"]["id"]);
+        assert_eq!(call.call_id, added.wire.rest["item"]["call_id"]);
+        assert_eq!(call.arguments, serde_json::json!({}));
+        assert_eq!(call.status, crate::types::tools::ToolSearchStatus::Incomplete);
+        assert!(payload.output[0].to_input_item().is_none());
+    }
+
+    #[test]
+    fn incomplete_stream_preserves_native_search_and_terminal_item_parity() {
+        let mut accumulator = ResponseAccumulator::new("resp_1".to_owned(), None);
+        let registry = test_registry(HashMap::new());
+        let mut translator = FunctionSseTranslator::new(&registry);
+        let mut public_frames = Vec::new();
+        for event in [
+            serde_json::json!({
+                "type": "response.output_item.added", "output_index": 0,
+                "item": {
+                    "id": "tsc_native", "type": "tool_search_call", "call_id": "call_search",
+                    "execution": "client", "arguments": {}, "status": "in_progress"
+                }
+            }),
+            serde_json::json!({
+                "type": "response.output_item.done", "output_index": 0,
+                "item": {
+                    "id": "tsc_native", "type": "tool_search_call", "call_id": "call_search",
+                    "execution": "client", "arguments": {"query": "weather"}, "status": "incomplete"
+                }
+            }),
+            serde_json::json!({
+                "type": "response.incomplete",
+                "response": {
+                    "id": "resp_1", "status": "incomplete",
+                    "output": [{
+                        "id": "tsc_native", "type": "tool_search_call", "call_id": "call_search",
+                        "execution": "client", "arguments": {"query": "weather"}, "status": "incomplete"
+                    }]
+                }
+            }),
+        ] {
+            public_frames.extend(translate(&mut accumulator, &mut translator, &event).frames);
+        }
+
+        let outcome = translator.finish().expect("incomplete native lifecycle");
+        let mut payload = accumulator.finalize("test", None, None);
+        crate::tool::ToolSearchHandler::normalize_response_output(
+            &registry,
+            &mut payload.output,
+            crate::types::event::ResponseStatus::Incomplete,
+            &outcome.unfinished_tool_search_item_ids,
+        )
+        .expect("incomplete native call remains public");
+        let [OutputItem::ToolSearchCall(call)] = payload.output.as_slice() else {
+            panic!("native call must remain typed");
+        };
+        let done = public_frames
+            .iter()
+            .find(|frame| frame.event_type == SSEEventType::OutputItemDone)
+            .expect("public done frame");
+        assert_eq!(
+            serde_json::to_value(&payload.output[0]).unwrap(),
+            done.wire.rest["item"]
+        );
+        assert_eq!(call.status, crate::types::tools::ToolSearchStatus::Incomplete);
+        assert!(payload.output[0].to_input_item().is_none());
     }
 
     #[test]

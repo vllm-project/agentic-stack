@@ -71,28 +71,33 @@ impl ToolSearchHandler {
         status: ResponseStatus,
         unfinished_stream_item_ids: &HashSet<String>,
     ) -> Result<(), ToolError> {
-        let discard_unfinished = matches!(status, ResponseStatus::Error | ResponseStatus::Incomplete);
+        let discard_unidentified_unfinished = matches!(status, ResponseStatus::Error | ResponseStatus::Incomplete);
         let mut normalized = Vec::with_capacity(output.len());
+        let mut saw_tool_search_call = false;
         for item in std::mem::take(output) {
             match item {
-                OutputItem::FunctionCall(call)
-                    if discard_unfinished && unfinished_stream_item_ids.contains(&call.id) => {}
                 OutputItem::FunctionCall(call) => {
                     ensure_function_is_available(registry.is_withheld_function(&call.name))?;
                     if registry.tool_type(&call.name) == ToolType::ToolSearch {
-                        if let Some(public) = project_synthetic_call(
-                            &call,
-                            discard_unfinished,
-                            unfinished_stream_item_ids.contains(&call.id),
-                        )? {
+                        if saw_tool_search_call {
+                            return Err(invalid_upstream_search_call());
+                        }
+                        saw_tool_search_call = true;
+                        if let Some(public) =
+                            project_synthetic_call(&call, status, unfinished_stream_item_ids.contains(&call.id))?
+                        {
                             normalized.push(OutputItem::ToolSearchCall(public));
                         }
-                    } else {
+                    } else if !(discard_unidentified_unfinished && unfinished_stream_item_ids.contains(&call.id)) {
                         normalized.push(OutputItem::FunctionCall(call));
                     }
                 }
                 OutputItem::ToolSearchCall(call) => {
-                    if let Some(public) = project_native_call(&call, discard_unfinished)? {
+                    if saw_tool_search_call {
+                        return Err(invalid_upstream_search_call());
+                    }
+                    saw_tool_search_call = true;
+                    if let Some(public) = project_native_call(&call, status)? {
                         normalized.push(OutputItem::ToolSearchCall(public));
                     }
                 }
@@ -780,30 +785,39 @@ pub(crate) fn completed_public_call(call: &FunctionToolCall) -> Result<ToolSearc
 
 pub(crate) fn project_synthetic_call(
     call: &FunctionToolCall,
-    discard_incomplete: bool,
+    response_status: ResponseStatus,
     unfinished_stream_call: bool,
 ) -> Result<Option<ToolSearchCall>, ToolError> {
-    if unfinished_stream_call || call.status != MessageStatus::Completed {
-        return if discard_incomplete {
-            Ok(None)
-        } else {
-            Err(invalid_upstream_search_call())
-        };
+    if !unfinished_stream_call && call.status == MessageStatus::Completed {
+        return completed_public_call(call).map(Some);
     }
-    completed_public_call(call).map(Some)
+    match response_status {
+        ResponseStatus::Incomplete => {
+            let mut public = started_public_call(call)?;
+            public.status = ToolSearchStatus::Incomplete;
+            Ok(Some(public))
+        }
+        ResponseStatus::Error => Ok(None),
+        ResponseStatus::InProgress | ResponseStatus::Completed => Err(invalid_upstream_search_call()),
+    }
 }
 
 pub(crate) fn project_native_call(
     call: &ToolSearchCall,
-    discard_incomplete: bool,
+    response_status: ResponseStatus,
 ) -> Result<Option<ToolSearchCall>, ToolError> {
     if call.status == ToolSearchStatus::Completed {
         return Ok(Some(call.clone()));
     }
-    if discard_incomplete {
-        return Ok(None);
+    match response_status {
+        ResponseStatus::Incomplete => {
+            let mut public = call.clone();
+            public.status = ToolSearchStatus::Incomplete;
+            Ok(Some(public))
+        }
+        ResponseStatus::Error => Ok(None),
+        ResponseStatus::InProgress | ResponseStatus::Completed => Err(invalid_upstream_search_call()),
     }
-    Err(invalid_upstream_search_call())
 }
 
 pub(crate) fn ensure_function_is_available(is_withheld: bool) -> Result<(), ToolError> {
@@ -884,7 +898,8 @@ pub(crate) fn validate_blocking_response(
         .get("status")
         .and_then(Value::as_str)
         .map_or(ResponseStatus::Completed, |status| status.parse().unwrap_or_default());
-    let discard_unfinished = matches!(status, ResponseStatus::Error | ResponseStatus::Incomplete);
+    let allow_unfinished = matches!(status, ResponseStatus::Error | ResponseStatus::Incomplete);
+    let mut saw_tool_search_call = false;
     for item in value.get("output").and_then(Value::as_array).into_iter().flatten() {
         if item.get("type").and_then(Value::as_str) == Some("function_call")
             && item
@@ -896,16 +911,24 @@ pub(crate) fn validate_blocking_response(
         }
         match item.get("type").and_then(Value::as_str) {
             Some("tool_search_call") => {
+                if saw_tool_search_call {
+                    return Err(invalid_upstream_search_call());
+                }
+                saw_tool_search_call = true;
                 let call = strict_native_call(item.clone())?;
-                if !discard_unfinished && call.status != ToolSearchStatus::Completed {
+                if !allow_unfinished && call.status != ToolSearchStatus::Completed {
                     return Err(invalid_upstream_search_call());
                 }
             }
             Some("function_call")
                 if tool_search_enabled && item.get("name").and_then(Value::as_str) == Some(TOOL_SEARCH_NAME) =>
             {
+                if saw_tool_search_call {
+                    return Err(invalid_upstream_search_call());
+                }
+                saw_tool_search_call = true;
                 let call = strict_function_call(item)?;
-                if !discard_unfinished && call.status != MessageStatus::Completed {
+                if !allow_unfinished && call.status != MessageStatus::Completed {
                     return Err(invalid_upstream_search_call());
                 }
             }
@@ -1896,27 +1919,42 @@ mod tests {
     }
 
     #[test]
-    fn terminal_projection_rejects_or_discards_unfinished_calls() {
+    fn terminal_projection_preserves_incomplete_and_discards_failed_calls() {
         let synthetic = FunctionToolCall {
             id: "fc_search".to_owned(),
             call_id: "call_search".to_owned(),
             name: TOOL_SEARCH_NAME.to_owned(),
             namespace: None,
-            arguments: String::new(),
+            arguments: r#"{"query":"partial"#.to_owned(),
             status: MessageStatus::InProgress,
         };
-        assert!(project_synthetic_call(&synthetic, false, true).is_err());
-        assert!(project_synthetic_call(&synthetic, true, true).unwrap().is_none());
+        let projected = project_synthetic_call(&synthetic, ResponseStatus::Incomplete, true)
+            .expect("incomplete synthetic projection")
+            .expect("incomplete synthetic call remains public");
+        assert_eq!(projected.id, "tsc_search");
+        assert_eq!(projected.arguments, json!({}));
+        assert_eq!(projected.status, ToolSearchStatus::Incomplete);
+        assert!(
+            project_synthetic_call(&synthetic, ResponseStatus::Error, true)
+                .unwrap()
+                .is_none()
+        );
+        assert!(project_synthetic_call(&synthetic, ResponseStatus::Completed, true).is_err());
 
         let native = ToolSearchCall {
             id: "tsc_search".to_owned(),
             call_id: "call_search".to_owned(),
             execution: crate::types::tools::ToolSearchExecution::Client,
-            arguments: json!({}),
-            status: ToolSearchStatus::Incomplete,
+            arguments: json!({"query": "weather"}),
+            status: ToolSearchStatus::InProgress,
         };
-        assert!(project_native_call(&native, false).is_err());
-        assert!(project_native_call(&native, true).unwrap().is_none());
+        let projected = project_native_call(&native, ResponseStatus::Incomplete)
+            .expect("incomplete native projection")
+            .expect("incomplete native call remains public");
+        assert_eq!(projected.arguments, native.arguments);
+        assert_eq!(projected.status, ToolSearchStatus::Incomplete);
+        assert!(project_native_call(&native, ResponseStatus::Error).unwrap().is_none());
+        assert!(project_native_call(&native, ResponseStatus::Completed).is_err());
     }
 
     #[test]
