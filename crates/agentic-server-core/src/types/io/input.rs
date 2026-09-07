@@ -7,6 +7,7 @@ use crate::types::event::MessageStatus;
 use crate::utils::common::deserialize_from_value;
 
 use super::output::{CustomToolCall, FunctionToolCall, McpListTools, ReasoningOutput};
+use super::shell::{ShellCall, ShellCallOutputMessage};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputTextContent {
@@ -209,6 +210,10 @@ pub enum InputItem {
     CustomToolCall(CustomToolCall),
     #[serde(rename = "custom_tool_call_output")]
     CustomToolCallOutput(CustomToolCallOutputMessage),
+    #[serde(rename = "shell_call")]
+    ShellCall(ShellCall),
+    #[serde(rename = "shell_call_output")]
+    ShellCallOutput(ShellCallOutputMessage),
     #[serde(rename = "reasoning")]
     Reasoning(ReasoningOutput),
     /// Internal history record used by gateway orchestration to remember that
@@ -238,6 +243,8 @@ impl<'de> Deserialize<'de> for InputItem {
             Some("function_call_output") => deserialize_from_value(value).map(Self::FunctionCallOutput),
             Some("custom_tool_call") => deserialize_from_value(value).map(Self::CustomToolCall),
             Some("custom_tool_call_output") => deserialize_from_value(value).map(Self::CustomToolCallOutput),
+            Some("shell_call") => deserialize_from_value(value).map(Self::ShellCall),
+            Some("shell_call_output") => deserialize_from_value(value).map(Self::ShellCallOutput),
             Some("reasoning") => deserialize_from_value(value).map(Self::Reasoning),
             Some("mcp_list_tools") => deserialize_from_value(value).map(Self::McpListTools),
             Some("compaction") => deserialize_from_value(value).map(Self::Compaction),
@@ -590,5 +597,41 @@ mod tests {
         let public_value = serde_json::to_value(input).expect("public input");
         assert_eq!(public_value[0]["type"], "custom_tool_call");
         assert_eq!(public_value[1]["type"], "custom_tool_call_output");
+    }
+
+    #[test]
+    fn shell_call_and_output_parse_as_typed_input_items() {
+        let input: ResponsesInput = serde_json::from_value(serde_json::json!([
+            {
+                "type": "shell_call",
+                "id": "sh_1",
+                "call_id": "call_1",
+                "action": {"commands": ["pwd"], "timeout_ms": 1000},
+                "status": "completed"
+            },
+            {
+                "type": "shell_call_output",
+                "call_id": "call_1",
+                "max_output_length": 4096,
+                "output": [{
+                    "stdout": "/workspace\n",
+                    "stderr": "",
+                    "outcome": {"type": "exit", "exit_code": 0}
+                }],
+                "status": "completed"
+            }
+        ]))
+        .expect("shell history");
+
+        let ResponsesInput::Items(items) = &input else {
+            panic!("expected item input");
+        };
+        assert!(matches!(items[0], InputItem::ShellCall(_)));
+        assert!(matches!(items[1], InputItem::ShellCallOutput(_)));
+
+        let serialized = serde_json::to_value(input).expect("shell history serializes");
+        assert_eq!(serialized[0]["type"], "shell_call");
+        assert_eq!(serialized[1]["type"], "shell_call_output");
+        assert_eq!(serialized[1]["output"][0]["outcome"]["exit_code"], 0);
     }
 }

@@ -124,7 +124,7 @@ mod tests {
     use crate::types::io::output::McpListTools;
     use crate::types::io::{
         FunctionToolCall, InputContent, InputMessage, InputMessageContent, OutputMessage, OutputTextContent,
-        ReasoningOutput, ReasoningTextContent, ResponsesInput,
+        ReasoningOutput, ReasoningTextContent, ResponsesInput, ShellCall, ShellCallAction, ShellCallStatus,
     };
 
     #[test]
@@ -243,6 +243,25 @@ mod tests {
         if let InputItem::FunctionCall(f) = &inputs[0] {
             assert_eq!(f.name, "my_tool");
         }
+    }
+
+    #[test]
+    fn test_into_input_items_preserves_shell_calls() {
+        let call = ShellCall {
+            id: Some("sh_1".to_owned()),
+            call_id: "call_shell".to_owned(),
+            action: ShellCallAction {
+                commands: vec!["pwd".to_owned()],
+                timeout_ms: Some(1_000),
+                max_output_length: Some(4_096),
+                extra: std::collections::HashMap::new(),
+            },
+            status: Some(ShellCallStatus::Completed),
+            extra: std::collections::HashMap::new(),
+        };
+
+        let inputs = InOutItem::into_input_items(vec![InOutItem::Output(OutputItem::ShellCall(call))]);
+        assert!(matches!(inputs.as_slice(), [InputItem::ShellCall(call)] if call.call_id == "call_shell"));
     }
 
     #[test]

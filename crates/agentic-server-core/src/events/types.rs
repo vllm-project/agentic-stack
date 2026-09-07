@@ -12,6 +12,7 @@ pub enum SSEItemType {
     WebSearchCall,
     McpCall,
     McpListTools,
+    ShellCall,
     Compaction,
     Message,
 }
@@ -26,6 +27,7 @@ impl SSEItemType {
             Self::WebSearchCall => "web_search_call",
             Self::McpCall => "mcp_call",
             Self::McpListTools => "mcp_list_tools",
+            Self::ShellCall => "shell_call",
             Self::Compaction => "compaction",
             Self::Message => "message",
         }
@@ -49,6 +51,7 @@ impl std::str::FromStr for SSEItemType {
             "web_search_call" => Ok(Self::WebSearchCall),
             "mcp_call" => Ok(Self::McpCall),
             "mcp_list_tools" => Ok(Self::McpListTools),
+            "shell_call" => Ok(Self::ShellCall),
             "compaction" => Ok(Self::Compaction),
             "message" => Ok(Self::Message),
             _ => Err(()),
@@ -67,6 +70,7 @@ impl TryFrom<&OutputItem> for SSEItemType {
             OutputItem::WebSearchCall(_) => Ok(Self::WebSearchCall),
             OutputItem::McpCall(_) => Ok(Self::McpCall),
             OutputItem::McpListTools(_) => Ok(Self::McpListTools),
+            OutputItem::ShellCall(_) => Ok(Self::ShellCall),
             OutputItem::Reasoning(_) => Ok(Self::Reasoning),
             OutputItem::Compaction(_) => Ok(Self::Compaction),
             OutputItem::Unknown => Err(()),
@@ -477,3 +481,4 @@ mod tests {
         assert!(<&str>::try_from(SSEEventType::Other).is_err());
     }
 }
+

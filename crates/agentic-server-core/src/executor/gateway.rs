@@ -468,6 +468,7 @@ pub(super) fn emit_gateway_start_events<'a>(
             OutputItem::Message(_)
             | OutputItem::FunctionCall(_)
             | OutputItem::CustomToolCall(_)
+            | OutputItem::ShellCall(_)
             | OutputItem::Reasoning(_)
             | OutputItem::Compaction(_)
             | OutputItem::Unknown => {}
@@ -515,6 +516,7 @@ pub(super) fn emit_gateway_completed_events<'a, T: GatewayPublicOutputSource>(
             OutputItem::Message(_)
             | OutputItem::FunctionCall(_)
             | OutputItem::CustomToolCall(_)
+            | OutputItem::ShellCall(_)
             | OutputItem::Reasoning(_)
             | OutputItem::Unknown => continue,
         };

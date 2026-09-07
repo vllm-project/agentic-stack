@@ -11,6 +11,7 @@ use crate::utils::uuid7_str;
 use super::input::{
     CompactionItem, InputContent, InputFunctionToolCall, InputItem, InputMessage, InputMessageContent, InputTextContent,
 };
+use super::shell::ShellCall;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputTextContent {
@@ -808,6 +809,8 @@ pub enum OutputItem {
     FunctionCall(FunctionToolCall),
     #[serde(rename = "custom_tool_call")]
     CustomToolCall(CustomToolCall),
+    #[serde(rename = "shell_call")]
+    ShellCall(ShellCall),
     #[serde(rename = "web_search_call")]
     WebSearchCall(WebSearchCall),
     #[serde(rename = "mcp_call")]
@@ -845,7 +848,7 @@ impl OutputItem {
             Self::FunctionCall(call) => registry
                 .lookup(&call.name)
                 .is_none_or(|entry| !entry.ownership.is_gateway()),
-            Self::CustomToolCall(_) => true,
+            Self::CustomToolCall(_) | Self::ShellCall(_) => true,
             Self::Message(_)
             | Self::WebSearchCall(_)
             | Self::McpCall(_)
@@ -867,6 +870,7 @@ impl OutputItem {
             Self::Reasoning(reasoning) => Some(InputItem::Reasoning(reasoning.clone())),
             Self::FunctionCall(call) => Some(InputItem::FunctionCall(InputFunctionToolCall::from(call.clone()))),
             Self::CustomToolCall(call) => Some(InputItem::FunctionCall(call.clone().into())),
+            Self::ShellCall(call) => Some(InputItem::ShellCall(call.clone())),
             Self::McpListTools(list_tools) => Some(InputItem::McpListTools(list_tools.clone())),
             Self::Compaction(item) => Some(InputItem::Compaction(item.clone())),
             Self::WebSearchCall(_) | Self::McpCall(_) | Self::Unknown => None,
@@ -940,6 +944,32 @@ mod tests {
         };
         assert_eq!(call.name, "apply_patch");
         assert_eq!(call.arguments, r#"{"input":"*** Begin Patch\n*** End Patch"}"#);
+    }
+
+    #[test]
+    fn shell_call_round_trips_and_rehydrates_as_typed_input() {
+        let item: OutputItem = serde_json::from_value(serde_json::json!({
+            "type": "shell_call",
+            "id": "sh_1",
+            "call_id": "call_1",
+            "action": {
+                "commands": ["pwd"],
+                "timeout_ms": 1000,
+                "max_output_length": 4096
+            },
+            "status": "completed"
+        }))
+        .unwrap();
+
+        assert!(item.requires_client_action(&ToolRegistry::default()));
+        let Some(InputItem::ShellCall(call)) = item.to_input_item() else {
+            panic!("shell call should rehydrate as a shell_call input item");
+        };
+        assert_eq!(call.call_id, "call_1");
+        assert_eq!(call.action.commands, ["pwd"]);
+
+        let serialized = serde_json::to_value(item).unwrap();
+        assert_eq!(serialized["type"], "shell_call");
     }
 
     #[test]

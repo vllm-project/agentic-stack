@@ -38,16 +38,24 @@ pub struct Item {
 }
 
 impl Item {
+    fn data_without_storage_marker(&self) -> Option<Value> {
+        let mut value = deserialize_from_str_opt::<Value>(&self.data)?;
+        if let Some(object) = value.as_object_mut() {
+            object.remove(STORED_ITEM_KIND_KEY);
+        }
+        Some(value)
+    }
+
     /// Deserialize data column as `InputItem`.
     #[must_use]
     pub fn as_input(&self) -> Option<InputItem> {
-        deserialize_from_str_opt(&self.data)
+        serde_json::from_value(self.data_without_storage_marker()?).ok()
     }
 
     /// Deserialize data column as `OutputItem`.
     #[must_use]
     pub fn as_output(&self) -> Option<OutputItem> {
-        deserialize_from_str_opt(&self.data)
+        serde_json::from_value(self.data_without_storage_marker()?).ok()
     }
 
     /// Deserialize data column as either `InputItem` or `OutputItem`.
@@ -448,6 +456,38 @@ mod tests {
 
         println!("namespace round-trip: mcp__shell.run -> storage -> input function_call");
         println!("storage marker stripped: _agentic_item_kind absent");
+    }
+
+    #[test]
+    fn shell_call_round_trips_through_storage_and_rehydration() {
+        let output: OutputItem = serde_json::from_value(serde_json::json!({
+            "type": "shell_call",
+            "id": "sh_1",
+            "call_id": "call_shell",
+            "action": {
+                "commands": ["pwd"],
+                "timeout_ms": 1_000,
+                "max_output_length": 4_096
+            },
+            "status": "completed"
+        }))
+        .expect("shell output item");
+        let stored = InOutItem::Output(output);
+        let item = Item {
+            id: "item_shell_call".to_owned(),
+            data: String::try_from(&stored).expect("serialization failed"),
+            created_at: 1_704_067_200,
+            conversation_id: None,
+            seq: None,
+        };
+
+        let inputs = InOutItem::into_input_items(vec![item.as_inout().expect("stored shell item")]);
+        let value = serde_json::to_value(&inputs[0]).expect("rehydrated shell input");
+
+        assert_eq!(value["type"], "shell_call");
+        assert_eq!(value["call_id"], "call_shell");
+        assert_eq!(value["action"]["commands"][0], "pwd");
+        assert!(value.get(STORED_ITEM_KIND_KEY).is_none());
     }
 
     #[test]

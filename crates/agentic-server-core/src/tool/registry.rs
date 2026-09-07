@@ -243,6 +243,9 @@ impl ToolRegistry {
                         insert_code_interpreter_entry(resolved, p);
                     })?;
                 }
+                ResponsesTool::Shell(_) => {
+                    tracing::debug!("shell tool declared but skipped until a handler is registered");
+                }
                 ResponsesTool::Namespace(p) => {
                     insert_unique_tool_entries(&mut entries, |resolved| insert_namespace_entries(resolved, p))?;
                 }

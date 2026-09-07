@@ -21,7 +21,9 @@ impl ResponsesTool {
         match self {
             Self::Function(param) => FunctionHandler.validate(param),
             Self::Mcp(param) => McpHandler::spec_from_param(param).validate(param),
-            Self::WebSearch(_) | Self::FileSearch(_) | Self::CodeInterpreter(_) | Self::Unknown => Ok(()),
+            Self::WebSearch(_) | Self::FileSearch(_) | Self::CodeInterpreter(_) | Self::Shell(_) | Self::Unknown => {
+                Ok(())
+            }
             Self::Namespace(param) => CodexNamespaceHandler.validate(param),
             Self::Custom(param) => CustomHandler.validate(param),
         }
@@ -38,7 +40,7 @@ impl ResponsesTool {
             Self::CodeInterpreter(_) => Some(ToolType::CodeInterpreter),
             Self::Namespace(_) => Some(ToolType::CodexNamespace),
             Self::Custom(_) => Some(ToolType::Custom),
-            Self::Unknown => None,
+            Self::Shell(_) | Self::Unknown => None,
         }
     }
 
@@ -75,6 +77,10 @@ impl ResponsesTool {
             }
             Self::CodeInterpreter(_) => {
                 tracing::debug!("code_interpreter tool skipped in normalize - handler not yet registered");
+                vec![]
+            }
+            Self::Shell(_) => {
+                tracing::debug!("shell tool skipped in normalize - handler not yet registered");
                 vec![]
             }
             Self::Namespace(param) => CodexNamespaceHandler.normalize(param),

@@ -7,6 +7,7 @@ pub mod params;
 
 pub use params::{
     CodeInterpreterToolParam, CodexNamespaceMember, CodexNamespaceToolParam, CustomToolParam, EmptyToolNameError,
-    FileSearchToolParam, FunctionToolParam, McpDiscoveredToolParam, McpToolParam, NonEmptyToolName, ResponsesTool,
-    WebSearchContextSize, WebSearchFilters, WebSearchToolParam, WebSearchUserLocation,
+    FileSearchToolParam, FunctionToolParam, LocalShellEnvironment, McpDiscoveredToolParam, McpToolParam,
+    NonEmptyToolName, ResponsesTool, ShellEnvironment, ShellToolParam, WebSearchContextSize, WebSearchFilters,
+    WebSearchToolParam, WebSearchUserLocation,
 };
