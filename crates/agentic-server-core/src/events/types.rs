@@ -481,4 +481,3 @@ mod tests {
         assert!(<&str>::try_from(SSEEventType::Other).is_err());
     }
 }
-

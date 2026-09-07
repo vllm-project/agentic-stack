@@ -373,7 +373,7 @@ fn emit_mcp_discovery_lifecycle(
         .mcp_list_tool_items()
         .map(crate::tool::mcp::handler::list_tools_output_item)
         .collect::<Vec<_>>();
-    let public_output = public_output_items(&discovered_output, registry, &[]);
+    let public_output = public_output_items(&discovered_output, registry, &[])?;
     let event_plans = mcp_list_tools_event_plans(&public_output, 0);
 
     emit_gateway_start_events(&event_plans, stream_accumulator, stream_sender)?;
@@ -514,4 +514,3 @@ mod tests {
         assert!(error.to_string().contains("deferred stream exceeded"));
     }
 }
-

@@ -833,6 +833,7 @@ impl OutputItem {
             Self::Message(item) => Some(&item.id),
             Self::FunctionCall(item) => Some(&item.id),
             Self::CustomToolCall(item) => Some(&item.id),
+            Self::ShellCall(item) => item.id.as_deref(),
             Self::WebSearchCall(item) => Some(&item.id),
             Self::McpCall(item) => Some(&item.id),
             Self::McpListTools(item) => Some(&item.id),

@@ -1219,6 +1219,7 @@ fn output_item_call_id(item: &OutputItem) -> Option<&str> {
     match item {
         OutputItem::FunctionCall(call) => Some(&call.call_id),
         OutputItem::CustomToolCall(call) => Some(&call.call_id),
+        OutputItem::ShellCall(call) => Some(&call.call_id),
         _ => None,
     }
 }

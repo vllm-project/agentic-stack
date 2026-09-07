@@ -241,7 +241,7 @@ async fn run_gateway_tool_loop(
                 .map(|(accumulator, sender)| (&mut **accumulator, *sender)),
         )
         .await?;
-        let public_output = public_output_items(&current_output, &registry, &gateway_results);
+        let public_output = public_output_items(&current_output, &registry, &gateway_results)?;
         combined_output.extend(public_output);
 
         match classify_round(has_client_owned, &gateway_results, round, MAX_GATEWAY_TOOL_ROUNDS) {

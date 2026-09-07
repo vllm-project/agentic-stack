@@ -16,6 +16,7 @@ enum FunctionCallShape {
     PublicFunction,
     GatewayOwned,
     Custom(CustomCallState),
+    Shell(ShellCallState),
 }
 
 #[derive(Debug)]
@@ -26,6 +27,11 @@ struct CustomCallState {
     input_start: Option<usize>,
     input_cursor: usize,
     input_done: bool,
+}
+
+#[derive(Debug)]
+struct ShellCallState {
+    added: bool,
 }
 
 #[derive(Debug, Default)]
@@ -142,6 +148,11 @@ impl FunctionSseTranslator {
                     defer_from_output_index: None,
                 })
             }
+            ToolType::Shell => {
+                self.active
+                    .insert(output_index, FunctionCallShape::Shell(ShellCallState { added: false }));
+                Ok(FunctionSseTranslation::default())
+            }
             ToolType::Mcp | ToolType::WebSearch | ToolType::FileSearch | ToolType::CodeInterpreter => {
                 if self.first_gateway_output_index.is_none_or(|first| output_index < first) {
                     self.first_gateway_output_index = Some(output_index);
@@ -171,7 +182,9 @@ impl FunctionSseTranslator {
                 frames: vec![original],
                 defer_from_output_index: None,
             }),
-            Some(FunctionCallShape::GatewayOwned) => Ok(FunctionSseTranslation::default()),
+            Some(FunctionCallShape::GatewayOwned | FunctionCallShape::Shell(_)) => {
+                Ok(FunctionSseTranslation::default())
+            }
             Some(FunctionCallShape::Custom(state)) => {
                 let frame = match call {
                     Some(call) => incremental_custom_delta(state, call.arguments())?,
@@ -198,6 +211,14 @@ impl FunctionSseTranslator {
         match self.active.get_mut(&output_index) {
             Some(FunctionCallShape::PublicFunction) | None => translated.frames.push(original),
             Some(FunctionCallShape::GatewayOwned) => {}
+            Some(FunctionCallShape::Shell(state)) => {
+                if let Some(call) = call
+                    && !state.added
+                {
+                    translated.frames.push(shell_added_frame(&call)?);
+                    state.added = true;
+                }
+            }
             Some(FunctionCallShape::Custom(state)) => {
                 if let Some(call) = call {
                     translated.frames.extend(finish_custom_input(state, call.arguments())?);
@@ -219,6 +240,14 @@ impl FunctionSseTranslator {
         match self.active.remove(&output_index) {
             Some(FunctionCallShape::PublicFunction) | None => translated.frames.push(original),
             Some(FunctionCallShape::GatewayOwned) => {}
+            Some(FunctionCallShape::Shell(state)) => {
+                if let Some(call) = call {
+                    if !state.added {
+                        translated.frames.push(shell_added_frame(&call)?);
+                    }
+                    translated.frames.push(shell_done_frame(&call)?);
+                }
+            }
             Some(FunctionCallShape::Custom(mut state)) => {
                 if let Some(call) = call {
                     translated
@@ -321,6 +350,39 @@ fn custom_added_frame(call: &AccumulatedFunctionCall<'_>) -> ExecutorResult<Even
             }),
         )],
     )
+}
+
+fn shell_added_frame(call: &AccumulatedFunctionCall<'_>) -> ExecutorResult<EventFrame> {
+    shell_frame(
+        SSEEventType::OutputItemAdded,
+        call.output_index,
+        crate::types::io::ShellCallStatus::InProgress,
+        call,
+    )
+}
+
+fn shell_done_frame(call: &AccumulatedFunctionCall<'_>) -> ExecutorResult<EventFrame> {
+    shell_frame(
+        SSEEventType::OutputItemDone,
+        call.output_index,
+        crate::types::io::ShellCallStatus::InProgress,
+        call,
+    )
+}
+
+fn shell_frame(
+    event_type: SSEEventType,
+    output_index: u32,
+    status: crate::types::io::ShellCallStatus,
+    call: &AccumulatedFunctionCall<'_>,
+) -> ExecutorResult<EventFrame> {
+    let item = crate::tool::ShellHandler::output_item_with_status(call.item, status).ok_or_else(|| {
+        ExecutorError::StreamError("shell function call contains invalid action arguments".to_owned())
+    })?;
+    let item = serde_json::to_value(item).map_err(ExecutorError::JsonError)?;
+    let mut frame = synthetic_event(event_type, [("item".to_owned(), item)])?;
+    frame.wire.output_index = Some(u64::from(output_index));
+    Ok(frame)
 }
 
 fn incremental_custom_delta(state: &mut CustomCallState, arguments: &str) -> ExecutorResult<Option<EventFrame>> {
@@ -781,6 +843,72 @@ mod tests {
         assert_eq!(translated.frames[0].event_type, SSEEventType::OutputItemAdded);
         assert_eq!(translated.frames[0].wire.rest["item"]["type"], "function_call");
         assert_eq!(translated.defer_from_output_index, None);
+    }
+
+    #[test]
+    fn shell_function_arguments_restore_openai_shell_lifecycle() {
+        let mut accumulator = ResponseAccumulator::new("resp_1".to_owned(), None);
+        let mut translator = FunctionSseTranslator::new(HashMap::from([("shell".to_owned(), ToolType::Shell)]));
+        let events = [
+            serde_json::json!({
+                "type": "response.output_item.added", "output_index": 0,
+                "item": {"id": "fc_shell", "type": "function_call", "call_id": "call_shell",
+                    "name": "shell", "arguments": "", "status": "in_progress"}
+            }),
+            serde_json::json!({
+                "type": "response.function_call_arguments.delta", "output_index": 0,
+                "item_id": "fc_shell", "call_id": "call_shell",
+                "delta": "{\"commands\":[\"pwd\"],\"timeout_ms\":1000}"
+            }),
+            serde_json::json!({
+                "type": "response.function_call_arguments.done", "output_index": 0,
+                "item_id": "fc_shell", "call_id": "call_shell", "name": "shell",
+                "arguments": "{\"commands\":[\"pwd\"],\"timeout_ms\":1000}"
+            }),
+            serde_json::json!({
+                "type": "response.output_item.done", "output_index": 0,
+                "item": {"id": "fc_shell", "type": "function_call", "call_id": "call_shell",
+                    "name": "shell", "arguments": "{\"commands\":[\"pwd\"],\"timeout_ms\":1000}",
+                    "status": "completed"}
+            }),
+        ];
+
+        let frames = events
+            .iter()
+            .flat_map(|event| translate(&mut accumulator, &mut translator, event).frames)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            frames.iter().map(|frame| frame.event_type).collect::<Vec<_>>(),
+            [SSEEventType::OutputItemAdded, SSEEventType::OutputItemDone]
+        );
+        assert_eq!(frames[0].wire.rest["item"]["type"], "shell_call");
+        assert_eq!(frames[0].wire.rest["item"]["id"], "sh_shell");
+        assert_eq!(frames[0].wire.rest["item"]["status"], "in_progress");
+        assert_eq!(frames[0].wire.rest["item"]["action"]["commands"][0], "pwd");
+        assert_eq!(frames[1].wire.rest["item"]["status"], "in_progress");
+    }
+
+    #[test]
+    fn malformed_shell_arguments_fail_closed() {
+        let mut accumulator = ResponseAccumulator::new("resp_1".to_owned(), None);
+        let mut translator = FunctionSseTranslator::new(HashMap::from([("shell".to_owned(), ToolType::Shell)]));
+        let added = serde_json::json!({
+            "type": "response.output_item.added", "output_index": 0,
+            "item": {"id": "fc_shell", "type": "function_call", "call_id": "call_shell",
+                "name": "shell", "arguments": "", "status": "in_progress"}
+        });
+        translate(&mut accumulator, &mut translator, &added);
+        let done = serde_json::json!({
+            "type": "response.function_call_arguments.done", "output_index": 0,
+            "item_id": "fc_shell", "call_id": "call_shell", "name": "shell",
+            "arguments": "not-json"
+        });
+
+        let error = accumulator
+            .process_sse_line_with_translator(&sse(&done), &mut translator)
+            .expect_err("invalid shell action must fail");
+        assert!(error.to_string().contains("invalid action arguments"));
     }
 
     #[test]

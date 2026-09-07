@@ -1,0 +1,8 @@
+[
+  {
+    "type": "shell",
+    "environment": {
+      "type": "local"
+    }
+  }
+]
