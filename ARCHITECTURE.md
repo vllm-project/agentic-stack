@@ -283,11 +283,12 @@ executor so the accumulator doesn't do inline JSON parsing.
    directions, and (if it carries structured data) an `EventPayload` variant.
 2. `events/normalize.rs` — extend `extract_payload` and add an `extract_*` helper if
    the payload needs real parsing (otherwise it can fall through to `Raw`).
-3. `executor/accumulator.rs`'s `process_event` — add a match arm to fold the new event
-   into accumulator state, the same way every existing streamed field does.
-4. Only if the event is gateway-synthesized (a built-in tool's lifecycle event):
-   `executor/gateway.rs`'s `synthetic_event` call sites, and if it's a function-call
-   shaped event needing translation, `executor/function_sse.rs`.
+3. Extend the single ingestion transition dispatcher. Today that is
+   `executor/accumulator.rs`'s `process_event`; [#243](https://github.com/vllm-project/agentic-api/issues/243) will
+   consolidate the stable entry point. Do not create a caller-specific validator or folding path.
+4. If the event is gateway-synthesized (a built-in tool's lifecycle event), construct a typed `EventFrame` in
+   `executor/gateway.rs` and feed it through the same ingestion/relay boundaries. Function-call shape translation
+   remains an ingestion concern, currently implemented by `executor/function_sse.rs`.
 
 ### `executor/` — the loop, and the server's only door into storage
 
@@ -350,14 +351,71 @@ call inference, run the tool loop, persist. `agentic-server` never reaches past 
 - **`error.rs`** — `ExecutorError`, with the mapping methods (`http_status()`,
   `error_type()`, `into_response_body()`, ...) handlers use to render errors.
 
+#### Target streaming pipeline and ownership boundaries
+
+The streaming executor is converging on one linear pipeline under RFC
+[#241](https://github.com/vllm-project/agentic-api/issues/241). The current implementation still has overlapping
+validation, accumulation, translation, and emission responsibilities in `upstream.rs`, `accumulator.rs`,
+`function_sse.rs`, and `gateway_accumulator.rs`; that overlap is migration state, not an extension pattern. New work
+must move toward the following ownership model:
+
+```text
+upstream HTTP bytes
+        │
+        ▼
+inference transport ──raw SSE data line──▶ event normalization
+                                                │ EventFrame
+                                                ▼
+                                  synchronous ingestion state machine
+                                                │ validated semantic events/items
+                                                ▼
+                                           stream relay ──▶ client
+
+engine.rs surrounds the per-round path: inference rounds → tool loop → persistence
+```
+
+| Stage | Owns | Must not own |
+| --- | --- | --- |
+| Inference transport (`inference.rs`) | HTTP request/response I/O, byte-chunk handling, SSE framing, timeouts, and `[DONE]` detection | Typed semantic-event validation, output-item lifecycle, translation, or client ordering |
+| Event normalization (`events/`) | Converting one raw SSE data line into one typed `EventFrame` | Cross-event lifecycle state, response assembly, or delivery |
+| Synchronous ingestion ([#243](https://github.com/vllm-project/agentic-api/issues/243)) | One entry point for normalization policy, semantic-event lifecycle validation, typed output-item slots, delta folding, tool-call shape translation, and finalization | Async task placement, client backpressure, cross-round sequencing, or persistence |
+| Stream relay ([#244](https://github.com/vllm-project/agentic-api/issues/244)) | Cross-round sequence numbers, public `output_index` rebasing, lifecycle suppression, deferred-event ordering, bounded client delivery, and disconnect propagation | Re-parsing SSE data, reconstructing output items, or deciding the tool loop |
+| Orchestrator (`engine.rs`) | Turn and inference-round control, tool-loop decisions, terminal-response policy, and persistence | SSE framing/parsing or a second semantic-event state machine |
+
+The boundary contract is **one owner and one path per concern**:
+
+- Every streamed upstream response enters the same synchronous ingestion state machine. Rejecting and compatibility
+  validation policies may choose different outcomes, but they must exercise the same typed transitions rather than
+  maintaining separate validators.
+- An output item's lifecycle is scoped to one inference round and keyed by validated `output_index`; item ID and kind
+  must agree on every subsequent semantic event. Completed slots remain distinguishable from never-seen slots so
+  index reuse and duplicate completion can be detected. Finalization consumes the round's ingest state.
+- Each supported output-item kind has typed in-flight state and participates in exhaustive transition/finalization
+  matches. Adding a kind extends those declared matches and their tests instead of adding a side path.
+- Downstream stages consume the typed result of the preceding stage. They do not parse the raw line again, infer a
+  second lifecycle from the wire object, or reconstruct response state already owned upstream in the pipeline.
+
+Concurrency is a deployment choice around this synchronous semantic core, not part of the core itself. Introduce a
+channel only at a real task-ownership boundary. Every channel needs a bounded entry count and either a byte budget or
+a maximum item size that gives a known memory ceiling. Define what happens when it is full, when the receiver
+disconnects, and when either task is cancelled or fails; carry cancellation through the whole producer/consumer path
+and join spawned tasks. Instrument entry and byte occupancy when tuning a capacity.
+
+Run ingestion inline unless representative measurements show that worker placement improves the complete request
+path. Benchmark [#245](https://github.com/vllm-project/agentic-api/issues/245) owns that decision and must compare
+equivalent semantics, realistic event sizes and pacing, concurrent requests, slow consumers, tail latency, CPU,
+memory, thread count, and queue occupancy. `spawn_blocking` and a capacity such as 16 entries are hypotheses, not
+architectural defaults.
+
 #### `accumulator.rs` — `ResponseAccumulator`: a stability contract, not just a file
 
 `ResponseAccumulator` is the SSE state machine that turns a stream of `EventFrame`s
 into a `ResponsePayload`. Its public surface is intentionally small
 (`new`, `from_json`, `from_stream`, `from_sse_lines`, `mark_incomplete`, `finalize`) and
-**should not grow**. Don't add a new public method and call it from another method on
-the struct — that's a surface API change. Extend behavior through the existing
-pattern instead:
+**should not grow outside the approved [#243 consolidation](https://github.com/vllm-project/agentic-api/issues/243)**.
+Until that consolidation lands, don't add a new public method and call it from another method on the struct — that's
+another surface API change. Extend current behavior through the existing pattern while preserving the target
+single-ingestion boundary above:
 
 - Each output item arrives via `response.output_item.added` and is **parked** as an
   `InFlightEntry` in `self.in_flight: IndexMap<String, InFlightEntry>`, keyed by item
@@ -391,6 +449,11 @@ rounds, rebases `output_index` so gateway-tool output lands after prior output, 
 deduplicates `response.created`/`response.in_progress` so they fire once per response
 rather than once per round. `gateway.rs` and `upstream.rs` both feed frames through it
 via `process_event`/`synthetic_event`/`emit_sse_frame`.
+
+This is the current precursor to the stream-relay boundary in
+[#244](https://github.com/vllm-project/agentic-api/issues/244). New delivery,
+buffering, and backpressure behavior belongs in that relay consolidation rather than
+in the response accumulator or inference transport.
 
 #### `function_sse.rs` — `FunctionSseTranslator`
 
@@ -662,9 +725,11 @@ router, reusing the same core logic in-process.
 | Task | Where |
 |---|---|
 | Add a new HTTP or WebSocket route | `agentic-server/src/handler/{http,websocket}/`, wire it in `app.rs`'s `build_router_with_auth` |
-| Support a new upstream SSE event | `events/types.rs` → `events/normalize.rs` → `executor/accumulator.rs` (+ `gateway.rs`/`function_sse.rs` if it's gateway-synthesized) |
+| Support a new upstream SSE event | `events/types.rs` → `events/normalize.rs` → the single ingestion dispatcher tracked by [#243](https://github.com/vllm-project/agentic-api/issues/243); do not add a caller-specific path |
 | Add a new tool type | `tool/handler.rs` impl(s) → `tool/normalize.rs` → `tool/registry.rs` → `tool/executors.rs` if it needs lazy connection setup |
 | Change gateway-round concurrency or lifecycle ordering | `executor/gateway.rs` (`GatewayScheduler`/event plans) + `executor/engine.rs` (round decision/ordered streaming) + `tool/ownership.rs` (typed binding and same-tool safety) |
+| Change client streaming order, buffering, or backpressure | The stream-relay boundary tracked by [#244](https://github.com/vllm-project/agentic-api/issues/244); do not add it to `inference.rs` or the response accumulator |
+| Move streaming ingestion to a worker | Benchmark the equivalent inline and worker paths under [#245](https://github.com/vllm-project/agentic-api/issues/245) before changing executor placement |
 | Change continuation history visibility | `storage/types/item.rs::into_input_items` → `types/io/output.rs::to_input_item` (preservation) → `types/io/input.rs::model_input` (upstream visibility) |
 | Add a CRUD operation beyond persist/rehydrate | `executor/modes/conversation.rs` or `modes/response.rs`, backed by `storage/conversation.rs` / `storage/response.rs` |
 | Change how output items are assembled from a stream | `executor/accumulator.rs` — respect the `TryFrom`/`ApplyDone` pattern, don't add new public methods |
