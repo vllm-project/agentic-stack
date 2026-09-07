@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::io::{
     FunctionTool, InputItem, InputMessage, InputMessageContent, OutputItem, ResponseUsage, ResponsesInput, ToolChoice,
@@ -36,7 +36,7 @@ pub struct ResponseTextConfig {
     /// Unmodeled extension fields preserved for upstream compatibility.
     #[serde(default)]
     #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
+    pub extra: Map<String, Value>,
 }
 
 /// Output format requested through [`ResponseTextConfig`].
@@ -48,13 +48,13 @@ pub enum ResponseTextFormat {
         /// Unmodeled extension fields preserved for upstream compatibility.
         #[serde(default)]
         #[serde(flatten)]
-        extra: HashMap<String, Value>,
+        extra: Map<String, Value>,
     },
     JsonObject {
         /// Unmodeled extension fields preserved for upstream compatibility.
         #[serde(default)]
         #[serde(flatten)]
-        extra: HashMap<String, Value>,
+        extra: Map<String, Value>,
     },
     JsonSchema {
         name: String,
@@ -66,12 +66,13 @@ pub enum ResponseTextFormat {
         /// Unmodeled extension fields preserved for upstream compatibility.
         #[serde(default)]
         #[serde(flatten)]
-        extra: HashMap<String, Value>,
+        extra: Map<String, Value>,
     },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RequestPayload {
+#[serde(bound(serialize = "Box<T>: Serialize", deserialize = "Box<T>: Deserialize<'de>"))]
+pub struct RequestPayload<T: ?Sized = ResponseTextConfig> {
     pub model: String,
     pub input: ResponsesInput,
     pub instructions: Option<String>,
@@ -88,7 +89,7 @@ pub struct RequestPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<Box<ReasoningConfig>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<Box<ResponseTextConfig>>,
+    pub text: Option<Box<T>>,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
     pub max_output_tokens: Option<u32>,
@@ -173,7 +174,7 @@ where
         .serialize(serializer)
 }
 
-impl RequestPayload {
+impl<T: ?Sized> RequestPayload<T> {
     /// Names the feature in this request that only the in-process executor
     /// implements, if any — neither the passthrough proxy nor split execution
     /// can serve it.
@@ -202,6 +203,44 @@ impl RequestPayload {
         None
     }
 
+    /// Transform the text configuration while moving all other request fields
+    /// without reparsing or reallocating them.
+    ///
+    /// # Errors
+    ///
+    /// Returns the mapping function's error when the text configuration cannot
+    /// be transformed.
+    pub fn try_map_text<U: ?Sized, E>(
+        self,
+        map: impl FnOnce(Box<T>) -> Result<Box<U>, E>,
+    ) -> Result<RequestPayload<U>, E> {
+        let text = self.text.map(map).transpose()?;
+        Ok(RequestPayload {
+            model: self.model,
+            input: self.input,
+            instructions: self.instructions,
+            previous_response_id: self.previous_response_id,
+            conversation_id: self.conversation_id,
+            tools: self.tools,
+            tool_choice: self.tool_choice,
+            stream: self.stream,
+            store: self.store,
+            include: self.include,
+            reasoning: self.reasoning,
+            text,
+            temperature: self.temperature,
+            top_p: self.top_p,
+            max_output_tokens: self.max_output_tokens,
+            truncation: self.truncation,
+            metadata: self.metadata,
+            parallel_tool_calls: self.parallel_tool_calls,
+            cache_salt: self.cache_salt,
+            context_management: self.context_management,
+        })
+    }
+}
+
+impl RequestPayload {
     /// Construct an `UpstreamRequest` suitable for forwarding to vLLM.
     ///
     /// Codex `namespace` tools' members are first renamed to their flat,
@@ -573,6 +612,46 @@ mod tests {
 
             assert!(parsed.is_err(), "malformed text configuration should fail: {text}");
         }
+    }
+
+    #[test]
+    fn text_configuration_preserves_extension_field_order() {
+        let config: ResponseTextConfig = serde_json::from_str(
+            r#"{
+                "format": {
+                    "type": "json_schema",
+                    "name": "ordered",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "second": {"type": "string"},
+                            "first": {"type": "number"}
+                        }
+                    },
+                    "x-format-first": 1,
+                    "x-format-second": 2,
+                    "x-format-third": 3,
+                    "x-format-fourth": 4,
+                    "x-format-fifth": 5,
+                    "x-format-sixth": 6
+                },
+                "verbosity": "low",
+                "x-text-first": 1,
+                "x-text-second": 2,
+                "x-text-third": 3,
+                "x-text-fourth": 4,
+                "x-text-fifth": 5,
+                "x-text-sixth": 6
+            }"#,
+        )
+        .expect("text configuration should deserialize");
+
+        let serialized = serde_json::to_string(&config).expect("text configuration should serialize");
+
+        assert_eq!(
+            serialized,
+            r#"{"format":{"type":"json_schema","name":"ordered","schema":{"type":"object","properties":{"second":{"type":"string"},"first":{"type":"number"}}},"x-format-first":1,"x-format-second":2,"x-format-third":3,"x-format-fourth":4,"x-format-fifth":5,"x-format-sixth":6},"verbosity":"low","x-text-first":1,"x-text-second":2,"x-text-third":3,"x-text-fourth":4,"x-text-fifth":5,"x-text-sixth":6}"#
+        );
     }
 
     #[test]

@@ -727,7 +727,13 @@ impl ExecuteRequest {
             )))
         } else {
             Ok(Either::Left(
-                run_blocking(ctx, tool_search_state, &self.exec_ctx, self.client_auth.as_deref()).await?,
+                Box::pin(run_blocking(
+                    ctx,
+                    tool_search_state,
+                    &self.exec_ctx,
+                    self.client_auth.as_deref(),
+                ))
+                .await?,
             ))
         }
     }

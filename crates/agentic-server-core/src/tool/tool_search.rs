@@ -39,7 +39,7 @@ impl ToolSearchHandler {
     /// definition, or replayed tool-search item and therefore needs the
     /// executor's preparation path.
     #[must_use]
-    pub fn request_has_state(request: &RequestPayload) -> bool {
+    pub fn request_has_state<T: ?Sized>(request: &RequestPayload<T>) -> bool {
         request_contains_tool_search_state(request, &request.input)
     }
 
@@ -587,7 +587,7 @@ fn validate_tool_search_request(request: &RequestPayload, input: &ResponsesInput
     Ok(true)
 }
 
-fn request_contains_tool_search_state(request: &RequestPayload, input: &ResponsesInput) -> bool {
+fn request_contains_tool_search_state<T: ?Sized>(request: &RequestPayload<T>, input: &ResponsesInput) -> bool {
     input_contains_tool_search_state(input)
         || request
             .tools

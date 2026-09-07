@@ -317,7 +317,7 @@ fn one_history_pass_prepares_canonical_private_input_without_mutating_public_inp
                 "id": "tsc_1",
                 "call_id": "call_search_1",
                 "name": "tool_search",
-                "arguments": "{\"a\":1,\"z\":2}",
+                "arguments": "{\"z\":2,\"a\":1}",
                 "status": "completed"
             },
             {
@@ -557,7 +557,7 @@ fn loaded_namespace_model_output_is_identity_only_while_private_tools_retain_mem
     let private_input = serde_json::to_value(&private.input).expect("private input serializes");
     assert_eq!(
         private_input[1]["output"],
-        r#"{"tools":[{"description":"Weather tools","name":"weather","type":"namespace"}]}"#
+        r#"{"tools":[{"type":"namespace","name":"weather","description":"Weather tools"}]}"#
     );
     let private_tools = serde_json::to_string(&private.tools).expect("private tools serialize");
     assert!(

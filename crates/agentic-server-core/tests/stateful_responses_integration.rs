@@ -448,29 +448,29 @@ async fn test_previous_response_id_rehydrates_function_call_before_tool_output()
 
 #[tokio::test]
 async fn test_previous_response_id_replays_plaintext_reasoning_without_opaque_state() {
-    assert_plaintext_reasoning_replay(false, false, true).await;
+    Box::pin(assert_plaintext_reasoning_replay(false, false, true)).await;
 }
 
 #[tokio::test]
 async fn test_streaming_previous_response_id_replays_plaintext_reasoning_without_opaque_state() {
-    assert_plaintext_reasoning_replay(true, false, true).await;
+    Box::pin(assert_plaintext_reasoning_replay(true, false, true)).await;
 }
 
 #[tokio::test]
 async fn test_conversation_replays_plaintext_reasoning_without_opaque_state() {
-    assert_plaintext_reasoning_replay(false, true, true).await;
+    Box::pin(assert_plaintext_reasoning_replay(false, true, true)).await;
 }
 
 #[tokio::test]
 async fn test_streaming_conversation_replays_plaintext_reasoning_with_null_state() {
-    assert_plaintext_reasoning_replay(true, true, false).await;
+    Box::pin(assert_plaintext_reasoning_replay(true, true, false)).await;
 }
 
 #[tokio::test]
 async fn test_summary_only_reasoning_is_not_replayed() {
     for stream in [false, true] {
         for conversation in [false, true] {
-            assert_summary_only_reasoning_not_replayed(stream, conversation).await;
+            Box::pin(assert_summary_only_reasoning_not_replayed(stream, conversation)).await;
         }
     }
 }

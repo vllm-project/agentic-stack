@@ -69,7 +69,7 @@ fn test_function_call_args_done() {
 
 #[test]
 fn test_output_item_done() {
-    let line = r#"data: {"type":"response.output_item.done","item":{"id":"msg_1","type":"message","status":"completed","content":[{"type":"output_text","text":"hi"}]},"output_index":0,"sequence_number":9}"#;
+    let line = r#"data: {"type":"response.output_item.done","item":{"id":"msg_1","item_id":"msg_fallback","type":"message","status":"completed","content":[{"type":"output_text","text":"hi"}]},"output_index":0,"sequence_number":9}"#;
     let frame = normalize_sse_line(line).unwrap();
     assert_eq!(frame.event_type, SSEEventType::OutputItemDone);
     if let EventPayload::OutputItemDone {
@@ -81,6 +81,7 @@ fn test_output_item_done() {
     {
         assert_eq!(item_id, "msg_1");
         assert_eq!(item_type, "message");
+        assert_eq!(item["id"], "msg_1");
         assert_eq!(item["content"][0]["text"].as_str(), Some("hi"));
     } else {
         panic!("expected OutputItemDone payload");

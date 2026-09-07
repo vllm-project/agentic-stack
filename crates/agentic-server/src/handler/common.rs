@@ -9,7 +9,6 @@ use tracing::warn;
 
 use agentic_core::executor::{BoxStream, ExecutorError};
 use agentic_core::proxy::{ProxyAuth, ProxyBody, ProxyResponse, error_response_for_auth};
-use agentic_core::types::request_response::RequestPayload;
 
 pub(super) const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
 
@@ -55,14 +54,6 @@ pub(super) async fn read_bytes_with_auth(body: Body, auth: ProxyAuth) -> Result<
             auth,
         ))
     })
-}
-
-#[allow(clippy::result_large_err)]
-pub(super) async fn read_and_parse(body: Body) -> Result<(Bytes, RequestPayload), Response> {
-    let bytes = read_bytes(body).await?;
-    let payload = serde_json::from_slice::<RequestPayload>(&bytes)
-        .map_err(|e| executor_error_response(ExecutorError::from(e)))?;
-    Ok((bytes, payload))
 }
 
 #[allow(clippy::result_large_err)]
