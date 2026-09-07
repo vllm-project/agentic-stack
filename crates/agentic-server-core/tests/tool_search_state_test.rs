@@ -1,4 +1,4 @@
-use agentic_core::tool::{ToolSearchState, model_visible_namespace_member_name};
+use agentic_core::tool::{ToolSearchHandler, ToolSearchState, model_visible_namespace_member_name};
 use agentic_core::{InputItem, RequestPayload, ResponsesInput};
 use serde_json::{Value, json};
 
@@ -220,20 +220,56 @@ fn optional_declaration_fields_get_private_defaults_and_supplied_values_are_pres
     assert_eq!(synthetic["description"], "Search the client tool catalog");
     assert_eq!(synthetic["parameters"], supplied_parameters);
 
-    for invalid_parameters in [json!({}), json!({"type": "array"})] {
-        let invalid_schema = request(
+    for supplied_parameters in [json!({}), json!({"type": "array"})] {
+        let supplied_schema = request(
             json!([{
                 "type": "tool_search",
                 "execution": "client",
                 "description": "Find exactly the needed tool",
-                "parameters": invalid_parameters
+                "parameters": supplied_parameters.clone()
             }]),
             json!("find a weather tool"),
         );
-        let state = ToolSearchState::build(&invalid_schema).expect("invalid schema is normalized privately");
+        let state = ToolSearchState::build(&supplied_schema).expect("supplied schema is preserved privately");
         let synthetic = serde_json::to_value(state.synthetic_tool_search()).expect("synthetic serializes");
         assert_eq!(synthetic["description"], "Find exactly the needed tool");
-        assert_eq!(synthetic["parameters"], default_parameters);
+        assert_eq!(synthetic["parameters"], supplied_parameters);
+    }
+}
+
+#[test]
+fn unsupported_deferred_tool_kinds_are_rejected_during_state_preparation() {
+    for (kind, tool) in [
+        (
+            "MCP",
+            json!({
+                "type": "mcp",
+                "server_label": "weather",
+                "server_url": "https://mcp.example.test/mcp",
+                "defer_loading": true
+            }),
+        ),
+        (
+            "custom",
+            json!({
+                "type": "custom",
+                "name": "raw_weather",
+                "defer_loading": true
+            }),
+        ),
+    ] {
+        let request = request(json!([tool]), json!("find a weather tool"));
+
+        assert!(
+            ToolSearchHandler::request_has_state(&request),
+            "deferred {kind} must enter preparation instead of raw proxying"
+        );
+        let error = ToolSearchState::build(&request).expect_err("unsupported deferral must fail during preparation");
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("deferred {kind} tools are not supported"))
+        );
     }
 }
 

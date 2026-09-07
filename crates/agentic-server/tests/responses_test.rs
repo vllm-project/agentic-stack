@@ -918,7 +918,7 @@ async fn test_blocking_tool_search_rejects_invalid_upstream_arguments_as_bad_gat
             "id": "fc_search_bad",
             "call_id": "call_search_bad",
             "name": "tool_search",
-            "arguments": "[]",
+            "arguments": "not valid JSON",
             "status": "completed"
         }]
     }))

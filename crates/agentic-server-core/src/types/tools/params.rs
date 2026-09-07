@@ -140,6 +140,8 @@ pub struct CustomToolParam {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub defer_loading: Option<bool>,
     #[serde(default)]
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -171,7 +173,7 @@ pub struct ToolSearchToolParam {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub parameters: Option<serde_json::Map<String, Value>>,
+    pub parameters: Option<Value>,
 }
 
 /// Parameters for a gateway MCP built-in tool declaration.
@@ -190,6 +192,8 @@ pub struct McpToolParam {
     pub allowed_tools: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub require_approval: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub defer_loading: Option<bool>,
     /// Request-scoped `tools/list` results used by MCP normalization. This
     /// field is populated internally and ignored on the public request wire.
     #[serde(
@@ -368,13 +372,15 @@ mod tests {
             "headers": {"X-Request-ID": "request-1"},
             "authorization": "token",
             "allowed_tools": ["read_file"],
-            "require_approval": "never"
+            "require_approval": "never",
+            "defer_loading": false
         });
         let tool: ResponsesTool = serde_json::from_value(json).unwrap();
         let back = serde_json::to_value(&tool).unwrap();
         assert_eq!(back["type"], "mcp");
         assert_eq!(back["server_label"], "repo");
         assert_eq!(back["server_url"], "http://localhost:9001/mcp");
+        assert_eq!(back["defer_loading"], false);
         if let ResponsesTool::Mcp(ref p) = tool {
             assert_eq!(p.server_label, "repo");
             assert_eq!(p.server_url.as_deref(), Some("http://localhost:9001/mcp"));
@@ -455,7 +461,7 @@ mod tests {
                     "properties": {"query": {"type": "string"}},
                     "required": ["query"]
                 },
-                "strict": true
+                "strict": false
             }]),
             "the upstream-normalization boundary lowers tool search exactly once"
         );
@@ -489,18 +495,30 @@ mod tests {
                 "description": "Hosted execution is excluded",
                 "parameters": {"type": "object"}
             }),
-            serde_json::json!({
-                "type": "tool_search",
-                "execution": "client",
-                "description": "Parameters must be an object",
-                "parameters": "not an object"
-            }),
         ] {
             assert!(
                 serde_json::from_value::<ResponsesTool>(declaration).is_err(),
                 "invalid tool-search wire shape must not fall back to an unknown tool"
             );
         }
+    }
+
+    #[test]
+    fn responses_tool_search_preserves_unknown_parameters_before_behavioral_validation() {
+        let declaration = serde_json::json!({
+            "type": "tool_search",
+            "execution": "client",
+            "parameters": ["not", "a", "schema", "object"]
+        });
+        let tool: ResponsesTool = serde_json::from_value(declaration.clone()).expect("wire value is retained");
+
+        assert_eq!(serde_json::to_value(&tool).expect("tool serializes"), declaration);
+        assert!(
+            tool.validate()
+                .expect_err("private function lowering requires an object schema")
+                .to_string()
+                .contains("parameters must be a JSON object")
+        );
     }
 
     #[test]
@@ -656,6 +674,7 @@ mod tests {
             "type": "custom",
             "name": "apply_patch",
             "description": "Apply a patch.",
+            "defer_loading": false,
             "format": {
                 "type": "grammar",
                 "syntax": "lark",
@@ -668,6 +687,7 @@ mod tests {
         assert!(matches!(tool, ResponsesTool::Custom(_)));
         let serialized = serde_json::to_value(tool).unwrap();
         assert_eq!(serialized["type"], "custom");
+        assert_eq!(serialized["defer_loading"], false);
         assert_eq!(serialized["format"]["syntax"], "lark");
         assert_eq!(serialized["format"]["future_option"], true);
     }

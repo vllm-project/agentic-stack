@@ -117,10 +117,8 @@ impl ToolSearchHandler {
         normalized.parameters = Some(
             param
                 .parameters
-                .as_ref()
-                .filter(|parameters| parameters.get("type").and_then(Value::as_str) == Some("object"))
-                .cloned()
-                .unwrap_or_else(default_parameters),
+                .clone()
+                .unwrap_or_else(|| Value::Object(default_parameters())),
         );
         normalized
     }
@@ -132,8 +130,8 @@ impl ToolSearchHandler {
             type_: "function".to_owned(),
             name: TOOL_SEARCH_NAME.to_owned(),
             description: normalized.description,
-            parameters: normalized.parameters.map(Value::Object),
-            strict: Some(true),
+            parameters: normalized.parameters,
+            strict: Some(false),
         }
     }
 }
@@ -145,7 +143,16 @@ impl ToolHandler for ToolSearchHandler {
         ToolType::ToolSearch
     }
 
-    fn validate(&self, _param: &ToolSearchToolParam) -> Result<(), ToolError> {
+    fn validate(&self, param: &ToolSearchToolParam) -> Result<(), ToolError> {
+        if param
+            .parameters
+            .as_ref()
+            .is_some_and(|parameters| !parameters.is_object())
+        {
+            return Err(ToolError::Config(
+                "tool_search parameters must be a JSON object for private function lowering".to_owned(),
+            ));
+        }
         Ok(())
     }
 
@@ -615,12 +622,12 @@ fn tool_has_deferred_definition(tool: &ResponsesTool) -> bool {
         ResponsesTool::Namespace(namespace) => namespace.tools.iter().any(
             |member| matches!(member, CodexNamespaceMember::Function(function) if function.defer_loading == Some(true)),
         ),
+        ResponsesTool::Mcp(mcp) => mcp.defer_loading == Some(true),
+        ResponsesTool::Custom(custom) => custom.defer_loading == Some(true),
         ResponsesTool::ToolSearch(_)
-        | ResponsesTool::Mcp(_)
         | ResponsesTool::WebSearch(_)
         | ResponsesTool::FileSearch(_)
         | ResponsesTool::CodeInterpreter(_)
-        | ResponsesTool::Custom(_)
         | ResponsesTool::Unknown => false,
     }
 }
@@ -756,7 +763,7 @@ pub(crate) fn started_public_call(call: &FunctionToolCall) -> Result<ToolSearchC
         id: public_item_id(&call.id),
         call_id: call.call_id.clone(),
         execution: crate::types::tools::ToolSearchExecution::Client,
-        arguments: Map::new(),
+        arguments: Value::Object(Map::new()),
         status: ToolSearchStatus::InProgress,
     })
 }
@@ -766,7 +773,7 @@ pub(crate) fn completed_public_call(call: &FunctionToolCall) -> Result<ToolSearc
         return Err(invalid_upstream_search_call());
     }
     let mut public = started_public_call(call)?;
-    public.arguments = json_object(&call.arguments)?;
+    public.arguments = json_value(&call.arguments)?;
     public.status = ToolSearchStatus::Completed;
     Ok(public)
 }
@@ -807,7 +814,7 @@ pub(crate) fn ensure_function_is_available(is_withheld: bool) -> Result<(), Tool
 }
 
 pub(crate) fn validate_public_arguments(arguments: &str) -> Result<(), ToolError> {
-    json_object(arguments).map(|_| ())
+    json_value(arguments).map(|_| ())
 }
 
 pub(crate) fn strict_started_function(item: &Value) -> Result<FunctionToolCall, ToolError> {
@@ -845,7 +852,7 @@ pub(crate) fn strict_function_call(item: &Value) -> Result<FunctionToolCall, Too
     };
     started_public_call(&call)?;
     if call.status == MessageStatus::Completed {
-        json_object(&call.arguments)?;
+        json_value(&call.arguments)?;
     }
     Ok(call)
 }
@@ -857,7 +864,7 @@ pub(crate) fn strict_native_call(item: Value) -> Result<ToolSearchCall, ToolErro
     deserialize_from_value(item).map_err(|_| invalid_upstream_search_call())
 }
 
-fn json_object(arguments: &str) -> Result<Map<String, Value>, ToolError> {
+fn json_value(arguments: &str) -> Result<Value, ToolError> {
     deserialize_from_str(arguments).map_err(|_| invalid_upstream_search_call())
 }
 
@@ -1223,7 +1230,7 @@ fn prepare_search_call(
     if completed_call_ids.contains(call.call_id.as_str()) {
         return Err(ToolError::Config("duplicate tool_search_call call_id".to_owned()));
     }
-    let canonical_arguments = serialize_to_string(&Value::Object(call.arguments.clone()))
+    let canonical_arguments = serialize_to_string(&call.arguments)
         .map_err(|_| ToolError::Config("tool_search_call arguments could not be canonicalized safely".to_owned()))?;
     *unresolved_call = Some(PendingSearchCall {
         call_id: call.call_id.clone(),
@@ -1780,13 +1787,24 @@ mod tests {
         param
     }
 
+    fn assert_invalid_blocking_search(registry: &ToolRegistry, case: &str, item: &Value) {
+        let body = json!({"status": "completed", "output": [item]}).to_string();
+        assert!(
+            matches!(
+                registry.validate_blocking_response(&body),
+                Err(ToolError::InvalidUpstreamToolSearch)
+            ),
+            "{case}"
+        );
+    }
+
     #[test]
     fn handler_validates_and_normalizes_exactly_one_function() {
         let param = param(json!({
             "type": "tool_search",
             "execution": "client",
             "description": "Find matching tools",
-            "parameters": {"type": "object", "properties": {"term": {"type": "string"}}}
+            "parameters": {"type": "array", "items": {"type": "string"}}
         }));
         ToolSearchHandler.validate(&param).unwrap();
         assert_eq!(ToolSearchHandler.tool_type(), ToolType::ToolSearch);
@@ -1796,10 +1814,24 @@ mod tests {
                 "type": "function",
                 "name": "tool_search",
                 "description": "Find matching tools",
-                "parameters": {"type": "object", "properties": {"term": {"type": "string"}}},
-                "strict": true
+                "parameters": {"type": "array", "items": {"type": "string"}},
+                "strict": false
             }])
         );
+    }
+
+    #[test]
+    fn handler_rejects_non_object_parameter_values() {
+        let param = param(json!({
+            "type": "tool_search",
+            "execution": "client",
+            "parameters": ["not", "an", "object"]
+        }));
+
+        let error = ToolSearchHandler
+            .validate(&param)
+            .expect_err("private function parameters require an object");
+        assert!(error.to_string().contains("parameters must be a JSON object"));
     }
 
     #[test]
@@ -1820,7 +1852,7 @@ mod tests {
                     "required": ["query"],
                     "additionalProperties": false
                 },
-                "strict": true
+                "strict": false
             }])
         );
     }
@@ -1832,14 +1864,14 @@ mod tests {
             call_id: "call_search".to_owned(),
             name: TOOL_SEARCH_NAME.to_owned(),
             namespace: None,
-            arguments: r#"{"query":"weather"}"#.to_owned(),
+            arguments: r#"["weather","timezone"]"#.to_owned(),
             status: MessageStatus::Completed,
         };
         let started = started_public_call(&valid).expect("valid started call");
         assert_eq!(started.id, "tsc_search");
         assert_eq!(started.status, ToolSearchStatus::InProgress);
         let completed = completed_public_call(&valid).expect("valid completed call");
-        assert_eq!(completed.arguments["query"], "weather");
+        assert_eq!(completed.arguments, json!(["weather", "timezone"]));
 
         for invalid in [
             FunctionToolCall {
@@ -1851,7 +1883,7 @@ mod tests {
                 ..valid.clone()
             },
             FunctionToolCall {
-                arguments: "[]".to_owned(),
+                arguments: "not valid JSON".to_owned(),
                 ..valid.clone()
             },
             FunctionToolCall {
@@ -1880,7 +1912,7 @@ mod tests {
             id: "tsc_search".to_owned(),
             call_id: "call_search".to_owned(),
             execution: crate::types::tools::ToolSearchExecution::Client,
-            arguments: Map::new(),
+            arguments: json!({}),
             status: ToolSearchStatus::Incomplete,
         };
         assert!(project_native_call(&native, false).is_err());
@@ -1989,7 +2021,7 @@ mod tests {
             "id": "tsc_1",
             "call_id": "call_search",
             "execution": "client",
-            "arguments": {"query": "weather"},
+            "arguments": ["weather", "timezone"],
             "status": "completed"
         });
         let synthetic = json!({
@@ -1997,9 +2029,16 @@ mod tests {
             "id": "fc_search",
             "call_id": "call_search",
             "name": "tool_search",
-            "arguments": "{\"query\":\"weather\"}",
+            "arguments": "[\"weather\",\"timezone\"]",
             "status": "completed"
         });
+
+        for item in [&native, &synthetic] {
+            let body = json!({"status": "completed", "output": [item]}).to_string();
+            registry
+                .validate_blocking_response(&body)
+                .expect("native and synthetic array arguments are valid");
+        }
         let malformed = [
             ("native missing id", {
                 let mut item = native.clone();
@@ -2031,17 +2070,15 @@ mod tests {
                 item["status"] = Value::Null;
                 item
             }),
+            ("synthetic invalid JSON arguments", {
+                let mut item = synthetic.clone();
+                item["arguments"] = json!("not valid JSON");
+                item
+            }),
         ];
 
         for (case, item) in malformed {
-            let body = json!({"status": "completed", "output": [item]}).to_string();
-            assert!(
-                matches!(
-                    registry.validate_blocking_response(&body),
-                    Err(ToolError::InvalidUpstreamToolSearch)
-                ),
-                "{case}"
-            );
+            assert_invalid_blocking_search(&registry, case, &item);
         }
 
         let partial = json!({

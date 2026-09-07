@@ -115,7 +115,7 @@ pub struct ToolSearchCall {
     #[serde(deserialize_with = "deserialize_non_blank_string")]
     pub call_id: String,
     pub execution: ToolSearchExecution,
-    pub arguments: serde_json::Map<String, Value>,
+    pub arguments: Value,
     pub status: ToolSearchStatus,
 }
 
@@ -209,7 +209,7 @@ impl TryFrom<&EventPayload> for ToolSearchCall {
             id: item_id.clone(),
             call_id: call_id.to_owned(),
             execution: ToolSearchExecution::Client,
-            arguments: serde_json::Map::new(),
+            arguments: Value::Object(serde_json::Map::new()),
             status: ToolSearchStatus::InProgress,
         })
     }
@@ -942,7 +942,7 @@ mod tests {
             "id": "provider_item_1",
             "call_id": "call_search_1",
             "execution": "client",
-            "arguments": {"query": "weather"},
+            "arguments": ["weather", "timezone"],
             "status": "completed"
         });
         let item: OutputItem = serde_json::from_value(wire.clone()).expect("valid emitted search call");
@@ -955,7 +955,7 @@ mod tests {
 
     #[test]
     fn emitted_tool_search_call_rejects_missing_or_invalid_required_fields() {
-        for missing in ["execution", "status"] {
+        for missing in ["execution", "arguments", "status"] {
             let mut wire = serde_json::json!({
                 "type": "tool_search_call",
                 "id": "tsc_1",
@@ -972,11 +972,7 @@ mod tests {
             );
         }
 
-        for (field, value) in [
-            ("id", serde_json::json!("   ")),
-            ("call_id", serde_json::json!("   ")),
-            ("arguments", serde_json::json!("not an object")),
-        ] {
+        for (field, value) in [("id", serde_json::json!("   ")), ("call_id", serde_json::json!("   "))] {
             let mut wire = serde_json::json!({
                 "type": "tool_search_call",
                 "id": "tsc_1",

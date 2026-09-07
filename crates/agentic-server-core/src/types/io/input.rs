@@ -188,7 +188,7 @@ pub struct InputToolSearchCall {
     pub call_id: String,
     #[serde(default)]
     pub execution: ToolSearchExecution,
-    pub arguments: serde_json::Map<String, Value>,
+    pub arguments: Value,
     #[serde(default)]
     pub status: ToolSearchStatus,
 }
@@ -451,7 +451,7 @@ mod tests {
             "type": "tool_search_call",
             "id": "tsc_1",
             "call_id": "call_search_1",
-            "arguments": {"query": "weather"}
+            "arguments": ["weather", "timezone"]
         }))
         .expect("valid replayed search call");
         let output: InputItem = serde_json::from_value(serde_json::json!({
@@ -468,7 +468,7 @@ mod tests {
                 "id": "tsc_1",
                 "call_id": "call_search_1",
                 "execution": "client",
-                "arguments": {"query": "weather"},
+                "arguments": ["weather", "timezone"],
                 "status": "completed"
             })
         );
@@ -542,7 +542,6 @@ mod tests {
                 "type": "tool_search_call",
                 "id": "tsc_1",
                 "call_id": "call_search_1",
-                "arguments": "not an object",
                 "status": "completed"
             }),
             serde_json::json!({

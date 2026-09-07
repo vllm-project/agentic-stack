@@ -558,7 +558,8 @@ fn validate_native_tool_search_frame(frame: &EventFrame) -> ExecutorResult<crate
     let arguments = serialize_to_string(&call.arguments).map_err(ExecutorError::JsonError)?;
     ensure_function_call_size(&arguments)?;
     if frame.event_type == SSEEventType::OutputItemAdded
-        && (call.status != crate::types::tools::ToolSearchStatus::InProgress || !call.arguments.is_empty())
+        && (call.status != crate::types::tools::ToolSearchStatus::InProgress
+            || !matches!(&call.arguments, Value::Object(arguments) if arguments.is_empty()))
     {
         return Err(tool_search::invalid_upstream_search_call().into());
     }
@@ -1364,7 +1365,7 @@ mod tests {
                 "output_index": 0,
                 "item_id": "fc_search",
                 "call_id": "call_search",
-                "delta": "{\"query\":\"weather\"}"
+                "delta": "[\"weather\",\"timezone\"]"
             }),
             serde_json::json!({
                 "type": "response.function_call_arguments.done",
@@ -1372,7 +1373,7 @@ mod tests {
                 "item_id": "fc_search",
                 "call_id": "call_search",
                 "name": "tool_search",
-                "arguments": "{\"query\":\"weather\"}"
+                "arguments": "[\"weather\",\"timezone\"]"
             }),
             serde_json::json!({
                 "type": "response.output_item.done",
@@ -1382,7 +1383,7 @@ mod tests {
                     "type": "function_call",
                     "call_id": "call_search",
                     "name": "tool_search",
-                    "arguments": "{\"query\":\"weather\"}",
+                    "arguments": "[\"weather\",\"timezone\"]",
                     "status": "completed"
                 }
             }),
@@ -1414,6 +1415,14 @@ mod tests {
             frames
                 .iter()
                 .all(|frame| !matches!(frame.event_type, SSEEventType::FunctionCallArgumentsDelta))
+        );
+        let completed = frames
+            .iter()
+            .find(|frame| frame.event_type == SSEEventType::OutputItemDone)
+            .expect("synthetic search emits a completed public item");
+        assert_eq!(
+            completed.wire.rest["item"]["arguments"],
+            serde_json::json!(["weather", "timezone"])
         );
 
         let payload = accumulator.finalize("test", None, None);
@@ -1481,7 +1490,7 @@ mod tests {
                     "type": "tool_search_call",
                     "call_id": "call_search",
                     "execution": "client",
-                    "arguments": {"query": "weather"},
+                    "arguments": ["weather", "timezone"],
                     "status": "completed"
                 }
             }),
@@ -1503,7 +1512,7 @@ mod tests {
         let [OutputItem::ToolSearchCall(call)] = payload.output.as_slice() else {
             panic!("native tool_search_call must remain typed");
         };
-        assert_eq!(call.arguments["query"], "weather");
+        assert_eq!(call.arguments, serde_json::json!(["weather", "timezone"]));
     }
 
     #[test]

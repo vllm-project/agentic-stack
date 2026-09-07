@@ -252,11 +252,11 @@ fn streaming_gateway_call_then_malformed_search_response() -> String {
         }),
         json!({
             "type":"response.function_call_arguments.delta","output_index":1,
-            "item_id":"fc_search_bad","delta":"[]"
+            "item_id":"fc_search_bad","delta":"not valid JSON"
         }),
         json!({
             "type":"response.function_call_arguments.done","output_index":1,
-            "item_id":"fc_search_bad","name":"tool_search","arguments":"[]"
+            "item_id":"fc_search_bad","name":"tool_search","arguments":"not valid JSON"
         }),
     ];
     streaming_response(events)
@@ -363,10 +363,7 @@ fn assert_public_search_call(response: &ResponsePayload) -> Value {
     };
     assert_eq!(search_call.id, "tsc_search_1");
     assert_eq!(search_call.call_id, "call_search_1");
-    assert_eq!(
-        search_call.arguments,
-        serde_json::from_value(json!({"query": "weather"})).unwrap()
-    );
+    assert_eq!(search_call.arguments, json!(["weather", "timezone"]));
     let public_search_call = serde_json::to_value(&response.output[0]).expect("public search call serializes");
     assert_eq!(public_search_call["execution"], "client");
     assert_eq!(public_search_call["status"], "completed");
@@ -377,11 +374,17 @@ fn assert_private_request_sequence(requests: &[Value]) {
     assert_eq!(requests.len(), 3);
     assert_eq!(requests[0]["tools"].as_array().map(Vec::len), Some(1));
     assert_eq!(requests[0]["tools"][0]["name"], "tool_search");
+    assert_eq!(
+        requests[0]["tools"][0]["parameters"],
+        json!({"type": "array", "items": {"type": "string"}})
+    );
+    assert_eq!(requests[0]["tools"][0]["strict"], false);
     for request in &requests[1..] {
         assert!(request.get("previous_response_id").is_none());
         assert_eq!(request["input"][1]["type"], "function_call");
         assert_eq!(request["input"][1]["name"], "tool_search");
         assert_eq!(request["input"][1]["call_id"], "call_search_1");
+        assert_eq!(request["input"][1]["arguments"], r#"["weather","timezone"]"#);
         assert_eq!(request["input"][2]["type"], "function_call_output");
         assert_eq!(request["input"][2]["call_id"], "call_search_1");
         assert_eq!(request["tools"].as_array().map(Vec::len), Some(1));
@@ -399,6 +402,18 @@ fn search_declaration() -> Value {
             "type": "object",
             "properties": {"query": {"type": "string"}},
             "required": ["query"]
+        }
+    })
+}
+
+fn array_search_declaration() -> Value {
+    json!({
+        "type": "tool_search",
+        "execution": "client",
+        "description": "Search the client tool catalog",
+        "parameters": {
+            "type": "array",
+            "items": {"type": "string"}
         }
     })
 }
@@ -475,7 +490,7 @@ fn loaded_weather_namespace_subset() -> Value {
 #[tokio::test]
 async fn function_only_streaming_search_has_public_lifecycle_terminal_and_private_lowering() {
     let (llm_url, requests, _server) =
-        spawn_sequenced_streaming_llm(vec![streaming_search_response(r#"{"query":"weather"}"#)]).await;
+        spawn_sequenced_streaming_llm(vec![streaming_search_response(r#"["weather","timezone"]"#)]).await;
     let context = Arc::new(ExecutionContext::new(
         ConversationHandler::new(ConversationStore::disabled()),
         ResponseHandler::new(ResponseStore::disabled()),
@@ -484,7 +499,7 @@ async fn function_only_streaming_search_has_public_lifecycle_terminal_and_privat
     ));
     let mut payload = request(
         &json!("find weather"),
-        &json!([search_declaration(), deferred_weather()]),
+        &json!([array_search_declaration(), deferred_weather()]),
     );
     payload.stream = true;
 
@@ -499,7 +514,7 @@ async fn function_only_streaming_search_has_public_lifecycle_terminal_and_privat
     for response in response_envelopes {
         assert_eq!(
             response["tools"],
-            json!([search_declaration(), deferred_weather()]),
+            json!([array_search_declaration(), deferred_weather()]),
             "stream response envelopes must restore public tool declarations"
         );
         assert!(!response["tools"].to_string().contains("\"name\":\"tool_search\""));
@@ -533,7 +548,7 @@ async fn function_only_streaming_search_has_public_lifecycle_terminal_and_privat
     assert_eq!(lifecycle[0]["item"]["arguments"], json!({}));
     assert_eq!(lifecycle[1]["item"]["type"], "tool_search_call");
     assert_eq!(lifecycle[1]["item"]["status"], "completed");
-    assert_eq!(lifecycle[1]["item"]["arguments"], json!({"query": "weather"}));
+    assert_eq!(lifecycle[1]["item"]["arguments"], json!(["weather", "timezone"]));
     assert_eq!(lifecycle[0]["item"]["id"], lifecycle[1]["item"]["id"]);
     assert_eq!(lifecycle[0]["item"]["call_id"], lifecycle[1]["item"]["call_id"]);
 
@@ -549,13 +564,19 @@ async fn function_only_streaming_search_has_public_lifecycle_terminal_and_privat
     assert_eq!(captured[0]["stream"], true);
     assert_eq!(captured[0]["tools"].as_array().map(Vec::len), Some(1));
     assert_eq!(captured[0]["tools"][0]["name"], "tool_search");
+    assert_eq!(
+        captured[0]["tools"][0]["parameters"],
+        json!({"type": "array", "items": {"type": "string"}})
+    );
+    assert_eq!(captured[0]["tools"][0]["strict"], false);
     assert!(captured[0].to_string().contains("get_weather"));
     assert!(!captured[0].to_string().contains("\"city\""));
 }
 
 #[tokio::test]
 async fn malformed_streaming_search_finishes_with_response_failed_not_completed() {
-    let (llm_url, _requests, _server) = spawn_sequenced_streaming_llm(vec![streaming_search_response("[]")]).await;
+    let (llm_url, _requests, _server) =
+        spawn_sequenced_streaming_llm(vec![streaming_search_response("not valid JSON")]).await;
     let context = Arc::new(ExecutionContext::new(
         ConversationHandler::new(ConversationStore::disabled()),
         ResponseHandler::new(ResponseStore::disabled()),
@@ -745,7 +766,7 @@ async fn function_only_nonstreaming_manual_three_request_flow() {
                 "id": "fc_search_1",
                 "call_id": "call_search_1",
                 "name": "tool_search",
-                "arguments": "{\"query\":\"weather\"}",
+                "arguments": "[\"weather\",\"timezone\"]",
                 "status": "completed"
             }]
         }),
@@ -791,7 +812,7 @@ async fn function_only_nonstreaming_manual_three_request_flow() {
     let first = run(
         request(
             &json!([user.clone()]),
-            &json!([search_declaration(), deferred_weather()]),
+            &json!([array_search_declaration(), deferred_weather()]),
         ),
         Arc::clone(&context),
     )
@@ -833,8 +854,8 @@ async fn function_only_nonstreaming_manual_three_request_flow() {
 async fn function_only_nonstreaming_malformed_search_is_atomic_before_gateway_side_effects() {
     for (case, malformed_search) in [
         (
-            "non-object arguments",
-            json!({"arguments": "null", "namespace": null, "status": "completed"}),
+            "invalid JSON arguments",
+            json!({"arguments": "not valid JSON", "namespace": null, "status": "completed"}),
         ),
         (
             "nonterminal status",
