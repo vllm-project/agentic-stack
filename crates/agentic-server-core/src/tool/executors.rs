@@ -5,14 +5,13 @@ use tokio::sync::RwLock;
 
 use super::mcp::handler::McpServerToolSet;
 use super::mcp::{McpClientPool, McpDiscoveredHandler, McpHandler};
-use super::registry::ToolType;
-use super::web_search::WebSearchHandler;
+use super::web_search::{WebSearchExecutor, WebSearchHandler};
 use super::{GatewayExecutor, ToolError};
 use crate::config::ToolRuntimeConfig;
 use crate::types::tools::McpToolParam;
 
 pub enum GatewayExecutorRegistration {
-    Shared(Arc<dyn GatewayExecutor>),
+    WebSearch(Arc<WebSearchExecutor>),
     Mcp {
         server_label: String,
         handlers: Vec<McpDiscoveredHandler>,
@@ -21,16 +20,19 @@ pub enum GatewayExecutorRegistration {
 
 impl<T> From<Arc<T>> for GatewayExecutorRegistration
 where
-    T: GatewayExecutor,
+    T: GatewayExecutor<
+            ToolParams = crate::types::tools::WebSearchToolParam,
+            ExecutionParams = crate::types::tools::WebSearchToolParam,
+        >,
 {
     fn from(executor: Arc<T>) -> Self {
-        Self::Shared(executor)
+        Self::WebSearch(executor)
     }
 }
 
-impl From<Arc<dyn GatewayExecutor>> for GatewayExecutorRegistration {
-    fn from(executor: Arc<dyn GatewayExecutor>) -> Self {
-        Self::Shared(executor)
+impl From<Arc<WebSearchExecutor>> for GatewayExecutorRegistration {
+    fn from(executor: Arc<WebSearchExecutor>) -> Self {
+        Self::WebSearch(executor)
     }
 }
 
@@ -46,7 +48,7 @@ pub struct GatewayExecutors {
     mcp_clients: Arc<RwLock<HashMap<String, Arc<super::mcp::McpClient>>>>,
     mcp_discovered: Arc<RwLock<HashMap<String, Vec<McpDiscoveredHandler>>>>,
     mcp_allowed_hosts: Vec<String>,
-    web_search: Option<Arc<dyn GatewayExecutor>>,
+    web_search: Option<Arc<WebSearchExecutor>>,
 }
 
 impl GatewayExecutors {
@@ -86,6 +88,7 @@ impl GatewayExecutors {
                 client,
                 config.web_search.api_key.clone(),
                 config.web_search.base_url.clone(),
+                config.max_concurrent_gateway_calls,
             ))),
         };
         if config.mcp_servers.is_empty() {
@@ -105,13 +108,7 @@ impl GatewayExecutors {
 
     pub fn insert(&mut self, registration: impl Into<GatewayExecutorRegistration>) {
         match registration.into() {
-            GatewayExecutorRegistration::Shared(executor) => match executor.tool_type() {
-                ToolType::WebSearch => self.web_search = Some(executor),
-                ToolType::Mcp => {
-                    tracing::debug!("MCP executors must be registered with a server_label and discovered handlers");
-                }
-                other => tracing::debug!(tool_type = ?other, "gateway executor type has no executor slot"),
-            },
+            GatewayExecutorRegistration::WebSearch(executor) => self.web_search = Some(executor),
             GatewayExecutorRegistration::Mcp { server_label, handlers } => {
                 if handlers.is_empty() {
                     tracing::debug!(server_label, "empty MCP discovered handler registration skipped");
@@ -124,9 +121,14 @@ impl GatewayExecutors {
         }
     }
 
+    /// Always returns a real handler — falls back to [`WebSearchHandler::spec_only`]
+    /// when no provider was configured, so callers never need to handle a
+    /// missing gateway-owned `web_search` handler themselves.
     #[must_use]
-    pub fn web_search_handler(&self) -> Option<Arc<dyn GatewayExecutor>> {
-        self.web_search.clone()
+    pub fn web_search_handler(&self) -> Arc<WebSearchExecutor> {
+        self.web_search
+            .clone()
+            .unwrap_or_else(|| Arc::new(WebSearchHandler::spec_only()))
     }
 
     #[must_use]

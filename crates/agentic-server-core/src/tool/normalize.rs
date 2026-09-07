@@ -1,7 +1,6 @@
 use crate::types::io::FunctionTool;
 use crate::types::io::input::FunctionToolResultMessage;
 use crate::types::tools::ResponsesTool;
-use crate::utils::common::serialize_to_value_or_custom_default;
 
 use super::codex::CodexNamespaceHandler;
 use super::custom::CustomHandler;
@@ -21,41 +20,12 @@ impl ResponsesTool {
     /// represented by the corresponding model-visible tool.
     pub fn validate(&self) -> Result<(), ToolError> {
         match self {
-            Self::Function(param) => serialize_to_value_or_custom_default(
-                param,
-                "function tool config serialization failed",
-                |param| FunctionHandler.validate(&param),
-                Err(ToolError::Config(
-                    "function tool config serialization failed".to_owned(),
-                )),
-            ),
-            Self::Mcp(param) => serialize_to_value_or_custom_default(
-                param,
-                "MCP tool config serialization failed",
-                |param| McpHandler::spec_from_param(&param).validate(&param),
-                Err(ToolError::Config("MCP tool config serialization failed".to_owned())),
-            ),
-            Self::ToolSearch(param) => serialize_to_value_or_custom_default(
-                param,
-                "tool_search config serialization failed",
-                |param| ToolSearchHandler.validate(&param),
-                Err(ToolError::Config("tool_search config serialization failed".to_owned())),
-            ),
+            Self::Function(param) => FunctionHandler.validate(param),
+            Self::Mcp(param) => McpHandler::spec_from_param(param).validate(param),
+            Self::ToolSearch(param) => ToolSearchHandler.validate(param),
             Self::WebSearch(_) | Self::FileSearch(_) | Self::CodeInterpreter(_) | Self::Unknown => Ok(()),
-            Self::Namespace(param) => serialize_to_value_or_custom_default(
-                param,
-                "namespace tool config serialization failed",
-                |param| CodexNamespaceHandler.validate(&param),
-                Err(ToolError::Config(
-                    "namespace tool config serialization failed".to_owned(),
-                )),
-            ),
-            Self::Custom(param) => serialize_to_value_or_custom_default(
-                param,
-                "custom tool config serialization failed",
-                |param| CustomHandler.validate(&param),
-                Err(ToolError::Config("custom tool config serialization failed".to_owned())),
-            ),
+            Self::Namespace(param) => CodexNamespaceHandler.validate(param),
+            Self::Custom(param) => CustomHandler.validate(param),
         }
     }
 
@@ -101,24 +71,9 @@ impl ResponsesTool {
         match self {
             // name is NonEmptyToolName — empty names are rejected by serde at
             // deserialization time, so no runtime check is needed here.
-            Self::Function(p) => serialize_to_value_or_custom_default(
-                p,
-                "function tool config serialization failed",
-                |param| FunctionHandler.normalize(&param).into_iter().take(1).collect(),
-                vec![],
-            ),
-            Self::ToolSearch(param) => serialize_to_value_or_custom_default(
-                param,
-                "tool_search config serialization failed",
-                |param| ToolSearchHandler.normalize(&param).into_iter().take(1).collect(),
-                vec![],
-            ),
-            Self::Mcp(p) => serialize_to_value_or_custom_default(
-                p,
-                "MCP tool config serialization failed",
-                |param| McpHandler::spec_from_param(&param).normalize(&param),
-                vec![],
-            ),
+            Self::Function(param) => FunctionHandler.normalize(param).into_iter().take(1).collect(),
+            Self::Mcp(param) => McpHandler::spec_from_param(param).normalize(param),
+            Self::ToolSearch(param) => ToolSearchHandler.normalize(param).into_iter().take(1).collect(),
             Self::WebSearch(_) => vec![web_search_function_tool()],
             Self::FileSearch(_) => {
                 tracing::debug!("file_search tool skipped in normalize - handler not yet registered");
@@ -128,18 +83,8 @@ impl ResponsesTool {
                 tracing::debug!("code_interpreter tool skipped in normalize - handler not yet registered");
                 vec![]
             }
-            Self::Namespace(p) => serialize_to_value_or_custom_default(
-                p,
-                "function tool config serialization failed",
-                |param| CodexNamespaceHandler.normalize(&param),
-                vec![],
-            ),
-            Self::Custom(p) => serialize_to_value_or_custom_default(
-                p,
-                "custom tool config serialization failed",
-                |param| CustomHandler.normalize(&param),
-                vec![],
-            ),
+            Self::Namespace(param) => CodexNamespaceHandler.normalize(param),
+            Self::Custom(param) => CustomHandler.normalize(param),
             Self::Unknown => {
                 tracing::debug!("unknown tool skipped in normalize");
                 vec![]

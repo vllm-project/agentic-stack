@@ -6,11 +6,14 @@ This guide runs a single vLLM Agentic API replica on a local
 The example assumes that vLLM or an llm-d inference gateway is already running on the
 host. Agentic API runs in kind and reaches the upstream through `host.docker.internal`.
 
-!!! warning
+!!! note
 
-    The example uses a local SQLite database inside the pod. The database is lost when
-    the pod is removed, and this setup is limited to one replica. Use PostgreSQL and a
-    persistent volume for a real deployment.
+    The example stores response state in PostgreSQL backed by a persistent volume,
+    so conversations survive pod restarts. The single-replica PostgreSQL Deployment
+    below is sized for local development; use a managed or highly available
+    PostgreSQL service for production. For a throwaway smoke test without
+    persistence, set `DATABASE_URL` to `sqlite:///tmp/agentic_api.db` instead and
+    skip the PostgreSQL section.
 
 ## Use llm-d as the inference backend
 
@@ -123,6 +126,98 @@ In the Deployment below, set `image: localhost/agentic-api:kind`, and replace
 `host.docker.internal` with `host.containers.internal`. The latter is the hostname
 Podman provides for reaching services on the host.
 
+## Deploy PostgreSQL
+
+Response state lives in PostgreSQL. Create a Secret holding both the database
+password and the full connection URL that Agentic API consumes:
+
+```console
+PGPASS=$(openssl rand -hex 16)
+kubectl create secret generic agentic-api-postgres \
+  --from-literal=password="$PGPASS" \
+  --from-literal=database-url="postgres://postgres:${PGPASS}@agentic-api-postgres.default.svc.cluster.local:5432/agentic_api"
+```
+
+Save the following as `postgres-kind.yaml` and apply it. The PersistentVolumeClaim
+uses kind's default `standard` StorageClass, so the data survives pod restarts:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agentic-api-postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-api-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentic-api-postgres
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: agentic-api-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - name: POSTGRES_DB
+              value: agentic_api
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentic-api-postgres
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "agentic_api"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: agentic-api-postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentic-api-postgres
+spec:
+  selector:
+    app: agentic-api-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+```
+
+```console
+kubectl apply -f postgres-kind.yaml
+kubectl rollout status deployment/agentic-api-postgres
+```
+
+Agentic API runs its schema migrations automatically on startup, so no manual
+database initialization is needed.
+
 ## Deploy Agentic API
 
 Apply the following Deployment and Service. The `host.docker.internal` address is
@@ -154,7 +249,10 @@ spec:
             - http://host.docker.internal:5050
           env:
             - name: DATABASE_URL
-              value: sqlite:///tmp/agentic_api.db
+              valueFrom:
+                secretKeyRef:
+                  name: agentic-api-postgres
+                  key: database-url
           ports:
             - name: http
               containerPort: 9000
@@ -270,6 +368,22 @@ testing:
 ```console
 kubectl logs -f deployment/agentic-api
 ```
+
+### Verify persistence
+
+Because response state is in PostgreSQL rather than inside the pod, conversations
+survive a pod restart. Verify it by deleting the pod and continuing the same
+conversation afterwards:
+
+```console
+kubectl delete pod -l app=agentic-api
+kubectl rollout status deployment/agentic-api
+kubectl port-forward service/agentic-api 9000:9000
+```
+
+Re-run the continuation request with the same `previous_response_id`; the model
+still sees the earlier turns. The same holds if the PostgreSQL pod restarts, since
+its data directory lives on the PersistentVolumeClaim.
 
 ## Optional web search
 
@@ -478,10 +592,13 @@ helm uninstall agentgateway --namespace agentgateway-system
 helm uninstall agentgateway-crds --namespace agentgateway-system
 ```
 
-Then delete the Agentic API resources and the cluster:
+Then delete the Agentic API and PostgreSQL resources and the cluster. Deleting
+the PersistentVolumeClaim removes the stored response state:
 
 ```console
 kubectl delete -f agentic-api-kind.yaml
+kubectl delete -f postgres-kind.yaml
+kubectl delete secret agentic-api-postgres
 kind delete cluster --name agentic-api
 ```
 
@@ -491,5 +608,5 @@ If you used the Podman provider, delete that cluster as well:
 KIND_EXPERIMENTAL_PROVIDER=podman kind delete cluster --name agentic-api-podman
 ```
 
-The temporary `agentic-api-kind.yaml` and `llm-pool.yaml` files can then be removed
-from the repository checkout.
+The temporary `agentic-api-kind.yaml`, `postgres-kind.yaml`, and `llm-pool.yaml`
+files can then be removed from the repository checkout.

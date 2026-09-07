@@ -15,10 +15,7 @@ use crate::types::tools::{
     CodexNamespaceMember, CodexNamespaceToolParam, FunctionToolParam, ResponsesTool, ToolSearchStatus,
     ToolSearchToolParam,
 };
-use crate::utils::common::{
-    deserialize_from_str, deserialize_from_value, serialize_to_string, serialize_to_value,
-    serialize_to_value_or_custom_default,
-};
+use crate::utils::common::{deserialize_from_str, deserialize_from_value, serialize_to_string, serialize_to_value};
 
 use super::CodexNamespaceHandler;
 use super::handler::{ToolError, ToolHandler};
@@ -142,52 +139,34 @@ impl ToolSearchHandler {
 }
 
 impl ToolHandler for ToolSearchHandler {
+    type ToolParams = ToolSearchToolParam;
+
     fn tool_type(&self) -> ToolType {
         ToolType::ToolSearch
     }
 
-    fn validate(&self, param: &Value) -> Result<(), ToolError> {
-        deserialize_from_value::<ToolSearchToolParam>(param.clone())
-            .map(|_| ())
-            .map_err(|error| ToolError::Config(format!("invalid tool_search declaration: {error}")))
+    fn validate(&self, _param: &ToolSearchToolParam) -> Result<(), ToolError> {
+        Ok(())
     }
 
-    fn normalize(&self, param: &Value) -> Vec<FunctionTool> {
-        match deserialize_from_value::<ToolSearchToolParam>(param.clone()) {
-            Ok(param) => vec![Self::function_tool(&param)],
-            Err(error) => {
-                tracing::warn!(%error, "tool_search normalize called before validation");
-                vec![]
-            }
-        }
+    fn normalize(&self, param: &ToolSearchToolParam) -> Vec<FunctionTool> {
+        vec![Self::function_tool(param)]
     }
 }
 
-pub(crate) fn insert_tool_search_entry(entries: &mut HashMap<String, ToolEntry>, param: &ToolSearchToolParam) {
-    serialize_to_value_or_custom_default(
-        param,
-        "tool_search config serialization failed",
-        |config| {
-            if entries
-                .insert(
-                    TOOL_SEARCH_NAME.to_owned(),
-                    ToolEntry {
-                        tool_type: ToolType::ToolSearch,
-                        config,
-                        server_label: None,
-                        handler: None,
-                    },
-                )
-                .is_some()
-            {
-                tracing::warn!(
-                    name = TOOL_SEARCH_NAME,
-                    "duplicate tool name — previous definition overwritten"
-                );
-            }
-        },
-        (),
-    );
+pub(crate) fn insert_tool_search_entry(entries: &mut HashMap<String, ToolEntry>, _param: &ToolSearchToolParam) {
+    if entries
+        .insert(
+            TOOL_SEARCH_NAME.to_owned(),
+            ToolEntry::client(ToolType::ToolSearch, None),
+        )
+        .is_some()
+    {
+        tracing::warn!(
+            name = TOOL_SEARCH_NAME,
+            "duplicate tool name — previous definition overwritten"
+        );
+    }
 }
 
 fn default_parameters() -> Map<String, Value> {
@@ -405,12 +384,22 @@ impl ToolSearchState {
         restored_loaded_tools: &[ResponsesTool],
         restore_only_declared: bool,
     ) -> Result<Self, ToolError> {
-        let active_input = request.input.model_input();
-        if !validate_tool_search_request(request, active_input.as_ref())? {
+        let mut active_input = request.input.model_input().into_owned();
+        if let (ResponsesInput::Items(public_items), ResponsesInput::Items(active_items)) =
+            (&request.input, &mut active_input)
+        {
+            active_items.extend(
+                public_items
+                    .iter()
+                    .filter(|item| matches!(item, InputItem::McpListTools(_)))
+                    .cloned(),
+            );
+        }
+        if !validate_tool_search_request(request, &active_input)? {
             return Ok(Self::default());
         }
 
-        let input_items = match active_input.as_ref() {
+        let input_items = match &active_input {
             ResponsesInput::Text(_) => &[][..],
             ResponsesInput::Items(items) => items.as_slice(),
         };
@@ -458,7 +447,7 @@ impl ToolSearchState {
             restore_only_declared,
         )?;
         let private_upstream_input = prepare_history(
-            active_input.as_ref(),
+            &active_input,
             DefinitionViews {
                 public_tools: &mut public_tools,
                 definitions: &mut definitions,
@@ -1148,6 +1137,7 @@ fn prepare_history(
             }
             InputItem::CompactionTrigger => {}
             InputItem::Message(_)
+            | InputItem::McpListTools(_)
             | InputItem::FunctionCallOutput(_)
             | InputItem::CustomToolCall(_)
             | InputItem::CustomToolCallOutput(_)
@@ -1798,12 +1788,10 @@ mod tests {
             "description": "Find matching tools",
             "parameters": {"type": "object", "properties": {"term": {"type": "string"}}}
         }));
-        let value = serde_json::to_value(&param).unwrap();
-
-        ToolSearchHandler.validate(&value).unwrap();
+        ToolSearchHandler.validate(&param).unwrap();
         assert_eq!(ToolSearchHandler.tool_type(), ToolType::ToolSearch);
         assert_eq!(
-            serde_json::to_value(ToolSearchHandler.normalize(&value)).unwrap(),
+            serde_json::to_value(ToolSearchHandler.normalize(&param)).unwrap(),
             json!([{
                 "type": "function",
                 "name": "tool_search",
@@ -1817,9 +1805,8 @@ mod tests {
     #[test]
     fn normalization_uses_safe_defaults() {
         let param = param(json!({"type": "tool_search", "execution": "client", "description": "  "}));
-        let value = serde_json::to_value(&param).unwrap();
         assert_eq!(
-            serde_json::to_value(ToolSearchHandler.normalize(&value)).unwrap(),
+            serde_json::to_value(ToolSearchHandler.normalize(&param)).unwrap(),
             json!([{
                 "type": "function",
                 "name": "tool_search",
@@ -1922,6 +1909,48 @@ mod tests {
         registry
             .ensure_request_prepared(&request)
             .expect("prepared request is ready for upstream conversion");
+    }
+
+    #[test]
+    fn preparation_retains_mcp_list_metadata_until_upstream_projection() {
+        let mut request: RequestPayload = serde_json::from_value(json!({
+            "model": "test",
+            "input": [
+                {
+                    "type": "mcp_list_tools",
+                    "id": "mcpl_counter",
+                    "server_label": "counter",
+                    "tools": []
+                },
+                {"role": "user", "content": "find weather"}
+            ],
+            "parallel_tool_calls": false,
+            "tools": [{"type": "tool_search", "execution": "client"}]
+        }))
+        .expect("request shape");
+
+        ToolSearchHandler::prepare_request(&mut request, &[], false)
+            .expect("tool-search preparation")
+            .expect("active tool-search state");
+
+        let ResponsesInput::Items(prepared_items) = &request.input else {
+            panic!("expected prepared item input");
+        };
+        assert!(
+            prepared_items
+                .iter()
+                .any(|item| matches!(item, InputItem::McpListTools(list) if list.server_label == "counter"))
+        );
+
+        let model_input = request.input.model_input();
+        let ResponsesInput::Items(model_items) = model_input.as_ref() else {
+            panic!("expected model item input");
+        };
+        assert!(
+            model_items
+                .iter()
+                .all(|item| !matches!(item, InputItem::McpListTools(_)))
+        );
     }
 
     #[test]

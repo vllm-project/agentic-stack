@@ -107,6 +107,7 @@ nav:
     - ADR-03: adr/ADR-03_gateway_integration.md
     - Claude Code Integration: design/claude-code-integration.md
     - Codex Integration: design/codex-integration.md
+    - llm-d Backend Mode: design/agentic-llm-d.md
     - Core Public API: design/core-public-api.md
     - MCP Gateway Integration: design/mcp-gateway-integration.md
     - Messages Gateway Tool Classification: design/messages-gateway-tool-classification.md

@@ -1,0 +1,115 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Determine whether 47 is the unique two-digit positive integer whose
+        digits sum to 11 and whose reversal is 27 larger. Analyze the constraints,
+        then reply with exactly one word: VALID or INVALID.'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      reasoning:
+        effort: high
+        summary: detailed
+      store: true
+      stream: false
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1788232209
+      created_at: 1788232206
+      error: null
+      frequency_penalty: 0.0
+      id: resp_087c7e1d7c2b1f92006a96420e51f887d2809ca52e7aa75177
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqlkIRweC9SFErp6hHED4tdJTx7Y8ynx4MNLdOE6uowMA5_IN5EGJ0PjOhHHAcpLs_eQqb5bTt3xMDP8KZxPbrO6pTU8mwnpRxbbrhb6MFGsi1H7dUaU-ISTQYunLMGkW9yt88RuBNGEzh_LLx3jLqFev8m38y2WWPeLGNWjFMe4pP1GdkSIJLITsu0b8NAeZKxY3xwFp2oGSf0w6-6fdPo2N9Wiu7Uf0PsKTj_91N0olwwQZ4_SB4YAnytJUzEgyhG8FAW8lNLPVCUWCQcBIQXycY5PIFe4D1QegfNoEgqwnnQmKuAv21M83Q86iSlikhoIWV4XVpMvW9Mr8ZkuLRJ1y-h251N44-kdbHnSRr21TeFIDpiDKtPqcsggb3BlXDcjJH2uNubNxmasoQTw3PUA5EORjmE__wNYQstPJzp0r8hpkt5rEuYxMqPaAv7Tkys8T19NX7dQdP4o_ZL2KbuaRjm1o1lv-4_bXFZjlvT7LHBuUyPMtAgtlKV86wUduRIbf_dVv365x-JAhWDM5IDCsa3WbHBioUAiCvDryCMV_vNHXv69Q7gTrGTkVI_zTcbm-lEhdn6SdtUkwPqNm25Knq7uErMMdhl9yE_bvDIrq1i-y_ePft0hxS_tMiVValQKBW7n48RPL3YlsoBG68pimNM1bK7sexi96RTyuMurq4LgtfTUcxs_-8YXxNcad-bwBgXhVWoh5Koc93guZn_lA_eyJE6nTu7ZNV0VPDL_PikSrU2NRHwotENuSAB0AJaZzjHrHZjTzyFMYnn9o56zkcG5I3MRcshZQPNs1oIkNvFaPc4pkltqsq0WEQ8d47j-FIhQMv3kln_b5cjPxaQAYTYY3UKEcIWs6nOOzccYYVTBgPEVNRSn8CDSu24uv36fsYVpzl4JyCooxN7Fnc9nnhvimcD4FbckuLldgICNwkyUDGuWIqRrTDrUUZT1m_qi8MgbZYv_QZPLunNFa4jNqsEm4JeGtb-R7Tdmupw6edi0pe9M1XrsWEqAaZCfPnVvqvNO-W4R2t6OZmBH3Q5MRvow8HvoMF5PcbLK0oXIwRtjc4Ggu2pquo4MDfX31eKWyZ7ZTUKixlfKkwPTcRgQh5pEm73Izhbwe0PuvUWJs1vUPCifGWTagOVFUARTS7YLu4cXsuAgVJSZuwTwltKZAKhDjvhrqSHsFt2TbKectbbeBbIqeLceZc7XW56Q29heXv5lOF8qOKTFIx3JuDNVka0dfvd_N7g1bGZqjHJYMk0PyJQkFGbufo0XGcpeJ6b25qA4vnVCHMSlJ0qOwcKnf_Ft8Vc1GiBCrrPsardG3kWhVaAHnoZB1LZmbZJVWr4RYNS9Qg56ABce6UWWDyUTU3oPxUptRBBnH2H7jBPnPcQqk=
+        id: rs_087c7e1d7c2b1f92006a96420f0d4487d2ae266ebdcbaabdde
+        summary:
+        - text: '**Solving a math puzzle**
+
+
+            I need to derive a relationship here. If I take the number as 10a + b,
+            and its sum equals 11, then reversing it gives me 10b + a, which is said
+            to be 27 more than the original number. That leads to the equation 9(b
+            - a) = 27, simplifying down to b - a = 3. Solving with a + b = 11 tells
+            me that b is 7 and a is 4. It seems unique and valid!'
+          type: summary_text
+        type: reasoning
+      - content:
+        - annotations: []
+          logprobs: []
+          text: VALID
+          type: output_text
+        id: msg_087c7e1d7c2b1f92006a96421113e087d2a55cce32d67d8c24
+        phase: final_answer
+        role: assistant
+        status: completed
+        type: message
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: null
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: high
+        mode: standard
+        summary: detailed
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools: []
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 46
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 0
+        output_tokens: 74
+        output_tokens_details:
+          reasoning_tokens: 67
+        total_tokens: 120
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200

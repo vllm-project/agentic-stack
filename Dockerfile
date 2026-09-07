@@ -34,9 +34,11 @@ COPY crates ./crates
 RUN cargo clean \
       -p agentic-server-core \
       -p agentic-server \
-      -p agentic-praxis && \
-    cargo build --locked --release -p agentic-server && \
-    install -Dm755 -s target/release/agentic-server /out/agentic-server
+      -p agentic-praxis \
+      -p agentic-llm-d && \
+    cargo build --locked --release -p agentic-server -p agentic-llm-d && \
+    install -Dm755 -s target/release/agentic-server /out/agentic-server && \
+    install -Dm755 -s target/release/agentic-llm-d /out/agentic-llm-d
 
 FROM debian:${DEBIAN_VERSION}-slim@${DEBIAN_IMAGE_DIGEST} AS runtime
 
@@ -51,6 +53,7 @@ RUN apt-get update && \
     chmod g=u,g+s /var/lib/agentic-api
 
 COPY --from=rust-build /out/agentic-server /usr/local/bin/agentic-server
+COPY --from=rust-build /out/agentic-llm-d /usr/local/bin/agentic-llm-d
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 ARG OCI_CREATED=""

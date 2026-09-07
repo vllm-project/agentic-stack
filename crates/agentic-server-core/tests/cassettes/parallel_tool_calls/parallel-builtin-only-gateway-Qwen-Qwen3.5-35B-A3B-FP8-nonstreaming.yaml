@@ -1,0 +1,737 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Do two separate web_search calls in parallel, in this single turn --
+        do not wait for one to finish before starting the other. The first web_search
+        call must batch two exact queries together: "potato nutrition facts" and "tomato
+        nutrition facts". The second web_search call must batch two different exact
+        queries together: "cucumber nutrition facts" and "carrot nutrition facts".
+        Issue both calls now, then summarize each of the four results in one sentence.'
+      max_output_tokens: 2048
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      parallel_tool_calls: true
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - allowed_tools:
+        - search_tiktoken_documentation
+        require_approval: never
+        server_label: gitmcp_tiktoken
+        server_url: https://gitmcp.io/openai/tiktoken
+        type: mcp
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788257238
+      error: null
+      id: resp_01a05c6f-e243-7660-abfa-3c3a85d5b4ee
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - id: mcpl_01a05c6f-e700-7482-9773-5ab445e019e7
+        server_label: gitmcp_tiktoken
+        tools:
+        - annotations:
+            read_only: false
+          description: 'Semantically search within the fetched documentation from
+            GitHub repository: openai/tiktoken. Useful for specific queries.'
+          input_schema:
+            $schema: http://json-schema.org/draft-07/schema#
+            additionalProperties: false
+            properties:
+              query:
+                description: The search query to find relevant documentation
+                type: string
+            required:
+            - query
+            type: object
+          name: search_tiktoken_documentation
+        type: mcp_list_tools
+      - content:
+        - text: 'The user wants me to make two parallel web_search calls, each with
+            batched queries. They want me to do both calls in the same turn without
+            waiting. Let me set up:
+
+
+            First call: "potato nutrition facts" and "tomato nutrition facts"
+
+            Second call: "cucumber nutrition facts" and "carrot nutrition facts"
+
+
+            I''ll use the web_search function with the queries parameter to make parallel
+            searches within a single call, and I need to make two separate calls.
+
+
+            Let me make both calls now.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_943cad6ad9265340
+        status: null
+        summary: []
+        type: reasoning
+      - action:
+          queries:
+          - potato nutrition facts
+          - tomato nutrition facts
+          query: potato nutrition facts
+          sources:
+          - title: Potato Nutrition Facts | Nutrients, Calories, Benefits of a Potato
+            url: https://potatogoodness.com/nutrition/
+          - title: Potato
+            url: https://www.fda.gov/media/76882/download
+          - title: 'Potatoes 101: Nutrition Facts, Health Benefits, and Types'
+            url: https://www.healthline.com/nutrition/foods/potatoes
+          - title: Potato Facts
+            url: https://www.idahopotatomuseum.com/potato-facts/
+          - title: Nutritional Value - National Potato Council
+            url: https://www.nationalpotatocouncil.org/benefits-of-potatoes/nutritional-value/
+          - title: Potato Nutrition & Facts
+            url: https://alsum.com/products/potato-nutrition-facts/
+          - title: Nutrition - Side Delights
+            url: https://www.sidedelights.com/potatoes/nutrition/
+          - title: Are Potatoes Healthy? • The Nutrition Source
+            url: https://nutritionsource.hsph.harvard.edu/potatoes/
+          - title: Food Search | USDA FoodData Central
+            url: https://fdc.nal.usda.gov/food-search/?query=potato
+          - title: Nutrition Facts – The Alliance for Potato Research & Education
+            url: https://apre.org/potatoes-and-public-health/nutrition-facts/
+          - title: 'Tomatoes: Nutrition Facts and Health Benefits'
+            url: https://www.healthline.com/nutrition/tomatoes
+          - title: Tomatoes | SNAP-Ed
+            url: https://snaped.fns.usda.gov/resources/nutrition-education-materials/seasonal-produce-guide/tomatoes
+          - title: Tomato Nutrition Facts and Health Benefits
+            url: https://www.verywellhealth.com/tomato-nutrition-12012681
+          - title: Nutrition Facts - URMC.Rochester.edu
+            url: https://www.urmc.rochester.edu/encyclopedia/content?contenttypeid=76&contentid=11529-1
+          - title: 'Tomatoes: A Nutritional Powerhouse and Culinary Favorite - UF/IFAS
+              ...'
+            url: https://blogs.ifas.ufl.edu/brevardco/2025/04/07/tomatoes-a-nutritional-powerhouse-and-culinary-favorite/
+          - title: 'Tomatoes: Health Benefits, Nutrients per Serving, Preparation
+              ...'
+            url: https://www.webmd.com/diet/health-benefits-tomatoes
+          - title: Nutritional Composition and Bioactive Compounds in ... - PMC
+            url: https://pmc.ncbi.nlm.nih.gov/articles/PMC7823427/
+          - title: 'Tomatoes 101: Nutrition Facts and Health Benefits'
+            url: https://www.healthline.com/nutrition/foods/tomatoes
+          - title: Tomato nutrition — British Tomato Growers Association
+            url: https://www.britishtomatoes.co.uk/tomato-nutrition
+          - title: 1 Oz Of Tomatoes Nutrition Facts - Eat This Much
+            url: https://www.eatthismuch.com/calories/tomatoes-2498?a=0.11812500000000001%3A5
+          type: search
+        id: ws_989167b9b5de72db
+        status: completed
+        type: web_search_call
+      - action:
+          queries:
+          - cucumber nutrition facts
+          - carrot nutrition facts
+          query: cucumber nutrition facts
+          sources:
+          - title: Cucumber Nutrition Facts and Benefits - Franklin County Center
+              ...
+            url: https://franklin.ces.ncsu.edu/news/cucumber-nutrition-facts-and-benefits/
+          - title: Health Benefits of Cucumber
+            url: https://www.webmd.com/food-recipes/cucumber-health-benefits
+          - title: Cucumbers | SNAP-Ed
+            url: https://snaped.fns.usda.gov/resources/nutrition-education-materials/seasonal-produce-guide/cucumbers
+          - title: Nutrition Facts - URMC.Rochester.edu
+            url: https://www.urmc.rochester.edu/encyclopedia/content?contenttypeid=76&contentid=11206-1
+          - title: Cucumber Nutrition Facts - Eat This Much
+            url: https://www.eatthismuch.com/calories/cucumber-1972
+          - title: Nutrition Facts for Cucumber
+            url: https://tools.myfooddata.com/nutrition-facts/168409/wt9
+          - title: Health Benefits of Cucumber
+            url: https://www.healthline.com/nutrition/health-benefits-of-cucumber
+          - title: Cucumbers are trendy, but how healthy are they? | American Heart
+              ...
+            url: https://www.heart.org/en/news/2025/01/17/cucumbers-are-trendy-but-how-healthy-are-they
+          - title: Cucumber Nutrition Facts and Health Benefits
+            url: https://www.verywellfit.com/cucumber-nutrition-facts-calories-and-health-benefits-4118563
+          - title: Cucumber Nutritional Information
+            url: https://ingenaes.illinois.edu/wp-content/uploads/ING-Info-Sheet-2018_05-Cucumber-nutritional-value-Kowalewska.pdf
+          - title: 'Carrots 101: Nutrition Facts and Health Benefits'
+            url: https://www.healthline.com/nutrition/foods/carrots
+          - title: Carrots - SNAP-Ed Connection - USDA
+            url: https://snaped.fns.usda.gov/resources/nutrition-education-materials/seasonal-produce-guide/carrots
+          - title: Nutrition Facts - URMC.Rochester.edu
+            url: https://www.urmc.rochester.edu/encyclopedia/content?contenttypeid=76&contentid=11124-3
+          - title: Carrot Nutrition Facts 0g Fat 25 calories 0.5g Protein 1.5g Fiber
+              ...
+            url: https://cdn.agclassroom.org/media/uploads/LP875/Carrot_nutrition_facts.pdf
+          - title: Nutrition Facts for Raw Carrots
+            url: https://tools.myfooddata.com/nutrition-facts/170393/wt4
+          - title: 'Carrot Nutrition Facts: Calories and Health Benefits'
+            url: https://www.verywellfit.com/calories-in-carrots-3495643
+          - title: 'Carrots: Health Benefits, Nutrition Facts, and Risks'
+            url: https://www.webmd.com/food-recipes/benefits-carrots
+          - title: Baby Carrots Nutrition Facts and Health Benefits
+            url: https://www.verywellfit.com/baby-carrot-nutrition-facts-and-health-benefits-5071650
+          - title: Carrots, raw, 1 large (7-1/4" to 8-1/2" long) | University Hospitals
+            url: https://www.uhhospitals.org/health-information/health-and-wellness-library/article/nutritionfacts-v1/carrots-raw-1-large-7-14-to-8-12-long
+          - title: Carrots, raw nutrition facts and analysis.
+            url: https://www.nutritionvalue.org/Carrots%2C_raw_nutritional_value.html
+          type: search
+        id: ws_8654906c36cc538f
+        status: completed
+        type: web_search_call
+      - content:
+        - text: 'Great, I''ve received results from both web_search calls. Now I need
+            to summarize each of the four results in one sentence:
+
+
+            1. Potato nutrition facts - Based on the results, potatoes are low in
+            calories (110 per medium potato), naturally fat-free and cholesterol-free,
+            and rich in vitamin C, potassium, vitamin B6, and fiber.
+
+
+            2. Tomato nutrition facts - Tomatoes are low-calorie (23 calories per
+            tomato), rich in vitamin C, potassium, fiber, and the antioxidant lycopene
+            which is linked to reduced risk of heart disease and cancer.
+
+
+            3. Cucumber nutrition facts - Cucumbers are about 95-96% water, very low
+            in calories (8 calories per half cup sliced), and contain vitamin K, vitamin
+            C, potassium, and some fiber.
+
+
+            4. Carrot nutrition facts - Carrots are low-calorie (25 calories per medium
+            carrot), high in vitamin A (beta-carotene), vitamin K, fiber, and potassium.
+
+
+            Let me formulate these summaries concisely in one sentence each.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_9be2f2a04f369bf6
+        status: null
+        summary: []
+        type: reasoning
+      - content:
+        - annotations: []
+          text: '
+
+
+            Both web search calls completed successfully! Here''s a summary of each
+            of the four nutrition fact results in one sentence:
+
+
+            **Potato nutrition facts:** A medium-sized potato contains approximately
+            110 calories, is naturally fat-free and cholesterol-free, and provides
+            significant amounts of vitamin C (30% DV), potassium, vitamin B6, fiber,
+            and about 3 grams of protein per serving.
+
+
+            **Tomato nutrition facts:** Tomatoes are low in calories (about 23 per
+            tomato), rich in vitamin C and potassium, and are the major dietary source
+            of lycopene—an antioxidant linked to reduced risk of heart disease and
+            certain cancers.
+
+
+            **Cucumber nutrition facts:** Cucumbers are approximately 95-96% water,
+            very low in calories (8 calories per half cup sliced), and provide vitamin
+            K, vitamin C, potassium, and modest fiber while being particularly effective
+            for hydration.
+
+
+            **Carrot nutrition facts:** A medium carrot contains about 25 calories
+            and is an excellent source of vitamin A (as beta-carotene), vitamin K,
+            fiber, and potassium, with research suggesting benefits for heart health
+            and cancer prevention due to its carotenoid content.'
+          type: output_text
+        id: msg_8f2ea98302c77e35
+        role: assistant
+        status: completed
+        type: message
+      previous_response_id: null
+      status: completed
+      usage:
+        input_tokens: 14818
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 656
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 15474
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input: 'Call gitmcp_tiktoken__search_tiktoken_documentation in parallel for
+        two separate exact queries -- do not wait for one to finish before starting
+        the other: (1) {"query":"encoding"} and (2) {"query":"tokenizer"}. Issue both
+        calls now in this single turn, then summarize each result in one sentence.'
+      max_output_tokens: 2048
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      parallel_tool_calls: true
+      previous_response_id: resp_01a05c6f-e243-7660-abfa-3c3a85d5b4ee
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - allowed_tools:
+        - search_tiktoken_documentation
+        require_approval: never
+        server_label: gitmcp_tiktoken
+        server_url: https://gitmcp.io/openai/tiktoken
+        type: mcp
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788257244
+      error: null
+      id: resp_01a05c6f-fca5-7613-864a-65e0f3b08f27
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user wants me to make two parallel gitmcp_tiktoken__search_tiktoken_documentation
+            calls with different queries, then summarize each result in one sentence.
+            I need to make both calls now without waiting for one to finish before
+            starting the other.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_87eb91b6a5f4e292
+        status: null
+        summary: []
+        type: reasoning
+      - approval_request_id: null
+        arguments: '{"query": "encoding"}'
+        error: null
+        id: mcp_ba93d4a339d30140
+        name: search_tiktoken_documentation
+        output: "### Search Results for: \"encoding\"\n\nNo relevant documentation\
+          \ found for your query. It's either being indexed or the search query did\
+          \ not match any documentation.\n\nAs a fallback, this is the documentation\
+          \ for openai/tiktoken:\n\n# ⏳ tiktoken\n\ntiktoken is a fast [BPE](https://en.wikipedia.org/wiki/Byte_pair_encoding)\
+          \ tokeniser for use with\nOpenAI's models.\n\n```python\nimport tiktoken\n\
+          enc = tiktoken.get_encoding(\"o200k_base\")\nassert enc.decode(enc.encode(\"\
+          hello world\")) == \"hello world\"\n\n# To get the tokeniser corresponding\
+          \ to a specific model in the OpenAI API:\nenc = tiktoken.encoding_for_model(\"\
+          gpt-4o\")\n```\n\nThe open source version of `tiktoken` can be installed\
+          \ from [PyPI](https://pypi.org/project/tiktoken):\n```\npip install tiktoken\n\
+          ```\n\nThe tokeniser API is documented in `tiktoken/core.py`.\n\nExample\
+          \ code using `tiktoken` can be found in the\n[OpenAI Cookbook](https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb).\n\
+          \n\n## Performance\n\n`tiktoken` is between 3-6x faster than a comparable\
+          \ open source tokeniser:\n\n![image](https://raw.githubusercontent.com/openai/tiktoken/main/perf.svg)\n\
+          \nPerformance measured on 1GB of text using the GPT-2 tokeniser, using `GPT2TokenizerFast`\
+          \ from\n`tokenizers==0.13.2`, `transformers==4.24.0` and `tiktoken==0.2.0`.\n\
+          \n\n## Getting help\n\nPlease post questions in the [issue tracker](https://github.com/openai/tiktoken/issues).\n\
+          \nIf you work at OpenAI, make sure to check the internal documentation or\
+          \ feel free to contact\n@shantanu.\n\n## What is BPE anyway?\n\nLanguage\
+          \ models don't see text like you and I, instead they see a sequence of numbers\
+          \ (known as tokens).\nByte pair encoding (BPE) is a way of converting text\
+          \ into tokens. It has a couple desirable\nproperties:\n1) It's reversible\
+          \ and lossless, so you can convert tokens back into the original text\n\
+          2) It works on arbitrary text, even text that is not in the tokeniser's\
+          \ training data\n3) It compresses the text: the token sequence is shorter\
+          \ than the bytes corresponding to the\n   original text. On average, in\
+          \ practice, each token corresponds to about 4 bytes.\n4) It attempts to\
+          \ let the model see common subwords. For instance, \"ing\" is a common subword\
+          \ in\n   English, so BPE encodings will often split \"encoding\" into tokens\
+          \ like \"encod\" and \"ing\"\n   (instead of e.g. \"enc\" and \"oding\"\
+          ). Because the model will then see the \"ing\" token again and\n   again\
+          \ in different contexts, it helps models generalise and better understand\
+          \ grammar.\n\n`tiktoken` contains an educational submodule that is friendlier\
+          \ if you want to learn more about\nthe details of BPE, including code that\
+          \ helps visualise the BPE procedure:\n```python\nfrom tiktoken._educational\
+          \ import *\n\n# Train a BPE tokeniser on a small amount of text\nenc = train_simple_encoding()\n\
+          \n# Visualise how the GPT-4 encoder encodes text\nenc = SimpleBytePairEncoding.from_tiktoken(\"\
+          cl100k_base\")\nenc.encode(\"hello world aaaaaaaaaaaa\")\n```\n\n\n## Extending\
+          \ tiktoken\n\nYou may wish to extend `tiktoken` to support new encodings.\
+          \ There are two ways to do this.\n\n\n**Create your `Encoding` object exactly\
+          \ the way you want and simply pass it around.**\n\n```python\ncl100k_base\
+          \ = tiktoken.get_encoding(\"cl100k_base\")\n\n# In production, load the\
+          \ arguments directly instead of accessing private attributes\n# See openai_public.py\
+          \ for examples of arguments for specific encodings\nenc = tiktoken.Encoding(\n\
+          \    # If you're changing the set of special tokens, make sure to use a\
+          \ different name\n    # It should be clear from the name what behaviour\
+          \ to expect.\n    name=\"cl100k_im\",\n    pat_str=cl100k_base._pat_str,\n\
+          \    mergeable_ranks=cl100k_base._mergeable_ranks,\n    special_tokens={\n\
+          \        **cl100k_base._special_tokens,\n        \"<|im_start|>\": 100264,\n\
+          \        \"<|im_end|>\": 100265,\n    }\n)\n```\n\n**Use the `tiktoken_ext`\
+          \ plugin mechanism to register your `Encoding` objects with `tiktoken`.**\n\
+          \nThis is only useful if you need `tiktoken.get_encoding` to find your encoding,\
+          \ otherwise prefer\noption 1.\n\nTo do this, you'll need to create a namespace\
+          \ package under `tiktoken_ext`.\n\nLayout your project like this, making\
+          \ sure to omit the `tiktoken_ext/__init__.py` file:\n```\nmy_tiktoken_extension\n\
+          ├── tiktoken_ext\n│   └── my_encodings.py\n└── setup.py\n```\n\n`my_encodings.py`\
+          \ should be a module that contains a variable named `ENCODING_CONSTRUCTORS`.\n\
+          This is a dictionary from an encoding name to a function that takes no arguments\
+          \ and returns\narguments that can be passed to `tiktoken.Encoding` to construct\
+          \ that encoding. For an example, see\n`tiktoken_ext/openai_public.py`. For\
+          \ precise details, see `tiktoken/registry.py`.\n\nYour `setup.py` should\
+          \ look something like this:\n```python\nfrom setuptools import setup, find_namespace_packages\n\
+          \nsetup(\n    name=\"my_tiktoken_extension\",\n    packages=find_namespace_packages(include=['tiktoken_ext*']),\n\
+          \    install_requires=[\"tiktoken\"],\n    ...\n)\n```\n\nThen simply `pip\
+          \ install ./my_tiktoken_extension` and you should be able to use your\n\
+          custom encodings! Make sure **not** to use an editable install.\n\n\n\n\
+          If you'd like to retry the search, try changing the query to increase the\
+          \ likelihood of a match."
+        server_label: gitmcp_tiktoken
+        status: completed
+        type: mcp_call
+      - approval_request_id: null
+        arguments: '{"query": "tokenizer"}'
+        error: null
+        id: mcp_82846ea18a83aa00
+        name: search_tiktoken_documentation
+        output: "### Search Results for: \"tokenizer\"\n\nNo relevant documentation\
+          \ found for your query. It's either being indexed or the search query did\
+          \ not match any documentation.\n\nAs a fallback, this is the documentation\
+          \ for openai/tiktoken:\n\n# ⏳ tiktoken\n\ntiktoken is a fast [BPE](https://en.wikipedia.org/wiki/Byte_pair_encoding)\
+          \ tokeniser for use with\nOpenAI's models.\n\n```python\nimport tiktoken\n\
+          enc = tiktoken.get_encoding(\"o200k_base\")\nassert enc.decode(enc.encode(\"\
+          hello world\")) == \"hello world\"\n\n# To get the tokeniser corresponding\
+          \ to a specific model in the OpenAI API:\nenc = tiktoken.encoding_for_model(\"\
+          gpt-4o\")\n```\n\nThe open source version of `tiktoken` can be installed\
+          \ from [PyPI](https://pypi.org/project/tiktoken):\n```\npip install tiktoken\n\
+          ```\n\nThe tokeniser API is documented in `tiktoken/core.py`.\n\nExample\
+          \ code using `tiktoken` can be found in the\n[OpenAI Cookbook](https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb).\n\
+          \n\n## Performance\n\n`tiktoken` is between 3-6x faster than a comparable\
+          \ open source tokeniser:\n\n![image](https://raw.githubusercontent.com/openai/tiktoken/main/perf.svg)\n\
+          \nPerformance measured on 1GB of text using the GPT-2 tokeniser, using `GPT2TokenizerFast`\
+          \ from\n`tokenizers==0.13.2`, `transformers==4.24.0` and `tiktoken==0.2.0`.\n\
+          \n\n## Getting help\n\nPlease post questions in the [issue tracker](https://github.com/openai/tiktoken/issues).\n\
+          \nIf you work at OpenAI, make sure to check the internal documentation or\
+          \ feel free to contact\n@shantanu.\n\n## What is BPE anyway?\n\nLanguage\
+          \ models don't see text like you and I, instead they see a sequence of numbers\
+          \ (known as tokens).\nByte pair encoding (BPE) is a way of converting text\
+          \ into tokens. It has a couple desirable\nproperties:\n1) It's reversible\
+          \ and lossless, so you can convert tokens back into the original text\n\
+          2) It works on arbitrary text, even text that is not in the tokeniser's\
+          \ training data\n3) It compresses the text: the token sequence is shorter\
+          \ than the bytes corresponding to the\n   original text. On average, in\
+          \ practice, each token corresponds to about 4 bytes.\n4) It attempts to\
+          \ let the model see common subwords. For instance, \"ing\" is a common subword\
+          \ in\n   English, so BPE encodings will often split \"encoding\" into tokens\
+          \ like \"encod\" and \"ing\"\n   (instead of e.g. \"enc\" and \"oding\"\
+          ). Because the model will then see the \"ing\" token again and\n   again\
+          \ in different contexts, it helps models generalise and better understand\
+          \ grammar.\n\n`tiktoken` contains an educational submodule that is friendlier\
+          \ if you want to learn more about\nthe details of BPE, including code that\
+          \ helps visualise the BPE procedure:\n```python\nfrom tiktoken._educational\
+          \ import *\n\n# Train a BPE tokeniser on a small amount of text\nenc = train_simple_encoding()\n\
+          \n# Visualise how the GPT-4 encoder encodes text\nenc = SimpleBytePairEncoding.from_tiktoken(\"\
+          cl100k_base\")\nenc.encode(\"hello world aaaaaaaaaaaa\")\n```\n\n\n## Extending\
+          \ tiktoken\n\nYou may wish to extend `tiktoken` to support new encodings.\
+          \ There are two ways to do this.\n\n\n**Create your `Encoding` object exactly\
+          \ the way you want and simply pass it around.**\n\n```python\ncl100k_base\
+          \ = tiktoken.get_encoding(\"cl100k_base\")\n\n# In production, load the\
+          \ arguments directly instead of accessing private attributes\n# See openai_public.py\
+          \ for examples of arguments for specific encodings\nenc = tiktoken.Encoding(\n\
+          \    # If you're changing the set of special tokens, make sure to use a\
+          \ different name\n    # It should be clear from the name what behaviour\
+          \ to expect.\n    name=\"cl100k_im\",\n    pat_str=cl100k_base._pat_str,\n\
+          \    mergeable_ranks=cl100k_base._mergeable_ranks,\n    special_tokens={\n\
+          \        **cl100k_base._special_tokens,\n        \"<|im_start|>\": 100264,\n\
+          \        \"<|im_end|>\": 100265,\n    }\n)\n```\n\n**Use the `tiktoken_ext`\
+          \ plugin mechanism to register your `Encoding` objects with `tiktoken`.**\n\
+          \nThis is only useful if you need `tiktoken.get_encoding` to find your encoding,\
+          \ otherwise prefer\noption 1.\n\nTo do this, you'll need to create a namespace\
+          \ package under `tiktoken_ext`.\n\nLayout your project like this, making\
+          \ sure to omit the `tiktoken_ext/__init__.py` file:\n```\nmy_tiktoken_extension\n\
+          ├── tiktoken_ext\n│   └── my_encodings.py\n└── setup.py\n```\n\n`my_encodings.py`\
+          \ should be a module that contains a variable named `ENCODING_CONSTRUCTORS`.\n\
+          This is a dictionary from an encoding name to a function that takes no arguments\
+          \ and returns\narguments that can be passed to `tiktoken.Encoding` to construct\
+          \ that encoding. For an example, see\n`tiktoken_ext/openai_public.py`. For\
+          \ precise details, see `tiktoken/registry.py`.\n\nYour `setup.py` should\
+          \ look something like this:\n```python\nfrom setuptools import setup, find_namespace_packages\n\
+          \nsetup(\n    name=\"my_tiktoken_extension\",\n    packages=find_namespace_packages(include=['tiktoken_ext*']),\n\
+          \    install_requires=[\"tiktoken\"],\n    ...\n)\n```\n\nThen simply `pip\
+          \ install ./my_tiktoken_extension` and you should be able to use your\n\
+          custom encodings! Make sure **not** to use an editable install.\n\n\n\n\
+          If you'd like to retry the search, try changing the query to increase the\
+          \ likelihood of a match."
+        server_label: gitmcp_tiktoken
+        status: completed
+        type: mcp_call
+      - content:
+        - text: 'Both searches returned the same result - no relevant documentation
+            was found for either query, and the fallback showed the main tiktoken
+            README documentation. I need to summarize each result in one sentence
+            as requested.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_a8a0e16080ed5a26
+        status: null
+        summary: []
+        type: reasoning
+      - content:
+        - annotations: []
+          text: '
+
+
+            Both searches returned the same fallback documentation since no specific
+            documentation was indexed for those queries. Here''s a one-sentence summary
+            of each result:
+
+
+            **"encoding" search:** The search found no indexed documentation matching
+            "encoding" but fell back to displaying the main tiktoken README which
+            describes tiktoken as a fast BPE tokenizer for OpenAI''s models and explains
+            how to install and use it.
+
+
+            **"tokenizer" search:** The search also found no indexed documentation
+            matching "tokenizer" but displayed the same fallback README documentation
+            explaining that tiktoken is a Byte Pair Encoding tokenizer that converts
+            text to tokens reversibly and efficiently for language models.'
+          type: output_text
+        id: msg_a18b0eadbe8972cb
+        role: assistant
+        status: completed
+        type: message
+      previous_response_id: resp_01a05c6f-e243-7660-abfa-3c3a85d5b4ee
+      status: completed
+      usage:
+        input_tokens: 31299
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 303
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 31602
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t3
+  request:
+    body:
+      input: 'Do both of these right now, in parallel, in this single turn -- do not
+        wait for one to finish before starting the other: (1) search the web for the
+        exact query "latest vLLM release notes", and (2) call gitmcp_tiktoken__search_tiktoken_documentation
+        with {"query":"encoding"}. Do not call any other tool.'
+      max_output_tokens: 2048
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      parallel_tool_calls: true
+      previous_response_id: resp_01a05c6f-fca5-7613-864a-65e0f3b08f27
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - allowed_tools:
+        - search_tiktoken_documentation
+        require_approval: never
+        server_label: gitmcp_tiktoken
+        server_url: https://gitmcp.io/openai/tiktoken
+        type: mcp
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788257251
+      error: null
+      id: resp_01a05c70-1433-7721-8142-bb0e3aa87f14
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user wants me to make two parallel calls in this single turn:
+
+            1. A web_search call with the exact query "latest vLLM release notes"
+
+            2. A mcp__gitmcp_tiktoken__search_tiktoken_documentation call with {"query":"encoding"}
+
+
+            Both should be made in parallel in the same turn. Let me do this now.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_881aa3b546c3c887
+        status: null
+        summary: []
+        type: reasoning
+      - action:
+          queries:
+          - latest vLLM release notes
+          query: latest vLLM release notes
+          sources:
+          - title: Releases · vllm-project/vllm
+            url: https://github.com/vllm-project/vllm/releases
+          - title: vLLM Release Notes - NVIDIA Docs
+            url: https://docs.nvidia.com/deeplearning/frameworks/vllm-release-notes/index.html
+          - title: Release Notes - vLLM Ascend
+            url: https://docs.vllm.ai/projects/ascend/en/latest/user_guide/release_notes.html
+          - title: Release Notes — vllm-ascend
+            url: https://docs.vllm.ai/projects/ascend/en/main/user_guide/release_notes.html
+          - title: Releases · vllm-project/vllm-omni
+            url: https://github.com/vllm-project/vllm-omni/releases
+          - title: Previous vLLM Releases | vLLM
+            url: https://vllm.ai/releases
+          - title: Releases · vllm-project/vllm-ascend
+            url: https://github.com/vllm-project/vllm-ascend/releases
+          - title: Release Notes - vLLM Hardware Plugin for Intel® Gaudi®
+            url: https://docs.vllm.ai/projects/gaudi/en/latest/release_notes.html
+          - title: vLLM Release 26.02 - NVIDIA Docs
+            url: https://docs.nvidia.com/deeplearning/frameworks/vllm-release-notes/rel-26-02.html
+          - title: vLLM release history | Freedom.Tech
+            url: https://freedom.tech/project/vllm/
+          type: search
+        id: ws_a088dd38d0816251
+        status: completed
+        type: web_search_call
+      - approval_request_id: null
+        arguments: '{"query": "encoding"}'
+        error: null
+        id: mcp_a8069f14c5ff464d
+        name: search_tiktoken_documentation
+        output: "### Search Results for: \"encoding\"\n\nNo relevant documentation\
+          \ found for your query. It's either being indexed or the search query did\
+          \ not match any documentation.\n\nAs a fallback, this is the documentation\
+          \ for openai/tiktoken:\n\n# ⏳ tiktoken\n\ntiktoken is a fast [BPE](https://en.wikipedia.org/wiki/Byte_pair_encoding)\
+          \ tokeniser for use with\nOpenAI's models.\n\n```python\nimport tiktoken\n\
+          enc = tiktoken.get_encoding(\"o200k_base\")\nassert enc.decode(enc.encode(\"\
+          hello world\")) == \"hello world\"\n\n# To get the tokeniser corresponding\
+          \ to a specific model in the OpenAI API:\nenc = tiktoken.encoding_for_model(\"\
+          gpt-4o\")\n```\n\nThe open source version of `tiktoken` can be installed\
+          \ from [PyPI](https://pypi.org/project/tiktoken):\n```\npip install tiktoken\n\
+          ```\n\nThe tokeniser API is documented in `tiktoken/core.py`.\n\nExample\
+          \ code using `tiktoken` can be found in the\n[OpenAI Cookbook](https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb).\n\
+          \n\n## Performance\n\n`tiktoken` is between 3-6x faster than a comparable\
+          \ open source tokeniser:\n\n![image](https://raw.githubusercontent.com/openai/tiktoken/main/perf.svg)\n\
+          \nPerformance measured on 1GB of text using the GPT-2 tokeniser, using `GPT2TokenizerFast`\
+          \ from\n`tokenizers==0.13.2`, `transformers==4.24.0` and `tiktoken==0.2.0`.\n\
+          \n\n## Getting help\n\nPlease post questions in the [issue tracker](https://github.com/openai/tiktoken/issues).\n\
+          \nIf you work at OpenAI, make sure to check the internal documentation or\
+          \ feel free to contact\n@shantanu.\n\n## What is BPE anyway?\n\nLanguage\
+          \ models don't see text like you and I, instead they see a sequence of numbers\
+          \ (known as tokens).\nByte pair encoding (BPE) is a way of converting text\
+          \ into tokens. It has a couple desirable\nproperties:\n1) It's reversible\
+          \ and lossless, so you can convert tokens back into the original text\n\
+          2) It works on arbitrary text, even text that is not in the tokeniser's\
+          \ training data\n3) It compresses the text: the token sequence is shorter\
+          \ than the bytes corresponding to the\n   original text. On average, in\
+          \ practice, each token corresponds to about 4 bytes.\n4) It attempts to\
+          \ let the model see common subwords. For instance, \"ing\" is a common subword\
+          \ in\n   English, so BPE encodings will often split \"encoding\" into tokens\
+          \ like \"encod\" and \"ing\"\n   (instead of e.g. \"enc\" and \"oding\"\
+          ). Because the model will then see the \"ing\" token again and\n   again\
+          \ in different contexts, it helps models generalise and better understand\
+          \ grammar.\n\n`tiktoken` contains an educational submodule that is friendlier\
+          \ if you want to learn more about\nthe details of BPE, including code that\
+          \ helps visualise the BPE procedure:\n```python\nfrom tiktoken._educational\
+          \ import *\n\n# Train a BPE tokeniser on a small amount of text\nenc = train_simple_encoding()\n\
+          \n# Visualise how the GPT-4 encoder encodes text\nenc = SimpleBytePairEncoding.from_tiktoken(\"\
+          cl100k_base\")\nenc.encode(\"hello world aaaaaaaaaaaa\")\n```\n\n\n## Extending\
+          \ tiktoken\n\nYou may wish to extend `tiktoken` to support new encodings.\
+          \ There are two ways to do this.\n\n\n**Create your `Encoding` object exactly\
+          \ the way you want and simply pass it around.**\n\n```python\ncl100k_base\
+          \ = tiktoken.get_encoding(\"cl100k_base\")\n\n# In production, load the\
+          \ arguments directly instead of accessing private attributes\n# See openai_public.py\
+          \ for examples of arguments for specific encodings\nenc = tiktoken.Encoding(\n\
+          \    # If you're changing the set of special tokens, make sure to use a\
+          \ different name\n    # It should be clear from the name what behaviour\
+          \ to expect.\n    name=\"cl100k_im\",\n    pat_str=cl100k_base._pat_str,\n\
+          \    mergeable_ranks=cl100k_base._mergeable_ranks,\n    special_tokens={\n\
+          \        **cl100k_base._special_tokens,\n        \"<|im_start|>\": 100264,\n\
+          \        \"<|im_end|>\": 100265,\n    }\n)\n```\n\n**Use the `tiktoken_ext`\
+          \ plugin mechanism to register your `Encoding` objects with `tiktoken`.**\n\
+          \nThis is only useful if you need `tiktoken.get_encoding` to find your encoding,\
+          \ otherwise prefer\noption 1.\n\nTo do this, you'll need to create a namespace\
+          \ package under `tiktoken_ext`.\n\nLayout your project like this, making\
+          \ sure to omit the `tiktoken_ext/__init__.py` file:\n```\nmy_tiktoken_extension\n\
+          ├── tiktoken_ext\n│   └── my_encodings.py\n└── setup.py\n```\n\n`my_encodings.py`\
+          \ should be a module that contains a variable named `ENCODING_CONSTRUCTORS`.\n\
+          This is a dictionary from an encoding name to a function that takes no arguments\
+          \ and returns\narguments that can be passed to `tiktoken.Encoding` to construct\
+          \ that encoding. For an example, see\n`tiktoken_ext/openai_public.py`. For\
+          \ precise details, see `tiktoken/registry.py`.\n\nYour `setup.py` should\
+          \ look something like this:\n```python\nfrom setuptools import setup, find_namespace_packages\n\
+          \nsetup(\n    name=\"my_tiktoken_extension\",\n    packages=find_namespace_packages(include=['tiktoken_ext*']),\n\
+          \    install_requires=[\"tiktoken\"],\n    ...\n)\n```\n\nThen simply `pip\
+          \ install ./my_tiktoken_extension` and you should be able to use your\n\
+          custom encodings! Make sure **not** to use an editable install.\n\n\n\n\
+          If you'd like to retry the search, try changing the query to increase the\
+          \ likelihood of a match."
+        server_label: gitmcp_tiktoken
+        status: completed
+        type: mcp_call
+      - content:
+        - text: 'Both calls completed successfully in parallel. Let me summarize each
+            result in one sentence as requested.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_bd66fa592b7665ec
+        status: null
+        summary: []
+        type: reasoning
+      - content:
+        - annotations: []
+          text: '
+
+
+            **"latest vLLM release notes" web search:** The search found that vLLM
+            version 0.26.0 was released with 411 commits from 212 contributors, featuring
+            Inkling model support, DeepSeek-V4 performance optimizations, fp32 generation
+            heads, flexible attention backends, and mature KV offloading with tiered
+            storage as the current latest release.
+
+
+            **"encoding" tiktoken documentation search:** The search found no indexed
+            documentation matching "encoding" but displayed fallback README content
+            explaining that tiktoken is a fast BPE tokenizer for OpenAI models that
+            converts text to tokens reversibly and explains that Byte Pair Encoding
+            is lossless, works on arbitrary text, compresses text efficiently, and
+            helps models generalize by recognizing common subwords.'
+          type: output_text
+        id: msg_8a47829948473717
+        role: assistant
+        status: completed
+        type: message
+      previous_response_id: resp_01a05c6f-fca5-7613-864a-65e0f3b08f27
+      status: completed
+      usage:
+        input_tokens: 40295
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 330
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 40625
+    headers:
+      content-type: application/json
+    status_code: 200

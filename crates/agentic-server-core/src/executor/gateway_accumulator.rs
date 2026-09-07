@@ -114,20 +114,10 @@ fn terminal_response_frame(payload: &ResponsePayload) -> ExecutorResult<EventFra
 }
 
 fn executor_error_frame(error: &ExecutorError) -> EventFrame {
-    let error_type = error.error_type();
-    let code = error.error_code();
     let mut wire = WireEvent::new("error");
     wire.rest
         .insert("status".to_owned(), serde_json::json!(error.http_status().as_u16()));
-    let mut error_details = serde_json::Map::new();
-    error_details.insert("message".to_owned(), serde_json::json!(error.error_message()));
-    error_details.insert("type".to_owned(), serde_json::json!(error_type));
-    error_details.insert("code".to_owned(), serde_json::json!(code));
-    if let Some(param) = error.error_param() {
-        error_details.insert("param".to_owned(), serde_json::json!(param));
-    }
-    wire.rest
-        .insert("error".to_owned(), serde_json::Value::Object(error_details));
+    wire.rest.insert("error".to_owned(), error.response_error());
     EventFrame {
         event_type: SSEEventType::Other,
         payload: EventPayload::None,
@@ -204,6 +194,7 @@ fn serialize_sse_frame(frame: &EventFrame) -> ExecutorResult<String> {
 mod tests {
     use super::*;
     use crate::StorageError;
+    use crate::tool::ToolError;
 
     fn parse_named_sse_event(chunk: &str) -> (&str, serde_json::Value) {
         let body = chunk.strip_suffix("\n\n").expect("SSE event terminator");
@@ -262,6 +253,28 @@ mod tests {
                 "type": "invalid_request_error",
                 "code": "conversation_locked",
                 "param": "conversation"
+            })
+        );
+    }
+
+    #[test]
+    fn missing_tool_output_sse_chunk_matches_openai_error_contract() {
+        let mut accumulator = GatewayStreamAccumulator::new();
+        let error = ExecutorError::Tool(ToolError::MissingOutput {
+            call_id: "call_test".to_owned(),
+        });
+        let chunk = accumulator.executor_error_chunk(&error);
+        let (event_name, event) = parse_named_sse_event(&chunk);
+
+        assert_eq!(event_name, "error");
+        assert_eq!(event["status"], 400);
+        assert_eq!(
+            event["error"],
+            serde_json::json!({
+                "message": "No tool output found for function call call_test.",
+                "type": "invalid_request_error",
+                "param": "input",
+                "code": null
             })
         );
     }

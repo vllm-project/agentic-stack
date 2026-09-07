@@ -1,0 +1,27 @@
+[
+  {
+    "type": "web_search_preview"
+  },
+  {
+    "type": "function",
+    "name": "get_weather",
+    "description": "Get the current weather for a given city.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string",
+          "description": "City name, e.g. Tokyo"
+        }
+      },
+      "required": ["city"],
+      "additionalProperties": false
+    },
+    "strict": true
+  },
+  {
+    "type": "custom",
+    "name": "set_temperature_unit",
+    "description": "Set the user's preferred temperature unit. This changes how temperatures should be reported for the rest of this conversation. Call with the raw unit as plain text input, e.g. fahrenheit -- not JSON."
+  }
+]

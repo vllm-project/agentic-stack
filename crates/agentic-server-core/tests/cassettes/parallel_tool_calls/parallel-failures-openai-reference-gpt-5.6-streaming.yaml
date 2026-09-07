@@ -1,0 +1,1006 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Do both of these right now, in parallel, in this single turn -- do not
+        wait for one before starting another: (1) call get_weather for "London", and
+        (2) call get_weather for "Tokyo".'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_0aebdab56c74fb92006a8fda0a423887d08b2938692efd1b65","object":"response","created_at":1787812362,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_0aebdab56c74fb92006a8fda0a423887d08b2938692efd1b65","object":"response","created_at":1787812362,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_0aebdab56c74fb92006a8fda0bcc7487d09625bbb4ab55f454","type":"function_call","status":"in_progress","arguments":"","call_id":"call_2Rmk7Ubi1d3tJ8bqzCeCLPyk","name":"get_weather"},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"city\":\"London\"}","item_id":"fc_0aebdab56c74fb92006a8fda0bcc7487d09625bbb4ab55f454","obfuscation":"KiP8N2sPuXMbIwi","output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"London\"}","item_id":"fc_0aebdab56c74fb92006a8fda0bcc7487d09625bbb4ab55f454","output_index":0,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_0aebdab56c74fb92006a8fda0bcc7487d09625bbb4ab55f454","type":"function_call","status":"completed","arguments":"{\"city\":\"London\"}","call_id":"call_2Rmk7Ubi1d3tJ8bqzCeCLPyk","name":"get_weather"},"output_index":0,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_0aebdab56c74fb92006a8fda0bcc8887d0acea329dd6c2f2ac","type":"function_call","status":"in_progress","arguments":"","call_id":"call_f0nWTjDVt9ClTVq1Nfj59m9J","name":"get_weather"},"output_index":1,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"city\":\"Tokyo\"}","item_id":"fc_0aebdab56c74fb92006a8fda0bcc8887d0acea329dd6c2f2ac","obfuscation":"","output_index":1,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"Tokyo\"}","item_id":"fc_0aebdab56c74fb92006a8fda0bcc8887d0acea329dd6c2f2ac","output_index":1,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_0aebdab56c74fb92006a8fda0bcc8887d0acea329dd6c2f2ac","type":"function_call","status":"completed","arguments":"{\"city\":\"Tokyo\"}","call_id":"call_f0nWTjDVt9ClTVq1Nfj59m9J","name":"get_weather"},"output_index":1,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_0aebdab56c74fb92006a8fda0a423887d08b2938692efd1b65","object":"response","created_at":1787812362,"status":"completed","background":false,"completed_at":1787812363,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"fc_0aebdab56c74fb92006a8fda0bcc7487d09625bbb4ab55f454","type":"function_call","status":"completed","arguments":"{\"city\":\"London\"}","call_id":"call_2Rmk7Ubi1d3tJ8bqzCeCLPyk","name":"get_weather"},{"id":"fc_0aebdab56c74fb92006a8fda0bcc8887d0acea329dd6c2f2ac","type":"function_call","status":"completed","arguments":"{\"city\":\"Tokyo\"}","call_id":"call_f0nWTjDVt9ClTVq1Nfj59m9J","name":"get_weather"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":4600,"input_tokens_details":{"cache_write_tokens":49,"cached_tokens":4508},"output_tokens":48,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":4648},"user":null,"metadata":{}},"sequence_number":10}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: call_2Rmk7Ubi1d3tJ8bqzCeCLPyk
+        output: '{"error": "weather service unavailable: upstream timeout"}'
+        type: function_call_output
+      - call_id: call_f0nWTjDVt9ClTVq1Nfj59m9J
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - content: What did you find for each of those two cities?
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0aebdab56c74fb92006a8fda0a423887d08b2938692efd1b65
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_0aebdab56c74fb92006a8fda0c514887d088304ea46bfd64fd","object":"response","created_at":1787812364,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0aebdab56c74fb92006a8fda0a423887d08b2938692efd1b65","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_0aebdab56c74fb92006a8fda0c514887d088304ea46bfd64fd","object":"response","created_at":1787812364,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0aebdab56c74fb92006a8fda0a423887d08b2938692efd1b65","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","type":"message","status":"in_progress","content":[],"phase":"final_answer","role":"assistant"},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.content_part.added
+
+      '
+    - 'data: {"type":"response.content_part.added","content_index":0,"item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","output_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":""},"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"-","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"77H37UJJ0un4gu2","output_index":0,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" **","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"u6NzE0tYqLiw6","output_index":0,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"London","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"kxyx7vtsfv","output_index":0,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":":**","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"ApEI9vkdh53iS","output_index":0,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" The","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"yhxzyigzV9AW","output_index":0,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" weather","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"esW8E1rD","output_index":0,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" service","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"Su09Tiqi","output_index":0,"sequence_number":10}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" timed","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"vLwVbqqcqk","output_index":0,"sequence_number":11}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" out","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"l8yJDaNOdEA6","output_index":0,"sequence_number":12}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":",","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"7MFbpkr1K0Bvf4d","output_index":0,"sequence_number":13}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" so","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"gWJYXyu88EdPD","output_index":0,"sequence_number":14}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" no","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"lsHQjS4r6Seix","output_index":0,"sequence_number":15}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" weather","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"BwjyquUB","output_index":0,"sequence_number":16}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" data","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"PpX6YOxjRgn","output_index":0,"sequence_number":17}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" was","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"LiqYrWAWvUPj","output_index":0,"sequence_number":18}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" returned","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"8R8i06A","output_index":0,"sequence_number":19}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":".\n","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"Hs9IHyjEwKuYZL","output_index":0,"sequence_number":20}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"-","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"KcZVR7Z4G7Vdo8H","output_index":0,"sequence_number":21}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" **","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"p0SJ63xm08MmF","output_index":0,"sequence_number":22}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"Tokyo","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"1lu7VYieTM2","output_index":0,"sequence_number":23}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":":**","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"gcySgsFnzPUtK","output_index":0,"sequence_number":24}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" **","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"14i4G8GzS0B5p","output_index":0,"sequence_number":25}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"22","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"ZJijd57ivrs82p","output_index":0,"sequence_number":26}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"°C","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"CRfQVBgZOdVb40","output_index":0,"sequence_number":27}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"**,","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"sA5Dva1DMsuwh","output_index":0,"sequence_number":28}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" clear","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"5kRrZu1qT0","output_index":0,"sequence_number":29}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":".","item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"obfuscation":"cklD6HgnG3tcFBP","output_index":0,"sequence_number":30}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.done
+
+      '
+    - 'data: {"type":"response.output_text.done","content_index":0,"item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","logprobs":[],"output_index":0,"sequence_number":31,"text":"-
+      **London:** The weather service timed out, so no weather data was returned.\n-
+      **Tokyo:** **22°C**, clear."}
+
+      '
+    - '
+
+      '
+    - 'event: response.content_part.done
+
+      '
+    - 'data: {"type":"response.content_part.done","content_index":0,"item_id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","output_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":"-
+      **London:** The weather service timed out, so no weather data was returned.\n-
+      **Tokyo:** **22°C**, clear."},"sequence_number":32}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"-
+      **London:** The weather service timed out, so no weather data was returned.\n-
+      **Tokyo:** **22°C**, clear."}],"phase":"final_answer","role":"assistant"},"output_index":0,"sequence_number":33}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_0aebdab56c74fb92006a8fda0c514887d088304ea46bfd64fd","object":"response","created_at":1787812364,"status":"completed","background":false,"completed_at":1787812365,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"msg_0aebdab56c74fb92006a8fda0ce35c87d09ba612d6639d5859","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"-
+      **London:** The weather service timed out, so no weather data was returned.\n-
+      **Tokyo:** **22°C**, clear."}],"phase":"final_answer","role":"assistant"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0aebdab56c74fb92006a8fda0a423887d08b2938692efd1b65","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":4713,"input_tokens_details":{"cache_write_tokens":113,"cached_tokens":4557},"output_tokens":31,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":4744},"user":null,"metadata":{}},"sequence_number":34}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t3
+  request:
+    body:
+      input: 'Do both of these right now, in parallel, in this single turn -- do not
+        wait for one before starting another: (1) call get_weather for "Tokyo", and
+        (2) call get_weather for "Atlantis".'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_03785e5502eb8c40006a8fda0f142487d0a54a91f252f28626","object":"response","created_at":1787812367,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_03785e5502eb8c40006a8fda0f142487d0a54a91f252f28626","object":"response","created_at":1787812367,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_03785e5502eb8c40006a8fda0febb887d0a0aac017b8d59d71","type":"function_call","status":"in_progress","arguments":"","call_id":"call_rPnqhB9bG91nRPUT3ogN6agj","name":"get_weather"},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"city\":\"Tokyo\"}","item_id":"fc_03785e5502eb8c40006a8fda0febb887d0a0aac017b8d59d71","obfuscation":"","output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"Tokyo\"}","item_id":"fc_03785e5502eb8c40006a8fda0febb887d0a0aac017b8d59d71","output_index":0,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_03785e5502eb8c40006a8fda0febb887d0a0aac017b8d59d71","type":"function_call","status":"completed","arguments":"{\"city\":\"Tokyo\"}","call_id":"call_rPnqhB9bG91nRPUT3ogN6agj","name":"get_weather"},"output_index":0,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_03785e5502eb8c40006a8fda0febcc87d08af4eea434369729","type":"function_call","status":"in_progress","arguments":"","call_id":"call_CXSmlw46AHbsPaGBuFujw8TN","name":"get_weather"},"output_index":1,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"city\":\"Atlantis\"}","item_id":"fc_03785e5502eb8c40006a8fda0febcc87d08af4eea434369729","obfuscation":"OIZaGhAI11vUd","output_index":1,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"Atlantis\"}","item_id":"fc_03785e5502eb8c40006a8fda0febcc87d08af4eea434369729","output_index":1,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_03785e5502eb8c40006a8fda0febcc87d08af4eea434369729","type":"function_call","status":"completed","arguments":"{\"city\":\"Atlantis\"}","call_id":"call_CXSmlw46AHbsPaGBuFujw8TN","name":"get_weather"},"output_index":1,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_03785e5502eb8c40006a8fda0f142487d0a54a91f252f28626","object":"response","created_at":1787812367,"status":"completed","background":false,"completed_at":1787812367,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"fc_03785e5502eb8c40006a8fda0febb887d0a0aac017b8d59d71","type":"function_call","status":"completed","arguments":"{\"city\":\"Tokyo\"}","call_id":"call_rPnqhB9bG91nRPUT3ogN6agj","name":"get_weather"},{"id":"fc_03785e5502eb8c40006a8fda0febcc87d08af4eea434369729","type":"function_call","status":"completed","arguments":"{\"city\":\"Atlantis\"}","call_id":"call_CXSmlw46AHbsPaGBuFujw8TN","name":"get_weather"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":4601,"input_tokens_details":{"cache_write_tokens":50,"cached_tokens":4508},"output_tokens":49,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":4650},"user":null,"metadata":{}},"sequence_number":10}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t4
+  request:
+    body:
+      input:
+      - call_id: call_rPnqhB9bG91nRPUT3ogN6agj
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - content: What's the weather in Tokyo?
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_03785e5502eb8c40006a8fda0f142487d0a54a91f252f28626
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      error:
+        code: null
+        message: No tool output found for function call call_CXSmlw46AHbsPaGBuFujw8TN.
+        param: input
+        type: invalid_request_error
+    headers:
+      content-type: application/json
+    status_code: 400
+- filename: t5
+  request:
+    body:
+      input: 'Do both of these right now, in parallel, in this single turn -- do not
+        wait for one before starting another: (1) search the web for the exact query
+        "Atlantis weather today", and (2) call get_weather for "Atlantis".'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_0996a9fa4f1eac02006a8fda12fc6c87d0b1544996cee68cbb","object":"response","created_at":1787812371,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_0996a9fa4f1eac02006a8fda12fc6c87d0b1544996cee68cbb","object":"response","created_at":1787812371,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"rs_0996a9fa4f1eac02006a8fda139bb087d0b4ddcd395bc907b6","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oT37-xzZrsk_Ma18FxDMJ-nmWlsoCx3FX2R3xi6mj6K3mvSNP8kprDQjDKuRqkf7byGp_XOU_XQbR04beGmKnvwmjvSQtHWVxiGCOvq07VDpAVeP7IeSt_eCLLnhgIMka-ojijaOEOqiF7QVRwiMR-HNQuabmykgWZ3pJ9-Cos_BC0oZwh5Kia3rR_rC4LbGLtQqDYG8au0a9Yv3JZhcf-aD8Qn_AgqwPnM9LwRZaFC-j0m8ShcUHv-AzD6z0JgfyUZZUOonkBiQ1yJKospWGp_WON9k6cDWOVYwP1FcNePlnMtsEnPPEDYxIMcM7j26i5EGyd3LZzp53vTyOHtQrjdXpi44mvphk0JtqeDAxLdwTzaV3DiatWmiq1l5R2pq79IxrWLLiUS7HFXxxDGdEDkHqv0wulYPK8lHW0cYhqPJ0A0OajScVoOn0hnn7lS7LjY2zq3TbX4QgTTPdvYri17pzwqQLmn2W8hf3wi1XxjGvfD88E7AHELh0eNk87v5lHUirFzHV2FgHRpClOEA2YomeCQgLjSkdi-N4Zu4tRRyemHULn1WsoUaRcL1DNEFjlZ0zbBdvvjHbj1xjDWP7Id221F7CZwwOT0g7AGLZl3Ntjd66k_dpr_PRqBogLvpAQZ3Sdpoz5axn1eoPKgBRbBXpeQKPcjq0WsOxY3g50jLGcMM9iQ1WAQpPbUaJWJr-Q6UGqILgZNDDfb6VU1pCQMHYDpZosXymXFHOhbpqaJtQKnHe4fE3IbUV1diY9RBhFvBAX0FFulWLrn1oUUfEL4b9FGmWXHIwGdvwPHR3PnBpaWzg40VqBv9njEUPjOd5g1qkiaLD-9gp7a0vGlxdGV8BSjDo-DEoFI3qWC7RgS_rrEbzf9CCtChVStpQQCRModgyBuB1NWQRDpCSwhMwzsFtJaANqyOcFnURyekxXSrIgjdvllvN30hbQfMPsvzdq44KAVXwIFRbev2FYs766_HnEACIN_pif5tESI7PFhvPXv6chVcKviJq43qdEjblCFa-4o0eSJAgaiWVd7QKHlSuc-EKUCp6QPy7Szmo-eGxugCYKWgwHY2ocwFbc_ZT2pg_MIU5yQYYx7hB1jUGlfWwuerhAhTzHvVu763YYC8inbZO1qu3Qw292UdHk1GOzLPz-e1yVfAyLfWq_BvldNw==","summary":[]},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"rs_0996a9fa4f1eac02006a8fda139bb087d0b4ddcd395bc907b6","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oUE16pc8Lj2PC4JTgjg4pV4ezmj4FWlFeW5Ovx0bImvspruKcF43W1WBCE1xqXDcRUPJw5QR4KKtht98UjRoZp60up2zl-U5xkQseQEiPIWGYUid2mNMbVbHXqduGcAjqvKsESuefqs60LzDJwOvec7tJaRDLFCwM-VaYRaY8OYYh1v7boH8sdIfH8LT8dApR6s_rP8kqc9ODDqOVzmECOSGL_kgDM8HGO9HYX4HNAEltEraVYR6siW1BATyJawT9jgYaIq_gkz-_b-QuxAXktwF0OIN9BPek_KU_g-0Hh-bTOMdR0jY24BbQ1w8WAlpEBTLvk9CDDqA9h1i8-8LiYFxu1A1LaE6wlaLcxnBG9o2RZOJIi8P6WtNH00-sW_QmntVWnMXUbJIxk86rg5MRYYZ3A8RnGPb1grxPBgbuFOiy1sBIcHB73KVFmAzPxMWu_Yk_ULyNmzjUAQr900fmMQReZzCBZrxT07NNf7g5A2S0i4nWjdbol1RVPBiqEgFCgCPUOnIyVkWlr5UWgPludheGd2n0IP_J5nrKcBUXNy0tlWlmacmIIX44bc-nUYezgKNL8UqrpW0WhiDC_wHR_EFIoB1UrQT1AnIYofvm51md6pPBbqjV0IUx1KgKPhrP7CXMt3bhRfhfHnxlN7WLiMEZcBeHI_xlyHhp3kzzfbzRSvHCN0oA_HcWm-hOB_t9dD3B_BBi_mq9S56RHfa2gnt4n7LTPVb-GCZKXIYSGhfropWpnEa4OnqPhCq90uhR1wEYMqpvnwNwtfuJvFK2R7_FewFrtwt86ixhx65QSX-T2W91a2KnznW91kyl2v8CtFX81VqbHRrP_zxo0RQFMdKZLGW52ZQQNBFpMqAAVC-2PUlLm1sv5tgWqHHF2aJRX0XwBax8iIWn-1RgJ9x2qEH_Lu1EoLY40n10U4WdXUOmnSDO8J-UlzbTgTeLOJyMefDu_Nc8_4ZiN4HpY7vom57_3iKg1mKt0FQDUZFYSyZMO9zrpVcIFLa6v_iVh2J3izLKUhcd7M0H9prfQR02p7-f8WESvWNlz8a24Rh7UrEdWlm01bZ1ksaAv-5cjczxLlDsP0JQNZi2GLWINaP6h5okTuU9yQERRcYa0sEeOVh4k7-60i3CwGB7SKzHLF4EjKWW9R4iCZCd70yI3AcEGSdjgl-ZQp2Zl3ZTI7wTPKkwrBtGpAgjWPo-ymgHIJWK6kYZhjIvSXLT38vUMFeVgP4HLwjfQz0XG58iEV_RbuB7FD6SPrEtT5N507xCVHFZmb6TcavDXQ3PWlqAxwnhDm5oXT_LNzX9DSahG7BMmR2zixa4XiynRlUNZtDAdvqwpHFViXOq3A46-geTRZGUpGK7jbEIpo00KCBhdng-dIssigiVqmLp2zaQvh8mZW4XagRPlPeDPNvTvhnZ9koSv8_rXADi3BUicL-bf1zOcAJvjknbLfvqwz952EIziS6UCYpF3GSMqWjB-gpnf1SC9LmH5sImDdZj3DBMMnKKkeNG6yWo9727iBVsdCfI71FXVmiHxUe2LDPuSTS8WgfXbzmsvEd65dmkkOpgJimyRyaQ=","summary":[]},"output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"ws_0996a9fa4f1eac02006a8fda14beb487d0a958ebc4160be49f","type":"web_search_call","status":"in_progress"},"output_index":1,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.web_search_call.in_progress
+
+      '
+    - 'data: {"type":"response.web_search_call.in_progress","item_id":"ws_0996a9fa4f1eac02006a8fda14beb487d0a958ebc4160be49f","output_index":1,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.web_search_call.searching
+
+      '
+    - 'data: {"type":"response.web_search_call.searching","item_id":"ws_0996a9fa4f1eac02006a8fda14beb487d0a958ebc4160be49f","output_index":1,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.web_search_call.completed
+
+      '
+    - 'data: {"type":"response.web_search_call.completed","item_id":"ws_0996a9fa4f1eac02006a8fda14beb487d0a958ebc4160be49f","output_index":1,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"ws_0996a9fa4f1eac02006a8fda14beb487d0a958ebc4160be49f","type":"web_search_call","status":"completed","action":{"type":"search","queries":["Atlantis
+      weather today"],"query":"Atlantis weather today"}},"output_index":1,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_0996a9fa4f1eac02006a8fda17ba5487d0aa00e8928f76f052","type":"function_call","status":"in_progress","arguments":"","call_id":"call_DEaAwUh96sgGW7uHc3W3jUAt","name":"get_weather"},"output_index":2,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"city\":\"Atlantis\"}","item_id":"fc_0996a9fa4f1eac02006a8fda17ba5487d0aa00e8928f76f052","obfuscation":"MgTtxq7dl1fFu","output_index":2,"sequence_number":10}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"Atlantis\"}","item_id":"fc_0996a9fa4f1eac02006a8fda17ba5487d0aa00e8928f76f052","output_index":2,"sequence_number":11}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_0996a9fa4f1eac02006a8fda17ba5487d0aa00e8928f76f052","type":"function_call","status":"completed","arguments":"{\"city\":\"Atlantis\"}","call_id":"call_DEaAwUh96sgGW7uHc3W3jUAt","name":"get_weather"},"output_index":2,"sequence_number":12}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_0996a9fa4f1eac02006a8fda12fc6c87d0b1544996cee68cbb","object":"response","created_at":1787812371,"status":"completed","background":false,"completed_at":1787812377,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"rs_0996a9fa4f1eac02006a8fda139bb087d0b4ddcd395bc907b6","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oZxp3Za_aBdHMNvPnqcxYyEVc8cWWFY8kVXqIRQm695rXqCZ4JqxKfx3xj8BKGo_p9GCPdItPDXQCxGRdU5ULzi4ZxPuZ6hDCmPEtU79MdSnfPAVb8fPOZtjt5ug8PUKqq4_GdL7ksEldcJcjBuOWwmODSczST3msenUSgl7iU_0hcgoyPDEWnLYw28Rycne0Rahzvklm3h8PponLbD31U7kKfQIW7Ww6yAJ60Y7B49OU3Ew81u_P3VW0k3GZ-Dy7s3CJ5b3iLvI8xi7PQCXwWiCWGyNZZN1J4tTlise2m7sbA5t9GzEfQ7uCxzuyZKECgv3I4KUTdq2YPfeR3uBOpcVHMxUUQoCW_hhiaQFS5RBAc7buaEVIINI6KgUxpGbO7W2hdZQLED96MsYkArkt1Rnj7veomYYK3QA5FtvAVWN4NgMrHz7vkbN9VXpXu3pZsV3RGzg7q_NTreCJGt7Dn5eE_WJZnggzfNLuGCIx3vlRMPd5Ux60IFJgO8MLET1zJFGk2Dlg_2krjJpq_zfetUksSJSQpL9stp4DdfPXAzDfPDCI20lDHgN5FdprFUCTnuuDkk3vxqt_QQn78zJAvCciPlQ-AUe3JNf3EBXZtvzUiJqu_Jd4m86POnvynhMme79oMmO69JLPySyKsNxjmF_vaYofqJp7mUKmKHhTI1ONfLAjgRgVTR8PfuW8JRSDh6LUtVhAMgkfDL2iaMZWhuX0ABcAxq0EQcD4B9fh9zFSdVgXYLiRQcSkV-RIn21U16b5wKaylC4c2saadibfSHd0A0smrZ3BSRqclONtcinHV-umiTEzokf7h2utRNKVnw-EeA4_JSvFq8UbK3ufpIHxS_NwwbV4J8SdZQXoGg3zmmAKrVf4FsKZsVmOicPZd8KoamMYy_CcWptxvchev_Ee2yQVEfTcxM6BPdif5-g20yKhaYgzYYXsrPn9shw4rKm1ZGugeQ37sJEsWYXWAozv71kyizX7HAT7V9EKScMV8O0hHYstI5xgwYAjCV2KlkwsK4Cc25e6kEqh-rdO4sHt_F9zOXSXFZDX73tUmN-qxMQ3m-dLCe-WtpS91JA43cQKqOT-FaiOkAYXt1sBVDNf6IE0an-W_-dPvecw27vVB0e6tG_ir3OW0l9fL-gtS-n_d72-7vk2PxtjYU6vOHAHk6nR-jUuViDnjXHqc2d4YVcy5LDO7V05uTyoRR9q3xXEbgD0A3TJ-aBPTmOz6_SQhDZoXykirxvorcs8gsryVmq70lsd0VrT3Ym4GL6RhxBLkciURgrTPYoSXSwY_6r7vuMAGDP2lJaomFWxsnEnpjnFWMxXJF5Rb8F-C4R2iJ9K0dnck7tohoQnUFl8ZYdLEElDLpqgtDvCw3T6IaV38GNSP7K8QroOEnnb-QBqTPUteKXmxwebqmU0s4AzE2c5WoVkCEhE2yWeFMbWiUPSW-w_coOA6FmTW17m6Kga-txKm3PjAZZ_ak-5yMy9RtJL3SqT2BmTmE9kLVcLv-NYqNU0iHxjJ7f7FDTLv-V1cioHsIym4R-ITZ-WZoXo8y9rFN4ltBhPFeWKJLWh9-FQ=","summary":[]},{"id":"ws_0996a9fa4f1eac02006a8fda14beb487d0a958ebc4160be49f","type":"web_search_call","status":"completed","action":{"type":"search","queries":["Atlantis
+      weather today"],"query":"Atlantis weather today"}},{"id":"fc_0996a9fa4f1eac02006a8fda17ba5487d0aa00e8928f76f052","type":"function_call","status":"completed","arguments":"{\"city\":\"Atlantis\"}","call_id":"call_DEaAwUh96sgGW7uHc3W3jUAt","name":"get_weather"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":1}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":8769,"input_tokens_details":{"cache_write_tokens":56,"cached_tokens":4508},"output_tokens":107,"output_tokens_details":{"reasoning_tokens":88},"total_tokens":8876},"user":null,"metadata":{}},"sequence_number":13}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t6
+  request:
+    body:
+      input:
+      - content: Never mind the weather lookup -- just tell me one fun fact about
+          Atlantis instead.
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0996a9fa4f1eac02006a8fda12fc6c87d0b1544996cee68cbb
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      error:
+        code: null
+        message: No tool output found for function call call_DEaAwUh96sgGW7uHc3W3jUAt.
+        param: input
+        type: invalid_request_error
+    headers:
+      content-type: application/json
+    status_code: 400

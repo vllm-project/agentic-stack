@@ -1,0 +1,252 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Do all three of these right now, in parallel, in this single turn --
+        do not wait for one before starting another: (1) call get_weather for "Tokyo",
+        (2) call set_temperature_unit to set my preferred unit to "fahrenheit" for
+        the rest of this conversation, and (3) search the web for the exact query
+        "Tokyo weather today".'
+      max_output_tokens: 2048
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      parallel_tool_calls: true
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788257381
+      error: null
+      id: resp_01a05c72-25cf-74f1-a923-76de9d59a9b7
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user wants me to do three things in parallel in a single turn:
+
+            1. Call get_weather for "Tokyo"
+
+            2. Call set_temperature_unit to set the unit to "fahrenheit"
+
+            3. Search the web for "Tokyo weather today"
+
+
+            I can use the web_search function for the third item, get_weather for
+            the first, and set_temperature_unit for the second. Let me make these
+            three calls in parallel.
+
+
+            For set_temperature_unit, the input should be "fahrenheit" as plain text
+            according to the description.
+
+
+            For get_weather, the city parameter should be "Tokyo".
+
+
+            For web_search, the query should be "Tokyo weather today".
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_a36d41d75e0f3573
+        status: null
+        summary: []
+        type: reasoning
+      - arguments: '{"city": "Tokyo"}'
+        call_id: chatcmpl-tool-b43577f763b96804
+        id: fc_b95acd1cd53501a7
+        name: get_weather
+        status: completed
+        type: function_call
+      - call_id: chatcmpl-tool-a717cb0e37bb56a9
+        id: ctc_bcffe761b9af01cf
+        input: fahrenheit
+        name: set_temperature_unit
+        status: completed
+        type: custom_tool_call
+      - action:
+          queries:
+          - Tokyo weather today
+          query: Tokyo weather today
+          sources:
+          - title: Tokyo, Tokyo, Japan Weather Forecast | AccuWeather
+            url: https://www.accuweather.com/en/jp/tokyo/226396/weather-forecast/226396
+          - title: 10-Day Weather Forecast for Tokyo, Tokyo Prefecture, Japan - The
+              ...
+            url: https://weather.com/jp/tokyo-prefecture/city/tokyo/tenday
+          - title: Weather & Geography | Japan's Weather | Travel Japan | JNTO
+            url: https://www.japan.travel/en/weather/
+          - title: Japan Meteorological Agency | Weather forecast
+            url: https://www.data.jma.go.jp/multi/yoho/yoho_detail.html?code=130010&lang=en
+          - title: Tokyo, Japan Hourly Weather Forecast | Weather Underground
+            url: https://www.wunderground.com/hourly/jp/tokyo
+          - title: Tokyo - BBC Weather
+            url: https://www.bbc.com/weather/1850147
+          - title: Tokyo, Japan Weather Conditions | Weather Underground
+            url: https://www.wunderground.com/weather/jp/tokyo
+          - title: Tokyo, Japan 14 day weather forecast
+            url: https://www.timeanddate.com/weather/japan/tokyo/ext
+          - title: Tokyo, JP Weather Forecast, Conditions, and Maps – Yahoo Weather
+            url: https://weather.yahoo.com/jp/tokyo-prefecture/tokyo/
+          - title: Japan Weather Forecast | NHK WORLD-JAPAN News
+            url: https://www3.nhk.or.jp/nhkworld/news/weather/
+          type: search
+        id: ws_9592b419b8a63a35
+        status: completed
+        type: web_search_call
+      previous_response_id: null
+      status: completed
+      usage:
+        input_tokens: 893
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 228
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 1121
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: chatcmpl-tool-b43577f763b96804
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - call_id: chatcmpl-tool-a717cb0e37bb56a9
+        output: '{"status": "ok", "unit": "fahrenheit"}'
+        type: custom_tool_call_output
+      - content: Now report Tokyo's current temperature using the unit I just told
+          you to prefer.
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      parallel_tool_calls: true
+      previous_response_id: resp_01a05c72-25cf-74f1-a923-76de9d59a9b7
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788257383
+      error: null
+      id: resp_01a05c72-2cdc-7e30-9799-ed38e34d8354
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user asked me to call three tools in parallel: (1) get_weather
+            for Tokyo, (2) set_temperature_unit to fahrenheit, and (3) web search
+            for "Tokyo weather today". I''ve now received results from all three.
+            The get_weather tool returned 22°C in Tokyo with clear conditions. The
+            set_temperature_unit returned success for fahrenheit. The web search returned
+            various weather sources for Tokyo.
+
+
+            Now the user is asking me to report Tokyo''s current temperature using
+            the unit they just told me to prefer (fahrenheit). The get_weather result
+            shows 22°C, so I need to convert this to fahrenheit: 22°C × 9/5 + 32 =
+            71.6°F (or approximately 72°F).
+
+
+            Let me convert 22°C to Fahrenheit properly: F = (C × 9/5) + 32 = (22 ×
+            1.8) + 32 = 39.6 + 32 = 71.6°F
+
+
+            So I should report that Tokyo''s current temperature is approximately
+            72°F (or 71.6°F).
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_b596cf7142590aba
+        status: null
+        summary: []
+        type: reasoning
+      - content:
+        - annotations: []
+          text: '
+
+
+            Based on the weather data, Tokyo''s current temperature is **72°F** (22°C).
+            The weather condition is clear.'
+          type: output_text
+        id: msg_ac7c4e463ce06ab0
+        role: assistant
+        status: completed
+        type: message
+      previous_response_id: resp_01a05c72-25cf-74f1-a923-76de9d59a9b7
+      status: completed
+      usage:
+        input_tokens: 3546
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 273
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 3819
+    headers:
+      content-type: application/json
+    status_code: 200

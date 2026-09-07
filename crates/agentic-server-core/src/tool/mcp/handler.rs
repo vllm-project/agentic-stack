@@ -3,66 +3,26 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use serde::Deserialize;
 use serde_json::Value;
 
-use crate::tool::{GatewayExecutor, ToolError, ToolHandler, ToolOutput, ToolType};
+use crate::tool::{GatewayExecutor, GatewayToolEventPlan, ToolError, ToolHandler, ToolOutput, ToolType};
 use crate::types::io::FunctionTool;
 use crate::types::io::output::{
     FunctionToolCall, GatewayCallStatus, McpCall, McpCallError, McpCallStatus, McpListTool, McpListTools, OutputItem,
 };
-use crate::types::tools::{McpDiscoveredToolParam, ResponsesTool};
-use crate::utils::common::{
-    deserialize_from_str, deserialize_from_str_opt, deserialize_from_value, serialize_to_string,
-};
+use crate::types::tools::{McpDiscoveredToolParam, McpToolParam, ResponsesTool};
+use crate::utils::common::{deserialize_from_str, deserialize_from_str_opt, serialize_to_string};
 use crate::utils::uuid7_str;
 
 use super::{McpClient, McpError};
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct McpToolRef {
-    server_label: String,
-    tool_name: String,
-}
-
-impl From<&McpDiscoveredToolParam> for McpToolRef {
-    fn from(param: &McpDiscoveredToolParam) -> Self {
-        Self {
-            server_label: param.server_label.clone(),
-            tool_name: param.tool_name.clone(),
-        }
-    }
-}
-
-/// Request-scoped mapping from model-visible internal names to public MCP
-/// server and tool identities.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct McpToolMap {
-    calls: HashMap<String, McpToolRef>,
-}
-
-impl McpToolMap {
-    pub(crate) fn record(&mut self, internal_name: String, tool_ref: McpToolRef) {
-        debug_assert!(self.calls.insert(internal_name, tool_ref).is_none());
-    }
-
-    pub(crate) fn tool_ref(&self, internal_name: &str) -> Option<&McpToolRef> {
-        self.calls.get(internal_name)
-    }
-
-    pub(crate) fn contains_server_label(&self, server_label: &str) -> bool {
-        self.calls
-            .values()
-            .any(|tool_ref| tool_ref.server_label == server_label)
-    }
-}
 
 #[must_use]
 pub(crate) fn output_item(
     call: &FunctionToolCall,
     output: &ToolOutput,
     status: GatewayCallStatus,
-    tool_ref: &McpToolRef,
+    server_label: &str,
+    tool_name: &str,
 ) -> OutputItem {
     let error = if status == GatewayCallStatus::Failed {
         Some(McpCallError::tool_execution(error_text_from_output(&output.output)))
@@ -73,8 +33,8 @@ pub(crate) fn output_item(
 
     OutputItem::McpCall(McpCall::new(
         call_output_id(call),
-        tool_ref.server_label.clone(),
-        tool_ref.tool_name.clone(),
+        server_label.to_owned(),
+        tool_name.to_owned(),
         call.arguments.clone(),
         status.into(),
         successful_output,
@@ -83,11 +43,11 @@ pub(crate) fn output_item(
 }
 
 #[must_use]
-pub(crate) fn started_output_item(call: &FunctionToolCall, tool_ref: &McpToolRef) -> OutputItem {
+pub(crate) fn started_output_item(call: &FunctionToolCall, server_label: &str, tool_name: &str) -> OutputItem {
     OutputItem::McpCall(McpCall::new(
         call_output_id(call),
-        tool_ref.server_label.clone(),
-        tool_ref.tool_name.clone(),
+        server_label.to_owned(),
+        tool_name.to_owned(),
         "",
         McpCallStatus::InProgress,
         None,
@@ -111,12 +71,6 @@ pub(crate) fn started_list_tools_output_item(item: &McpListTools) -> OutputItem 
 /// metadata stored on `McpToolParam` into model-visible function tools.
 pub struct McpHandler {
     client: Option<Arc<McpClient>>,
-}
-
-#[derive(Deserialize)]
-struct McpToolNormalizationParams {
-    #[serde(rename = "_agentic_discovered_tools", default)]
-    discovered_tools: Vec<McpDiscoveredToolParam>,
 }
 
 #[derive(Clone)]
@@ -188,6 +142,7 @@ impl McpHandler {
                 continue;
             }
             let internal_name = internal_mcp_tool_name(server_label, &tool_name, &mut internal_names);
+            let handler = Arc::new(Self::tool_call(Arc::clone(&client)));
             discovered_handlers.push(McpDiscoveredHandler {
                 param: McpDiscoveredToolParam {
                     server_label: server_label.to_owned(),
@@ -195,7 +150,7 @@ impl McpHandler {
                     internal_name,
                     tool,
                 },
-                handler: Arc::new(Self::tool_call(Arc::clone(&client))),
+                handler,
             });
         }
 
@@ -236,7 +191,7 @@ impl McpHandler {
 
     /// Returns the spec-only MCP tool handler used during request normalization.
     #[must_use]
-    pub const fn spec_from_param(_param: &Value) -> Self {
+    pub const fn spec_from_param(_param: &McpToolParam) -> Self {
         Self::discovered_tool_spec_only()
     }
 }
@@ -263,52 +218,75 @@ fn mcp_list_tool(param: &McpDiscoveredToolParam) -> McpListTool {
 }
 
 impl ToolHandler for McpHandler {
+    type ToolParams = McpToolParam;
+
     fn tool_type(&self) -> ToolType {
         ToolType::Mcp
     }
 
-    fn validate(&self, _param: &Value) -> Result<(), ToolError> {
+    fn validate(&self, _params: &McpToolParam) -> Result<(), ToolError> {
         Ok(())
     }
 
-    fn normalize(&self, param: &Value) -> Vec<FunctionTool> {
-        match deserialize_from_value::<McpToolNormalizationParams>(param.clone()) {
-            Ok(params) => params
-                .discovered_tools
-                .iter()
-                .map(discovered_mcp_function_tool)
-                .collect(),
-            Err(error) => {
-                tracing::warn!(error = %error, "invalid MCP tool param");
-                Vec::new()
-            }
-        }
+    fn normalize(&self, params: &McpToolParam) -> Vec<FunctionTool> {
+        params
+            .discovered_tools
+            .iter()
+            .map(discovered_mcp_function_tool)
+            .collect()
     }
 }
 
 impl GatewayExecutor for McpHandler {
+    type ExecutionParams = McpDiscoveredToolParam;
+
     fn execute(
         &self,
         call_id: &str,
         _tool_name: &str,
         arguments: &str,
-        config: &Value,
+        params: &McpDiscoveredToolParam,
     ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
         let call_id = call_id.to_owned();
         let arguments = arguments.to_owned();
-        let config = config.clone();
+        let client = self.client.clone();
+        let server_label = params.server_label.clone();
+        let tool_name = params.tool_name.clone();
 
         Box::pin(async move {
-            let Some(client) = &self.client else {
+            let Some(client) = &client else {
                 return Err(ToolError::Config(
                     "MCP tool spec-only handler cannot execute tools".to_owned(),
                 ));
             };
-            let param = mcp_tool_param(&config)?;
-            let output = execute_tool_call(client, &param.server_label, &param.tool_name, &arguments).await?;
+            let output = execute_tool_call(client, &server_label, &tool_name, &arguments).await?;
 
             Ok(ToolOutput { call_id, output })
         })
+    }
+
+    fn supports_parallel_execution(&self) -> bool {
+        true
+    }
+
+    fn plan_gateway_events(&self, call: &FunctionToolCall, params: &McpDiscoveredToolParam) -> GatewayToolEventPlan {
+        GatewayToolEventPlan::new(Some(started_output_item(call, &params.server_label, &params.tool_name)))
+    }
+
+    fn public_output(
+        &self,
+        call: &FunctionToolCall,
+        output: &ToolOutput,
+        status: GatewayCallStatus,
+        params: &McpDiscoveredToolParam,
+    ) -> Option<OutputItem> {
+        Some(output_item(
+            call,
+            output,
+            status,
+            &params.server_label,
+            &params.tool_name,
+        ))
     }
 }
 
@@ -363,17 +341,10 @@ fn mcp_tool_result_text(result: &rmcp::model::CallToolResult) -> Result<String, 
     }
 }
 
-fn mcp_tool_param(value: &Value) -> Result<McpDiscoveredToolParam, ToolError> {
-    deserialize_from_value::<McpDiscoveredToolParam>(value.clone())
-        .map_err(|error| ToolError::Config(format!("invalid MCP tool config: {error}")))
-}
-
 pub(crate) fn discovered_mcp_function_tool(param: &McpDiscoveredToolParam) -> FunctionTool {
     mcp_tool_to_function_tool(&param.internal_name, &param.tool)
 }
 
-#[cfg(test)]
-const INTERNAL_DISCOVERED_TOOLS_KEY: &str = "_agentic_discovered_tools";
 const INTERNAL_MCP_PREFIX: &str = "mcp__";
 const MAX_INTERNAL_TOOL_NAME_LEN: usize = 64;
 
@@ -478,10 +449,11 @@ mod tests {
 
     #[test]
     fn native_mcp_param_without_discovery_normalizes_to_no_functions() {
-        let param = serde_json::json!({
+        let param = serde_json::from_value::<McpToolParam>(serde_json::json!({
             "server_label": "counter",
             "server_url": "http://127.0.0.1:8000/mcp"
-        });
+        }))
+        .expect("MCP tool param");
 
         let handler = McpHandler::spec_from_param(&param);
 
@@ -491,11 +463,13 @@ mod tests {
     #[test]
     fn discovered_tool_normalizes_to_function_tool() {
         let handler = McpHandler::discovered_tool_spec_only();
-        let config = serde_json::json!({
-            (INTERNAL_DISCOVERED_TOOLS_KEY): [discovered_param()]
-        });
+        let mut params = serde_json::from_value::<McpToolParam>(serde_json::json!({
+            "server_label": "counter"
+        }))
+        .expect("MCP tool param");
+        params.discovered_tools.push(discovered_param());
 
-        let normalized = handler.normalize(&config);
+        let normalized = handler.normalize(&params);
 
         assert_eq!(normalized.len(), 1);
         assert_eq!(normalized[0].name, "mcp__counter__increment");
@@ -622,19 +596,6 @@ mod tests {
     }
 
     #[test]
-    fn tool_map_resolves_internal_name_to_public_mcp_identity() {
-        let param = discovered_param();
-        let tool_ref = McpToolRef::from(&param);
-        let mut map = McpToolMap::default();
-
-        map.record(param.internal_name.clone(), tool_ref.clone());
-
-        assert_eq!(map.tool_ref(&param.internal_name), Some(&tool_ref));
-        assert!(map.contains_server_label("counter"));
-        assert!(!map.contains_server_label("missing"));
-    }
-
-    #[test]
     fn discovered_tool_output_uses_public_mcp_identity() {
         let call = FunctionToolCall {
             id: "fc_1".to_owned(),
@@ -648,9 +609,10 @@ mod tests {
             call_id: call.call_id.clone(),
             output: "1".to_owned(),
         };
-        let tool_ref = McpToolRef::from(&discovered_param());
 
-        let OutputItem::McpCall(item) = output_item(&call, &output, GatewayCallStatus::Completed, &tool_ref) else {
+        let OutputItem::McpCall(item) =
+            output_item(&call, &output, GatewayCallStatus::Completed, "counter", "increment")
+        else {
             panic!("expected mcp_call");
         };
 
@@ -674,12 +636,12 @@ mod tests {
             call_id: call.call_id.clone(),
             output: "1".to_owned(),
         };
-        let tool_ref = McpToolRef::from(&discovered_param());
 
-        let OutputItem::McpCall(started) = started_output_item(&call, &tool_ref) else {
+        let OutputItem::McpCall(started) = started_output_item(&call, "counter", "increment") else {
             panic!("expected started mcp_call");
         };
-        let OutputItem::McpCall(completed) = output_item(&call, &output, GatewayCallStatus::Completed, &tool_ref)
+        let OutputItem::McpCall(completed) =
+            output_item(&call, &output, GatewayCallStatus::Completed, "counter", "increment")
         else {
             panic!("expected completed mcp_call");
         };
@@ -702,12 +664,11 @@ mod tests {
             }))
             .expect("valid second function call"),
         ];
-        let tool_ref = McpToolRef::from(&discovered_param());
 
         let public_ids = calls
             .iter()
             .map(|call| {
-                let OutputItem::McpCall(started) = started_output_item(call, &tool_ref) else {
+                let OutputItem::McpCall(started) = started_output_item(call, "counter", "increment") else {
                     panic!("expected started mcp_call");
                 };
                 let output = ToolOutput {
@@ -715,7 +676,7 @@ mod tests {
                     output: "1".to_owned(),
                 };
                 let OutputItem::McpCall(completed) =
-                    output_item(call, &output, GatewayCallStatus::Completed, &tool_ref)
+                    output_item(call, &output, GatewayCallStatus::Completed, "counter", "increment")
                 else {
                     panic!("expected completed mcp_call");
                 };
@@ -765,11 +726,7 @@ mod tests {
             call_id: call.call_id.clone(),
             output: r#"{"error":"missing field `b`"}"#.to_owned(),
         };
-        let mut param = discovered_param();
-        param.tool_name = "sum".to_owned();
-        let tool_ref = McpToolRef::from(&param);
-
-        let item = output_item(&call, &output, GatewayCallStatus::Failed, &tool_ref);
+        let item = output_item(&call, &output, GatewayCallStatus::Failed, "counter", "sum");
         let json = serde_json::to_value(item).expect("serializable mcp_call");
 
         assert_eq!(json["status"], "failed");

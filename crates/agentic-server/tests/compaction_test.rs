@@ -15,6 +15,7 @@ use tokio::sync::Mutex;
 
 use agentic_core::tool::{GatewayExecutor, ToolError, ToolHandler, ToolOutput, ToolType};
 use agentic_core::types::io::FunctionTool;
+use agentic_core::types::tools::WebSearchToolParam;
 
 use common::{spawn_gateway, test_config, test_state};
 
@@ -24,15 +25,17 @@ struct TestWebSearchExecutor {
 }
 
 impl ToolHandler for TestWebSearchExecutor {
+    type ToolParams = WebSearchToolParam;
+
     fn tool_type(&self) -> ToolType {
         ToolType::WebSearch
     }
 
-    fn validate(&self, _param: &serde_json::Value) -> Result<(), ToolError> {
+    fn validate(&self, _params: &WebSearchToolParam) -> Result<(), ToolError> {
         Ok(())
     }
 
-    fn normalize(&self, _param: &serde_json::Value) -> Vec<FunctionTool> {
+    fn normalize(&self, _params: &WebSearchToolParam) -> Vec<FunctionTool> {
         vec![FunctionTool {
             type_: "function".to_owned(),
             name: "web_search".to_owned(),
@@ -48,12 +51,14 @@ impl ToolHandler for TestWebSearchExecutor {
 }
 
 impl GatewayExecutor for TestWebSearchExecutor {
+    type ExecutionParams = WebSearchToolParam;
+
     fn execute(
         &self,
         call_id: &str,
         _tool_name: &str,
         _arguments: &str,
-        _config: &serde_json::Value,
+        _params: &WebSearchToolParam,
     ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         let call_id = call_id.to_owned();
@@ -326,6 +331,7 @@ async fn automatic_compaction_runs_above_threshold_and_accumulates_usage() {
             "input": [{"role": "user", "content": "x".repeat(200)}],
             "store": false,
             "stream": false,
+            "reasoning": {"effort": "high"},
             "context_management": [{"type": "compaction", "compact_threshold": 10}]
         }))
         .send()
@@ -346,6 +352,7 @@ async fn automatic_compaction_runs_above_threshold_and_accumulates_usage() {
     assert_eq!(requests[1]["input"][0]["role"], "user");
     assert_eq!(requests[1]["input"][1]["role"], "assistant");
     assert_eq!(requests[1]["input"][1]["content"][0]["text"], "automatic summary");
+    assert_eq!(requests[1]["reasoning"], serde_json::json!({"effort": "high"}));
 }
 
 #[tokio::test]

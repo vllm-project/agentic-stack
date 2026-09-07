@@ -1,0 +1,41 @@
+[
+  {
+    "type": "function",
+    "name": "get_weather",
+    "description": "Get the current weather for a given city.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string",
+          "description": "City name, e.g. Paris"
+        }
+      },
+      "required": ["city"],
+      "additionalProperties": false
+    },
+    "strict": true
+  },
+  {
+    "type": "function",
+    "name": "get_stock_price",
+    "description": "Get the current stock price for a given ticker symbol.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "ticker": {
+          "type": "string",
+          "description": "Stock ticker symbol, e.g. AAPL"
+        }
+      },
+      "required": ["ticker"],
+      "additionalProperties": false
+    },
+    "strict": true
+  },
+  {
+    "type": "custom",
+    "name": "set_temperature_unit",
+    "description": "Set the user's preferred temperature unit. This changes how temperatures should be reported for the rest of this conversation. Call with the raw unit as plain text input, e.g. fahrenheit -- not JSON."
+  }
+]

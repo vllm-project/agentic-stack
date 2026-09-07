@@ -33,6 +33,16 @@ Our first milestone is implementing the [Responses API](https://platform.openai.
 - **Background execution** — Fire-and-forget requests that continue processing server-side
 - **Compatibility tested** — Validated against the open Responses API compatibility test suite
 
+## Python Distribution
+
+The `agentic-api` wheel packages the Rust gateway and a small Python launcher. Use the base package for proxy-only
+installations, and the `[local]` extra when you want the launcher to manage a local vLLM process.
+
+- The Python distribution is currently installed from downloaded wheel artifacts and is not published on PyPI
+- [Python installation and workflows](guides/python-installation.md) for current artifact installs, the PyPI publication gate, `doctor`, and known-good model profiles
+- The Rust-native `agentic` CLI remains supported for `serve`, `run codex`, `run claude`, and `validate`
+- vLLM is a supported backend, not part of the Agentic API product name
+
 ## Why Agentic API?
 
 vLLM is fast with state-of-the-art serving throughput, PagedAttention, continuous batching, and broad hardware support. But building agentic applications on top of it today requires significant client-side orchestration — managing conversation state, tool call loops, and multi-turn flows.

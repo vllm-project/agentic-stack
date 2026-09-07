@@ -25,10 +25,10 @@ pub use types::{
     FunctionToolResultMessage, GatewayCallStatus, IncompleteDetails, InputContent, InputFileContent,
     InputFunctionToolCall, InputImageContent, InputItem, InputMessage, InputMessageContent, InputTextContent,
     InputTokenDetails, McpCall, McpCallStatus, McpToolParam, NonEmptyToolName, OutputItem, OutputMessage,
-    OutputTextContent, OutputTokenDetails, ReasoningOutput, ReasoningTextContent, RequestPayload, ResponsePayload,
-    ResponseUsage, ResponsesInput, ResponsesTool, ToolCallOutput, ToolChoice, ToolOutputContent, UpstreamRequest,
-    UpstreamTool, WebSearchAction, WebSearchActionFindInPage, WebSearchActionOpenPage, WebSearchActionSearch,
-    WebSearchCall, WebSearchCallStatus, WebSearchContextSize, WebSearchFilters, WebSearchSource, WebSearchToolParam,
-    WebSearchUserLocation,
+    OutputTextContent, OutputTokenDetails, ReasoningConfig, ReasoningOutput, ReasoningTextContent, RequestPayload,
+    ResponsePayload, ResponseTextConfig, ResponseTextFormat, ResponseUsage, ResponsesInput, ResponsesTool,
+    ToolCallOutput, ToolChoice, ToolOutputContent, UpstreamRequest, UpstreamTool, WebSearchAction,
+    WebSearchActionFindInPage, WebSearchActionOpenPage, WebSearchActionSearch, WebSearchCall, WebSearchCallStatus,
+    WebSearchContextSize, WebSearchFilters, WebSearchSource, WebSearchToolParam, WebSearchUserLocation,
 };
 pub use utils::{utcnow_str, uuid7_str};

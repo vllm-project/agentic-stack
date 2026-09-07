@@ -52,4 +52,17 @@ case "$database_url" in
         ;;
 esac
 
-exec agentic-server "$@"
+# Both binaries share the storage prepared above. The command may name the one to
+# run; anything else is passed to the default. AGENTIC_BINARY is the alternative
+# for platforms that set arguments but not the command.
+case "${1:-}" in
+    agentic-server | agentic-llm-d)
+        binary=$1
+        shift
+        ;;
+    *)
+        binary=${AGENTIC_BINARY:-agentic-server}
+        ;;
+esac
+
+exec "$binary" "$@"

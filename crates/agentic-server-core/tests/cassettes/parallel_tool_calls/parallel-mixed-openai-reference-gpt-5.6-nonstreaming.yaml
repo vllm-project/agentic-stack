@@ -1,0 +1,311 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Do all three of these right now, in parallel, in this single turn --
+        do not wait for one before starting another: (1) call get_weather for "Tokyo",
+        (2) call set_temperature_unit to set my preferred unit to "fahrenheit" for
+        the rest of this conversation, and (3) search the web for the exact query
+        "Tokyo weather today".'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812416
+      created_at: 1787812413
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0f1f74345fe40507006a8fda3d451887d0b8956953c8ade687
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqj9pAv02WcUPdcnOyt57ieM3hDFivX_p5_iLRnmdUMlbQlk7bDdyM2uQj-7MeZRtcZv2NasG_zo8zfKp1hNqAy2ajyaFQL33y4Ulq5Tr5d-nUdfFm48dsidD3ASNMfBn_l1f5vfXVlfhtvgz9MmSB5-iueuPParWOiR6_hpOX670gVlrRMGhLHbsQvTii0OkbcOTZlESdW3IQRB6GnBmQzFkbmaLUUNTfNQrgfs7cAGAmeyZpRK81PGTyQ_vuz1gDP69hym4pgojuIT2i9GgdScA9DLv50-IrqSVsy92aj4NS6WAnsa-Y7NTaxtqBQ2uTjS7hdTjF5agyYMaufrvUsc9qpRHSqlE0I0LnDFm-e68STVI1-as0FYrRxxrJdLnGJJZEg541GQCcLT6g-dVBPyeqo7retFWISppa338VXHZPFD16wnwANf0STP6pLV80QG3JtoiKKvywmxaRglakGGzV9-XY46AFgSb7ZLsZ8tahPJHbORmXq3BSENS9YAhfsyPKjrG2qAx5pFyVXfTJv05UyNxWJv6HviA1RSFOnbQewvKToS2WbNwxxnYH49kI0bbvfLYRz40tfO0QdAhLmRcUnbEKqWrWKx6qlKCiNeputa-KN1DaIltMtgyVG-JOaUEbrsEOJOnsKuBH6D1L3zfbIG0JU0Js7gkWgjde70Anv3FEHYsUGYjuxGRg6lgun8qUYvKlHOqRYv6ak70PqO43X0ZX9S4c_vbGp7uXkD8x4DYcFX0EYxea7-r2mkoe0zYYUBGDi2vmXXKxKb42WWfREJJyT9ZkqZCdcaQ-e_2eOcsJ-7ZVY0etBM7xpRqzhrLn0JfcRQAU36MwBImHeqapemK8FC4wKzSH7EBANW0e4KoB9x1i_k7Ve-DbbiHgH6PRKh5q7BRZWla-wlZ5ySN-xvZ_UlfXv7QBd-4oC15XJWnEcLL4JbHDYMSNcrr1QogeN-NwbO6P0yFPaHTRffuKiVbmr6A6mHPE5g2LV5_Sj3_WzxOL-QECYiSZ-vTbOu5oeI0wwfBGnUqOZrjkbSunPvF9B1mYhDRBOlQZLPAy18vvpk5LAbrlZ2KvtxZmk46nppkbubZgPK7Lm544YkfFqGwqSKAe-cwzLvgPBxtl8xUIG2WyRWD6ZKM-TNYstodX6enAMYXxpHtxxpBoJJy7BD9Wc6uB25QZqyJoAaFiou0NV8nFT0gTAOlMfiiKb8BPE58528gTUkWm_5G4LHmQxtbm9KpTljaHIcjeCoiS-K_uo7ylcULWBYfSP1B9Tkza7jrvSU1d5yp5PwWb-AKsDw6Jfc3phzNnfilcpvEVSvalxTf4x2yEtwv-moSINrf_9-zcXOx9XiJHD1UzqkfRiok8fgiNCVniAzdCJJ7mPowdWgr5RpocGXq75yTE81aXbPGRdGYUiiZO4hn7F_-ujBUMJJHbdG3-5W4ZXMtot_YpEG97oEglVqlYiJvkIPKDz_j1oSPjTiZyPY5wGj6T7WAddBodSqz23XHK2HWEuA49F_u7WT35XFLm56FEHh43hqcWcZ8CwdVlREtBHGvN9Z5LvyETbPZxtYL5ksWM5mkjnpf_MC_H75wiLSr1gT24YXjpxsI7nbUz6TUro7h4VM3iH26yKqbPOrQbzrMS4nii0yorpWOHqfosqoTcj5_KrKS6U5I849c1Hlmte2Z9jSMdenYNISovDruQ6o8zMcs4RsvEEUshvVGfZo2s1gFQ72_DAIofhIe_GLOEzY8DM7jv5yyM0yHSYoABeTmjNZ_6tR3gt6zGun1l_fiN40A23XoPJpdE1vOTxEtBS_IWQyIteB2dI7VEcMoSKFjUu6gCOtnOUjTsOo3mJ3YJJnd0zxXJv6nZW8XHPa-slY1kraIQqiJBSOtzSLgOpsp338o=
+        id: rs_0f1f74345fe40507006a8fda3e1cf887d087bfe743d4ad9445
+        summary: []
+        type: reasoning
+      - call_id: call_YWuZGAEp7gU2o2QIOv2X2iOs
+        id: ctc_0f1f74345fe40507006a8fda3fc04487d0b6703adfd0053c19
+        input: fahrenheit
+        name: set_temperature_unit
+        status: completed
+        type: custom_tool_call
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: null
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - search_content_types:
+        - text
+        search_context_size: medium
+        type: web_search_preview
+        user_location:
+          city: null
+          country: US
+          region: null
+          timezone: null
+          type: approximate
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        format:
+          type: text
+        name: set_temperature_unit
+        type: custom
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 4630
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 4587
+        output_tokens: 121
+        output_tokens_details:
+          reasoning_tokens: 105
+        total_tokens: 4751
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: call_YWuZGAEp7gU2o2QIOv2X2iOs
+        output: '{"status": "ok", "unit": "fahrenheit"}'
+        type: custom_tool_call_output
+      - content: Now report Tokyo's current temperature using the unit I just told
+          you to prefer.
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0f1f74345fe40507006a8fda3d451887d0b8956953c8ade687
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812418
+      created_at: 1787812417
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0f1f74345fe40507006a8fda41347087d0affa1defbcd4cfd7
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqj9pC49T78Mi6IlQjjH8lHeRjpFaniA_dijFmJ-TLBCCa4GLI5-xjD8OG1agp_dGGH98O8Dro9Ln8pds7Ss2qHNLlOwb7Erpuw23QE7xjCOmhxSKdKtJLnw-50_61VJ_syXp38PnJyJ8lr6eE8coilD_CRb85ymFDBMQhNTo8xtaUgDvj7Gx-64YU9Zll0PVctIlOqGYaFqx28K9K1l-9YVXmo354RTMlaAoaN5MDkF9x-gutS0sTK8lV4Nqyh6YzCXsTnigN71emUacMKoTfIP0VfMdgcQYfg5IMw3HFrXk4-9IwIphTIJPJvNp6XaZHbkWlrWhPiKPLMBtOJ1wbiQRbEJkJ6v1KoV8HJlzP0qYfRjNlaS-K6kERWcsowwZG_iGMKYeGUNYqdbrk1U_LvTS4cyUT4VDjSjqJq4WVRGgjiI1g_KMRU75dHao7Y-yh8v9DRftsX4nej8MQqUKuGoX2rL78NZD3XyNwJvEtvwFLUEoagdbMkPyK79W3OBehOVNVsIzkFBTvvirG3Wwz_uaSp9VzU38CH8OHFuu8YM5wEuBBVhJFhUT0YyG7itq4fA9UfFsnV2AhO2LZTW1wkcn1Rb3egwRRGj0AE5RBE1OZKyZ9H1tghA0wJHdoxj6RX4fxa2AxRjEyS5iQaCiOIXnXJ2jmRtkx-l_wN5SXJjnUyjAJKOZV6kSkMDAAKlLBoZ7OCRCxKxN-U5MpYMtPq5KkLAUokF8iv8Ki1_VNjd5SXq7BWjDYcUZDmfXW3DvIU9_5uUMYgMZ133NAfdvPj2KwKJdzmjSzQZnMNzyGDSWZzaaS2O5BIjSEZ7SySHsFoBd1uNkRncNiu-U4xQaSS7nJKj9kA7DTbXhUFSVngFk0YmuIKA0YllzbK14vyUotEf4bNJU0CXwSyF2xIbxxYQwIchXFzz_W6Z6zwKCP-7AACCuulWEyBbiWqOluhVcq0UFelUeR7WLVKau1Xu-wgEOUHtjyZmWSiFl9i-94Fw7j87luRDdW1IQspRrRpV68e-FyPx7Tf3smiCETawKdXVtjAzrAmPOLINJ7d_z2WNX1koAlHmN3wvReFX73HV7dY-KdZNjt2AlvTEMTvrT3PoMRvXSFqJEzUCscrG-apdK31WOXuAFP2E7Ix2zUAIzApOIMwCg7_WSt8if7muezFUumqT4UoSDeYOSkvD0Q0GBlMLp3tnYjKGzCsO8xXpeySljcZG9dD5ZjbNMm4n3KVD7lAjJexfWRQrPegLvmL3vtPk5zflKAB3lekiCfIefaSLuw
+        id: rs_0f1f74345fe40507006a8fda4253fc87d094ae91d58de66fe8
+        summary: []
+        type: reasoning
+      - arguments: '{"city":"Tokyo"}'
+        call_id: call_Fgg2Mr93T0kRHW2ZIlSg1l34
+        id: fc_0f1f74345fe40507006a8fda429e8887d0854d97a6d8e882b2
+        name: get_weather
+        status: completed
+        type: function_call
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: resp_0f1f74345fe40507006a8fda3d451887d0b8956953c8ade687
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - search_content_types:
+        - text
+        search_context_size: medium
+        type: web_search_preview
+        user_location:
+          city: null
+          country: US
+          region: null
+          timezone: null
+          type: approximate
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        format:
+          type: text
+        name: set_temperature_unit
+        type: custom
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 4796
+        input_tokens_details:
+          cache_write_tokens: 166
+          cached_tokens: 4587
+        output_tokens: 40
+        output_tokens_details:
+          reasoning_tokens: 20
+        total_tokens: 4836
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200

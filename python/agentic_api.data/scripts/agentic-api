@@ -1,0 +1,5 @@
+#!python
+from agentic_api.cli import main
+
+
+raise SystemExit(main())

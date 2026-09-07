@@ -7,9 +7,11 @@ use std::time::Duration;
 use agentic_core::executor::{ConversationHandler, ExecuteRequest, ExecutionContext, ResponseHandler};
 use agentic_core::storage::{ConversationStore, ResponseStore};
 use agentic_core::tool::{GatewayExecutor, WebSearchHandler};
-use agentic_core::types::io::{OutputItem, ResponsesInput, ToolChoice};
-use agentic_core::types::request_response::RequestPayload;
-use agentic_core::types::tools::ResponsesTool;
+use agentic_core::types::io::{
+    FunctionToolResultMessage, InputItem, OutputItem, ResponsesInput, ToolCallOutput, ToolChoice,
+};
+use agentic_core::types::request_response::{RequestPayload, ResponseTextConfig};
+use agentic_core::types::tools::{ResponsesTool, WebSearchToolParam};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::routing::{get, post};
@@ -419,7 +421,7 @@ async fn web_search_handler_gets_query_params_from_you_and_formats_results() {
             "call_search",
             "web_search",
             r#"{"query":"rust async","count":2,"exclude_domains":["example.com","example.org"]}"#,
-            &serde_json::json!({"type":"web_search_preview"}),
+            &WebSearchToolParam::default(),
         )
         .await
         .unwrap();
@@ -437,7 +439,7 @@ async fn web_search_handler_gets_query_params_from_you_and_formats_results() {
     let output_json: serde_json::Value = serde_json::from_str(&output.output).unwrap();
     assert_eq!(output_json["query"], "rust async");
     assert_eq!(output_json["results"]["web"][0]["url"], "https://example.com/rust");
-    assert_eq!(output_json["metadata"]["search_uuid"], "search_123");
+    assert_eq!(output_json["metadata"][0]["search_uuid"], "search_123");
 }
 
 #[tokio::test]
@@ -449,7 +451,7 @@ async fn web_search_handler_requires_base_url() {
             "call_search",
             "web_search",
             r#"{"query":"rust async"}"#,
-            &serde_json::json!({"type":"web_search_preview"}),
+            &WebSearchToolParam::default(),
         )
         .await
         .unwrap_err();
@@ -1037,6 +1039,24 @@ async fn build_exec_ctx(llm_url: &str, you_url: String) -> Arc<ExecutionContext>
     )
 }
 
+fn json_object_text_config() -> ResponseTextConfig {
+    serde_json::from_value(serde_json::json!({
+        "format": {"type": "json_object"},
+        "verbosity": "low"
+    }))
+    .unwrap()
+}
+
+fn assert_generation_config_is_preserved(request_bodies: &[serde_json::Value]) {
+    assert_eq!(request_bodies[0]["reasoning"], serde_json::json!({"effort": "high"}));
+    assert_eq!(request_bodies[1]["reasoning"], request_bodies[0]["reasoning"]);
+    assert_eq!(
+        request_bodies[0]["text"],
+        serde_json::to_value(json_object_text_config()).unwrap()
+    );
+    assert_eq!(request_bodies[1]["text"], request_bodies[0]["text"]);
+}
+
 #[tokio::test]
 async fn execute_runs_web_search_and_sends_tool_output_back_to_model() {
     let (you_url, mut captured_you, _you_handle) = spawn_mock_you().await;
@@ -1058,6 +1078,10 @@ async fn execute_runs_web_search_and_sends_tool_output_back_to_model() {
         stream: false,
         store: true,
         include: None,
+        reasoning: Some(Box::new(
+            serde_json::from_value(serde_json::json!({"effort": "high"})).unwrap(),
+        )),
+        text: Some(Box::new(json_object_text_config())),
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1080,9 +1104,26 @@ async fn execute_runs_web_search_and_sends_tool_output_back_to_model() {
     assert_eq!(request_bodies.len(), 2);
     assert_eq!(request_bodies[0]["tools"][0]["name"], "web_search");
     assert_eq!(request_bodies[0]["max_output_tokens"], 1024);
+    assert_generation_config_is_preserved(&request_bodies);
     let second_input = request_bodies[1]["input"]
         .as_array()
         .expect("second request input array");
+    assert_eq!(
+        second_input
+            .iter()
+            .filter(|item| item["type"] == "function_call" && item["call_id"] == "call_search")
+            .count(),
+        1,
+        "persisted web_search function call must not be duplicated by its public output item"
+    );
+    assert_eq!(
+        second_input
+            .iter()
+            .filter(|item| item["type"] == "function_call_output" && item["call_id"] == "call_search")
+            .count(),
+        1,
+        "persisted web_search result must not be duplicated by its public output item"
+    );
     let tool_output = second_input
         .iter()
         .find(|item| item["type"] == "function_call_output")
@@ -1144,6 +1185,8 @@ async fn execute_relaxes_forced_tool_choice_after_web_search_result() {
         stream: false,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1162,6 +1205,31 @@ async fn execute_relaxes_forced_tool_choice_after_web_search_result() {
     assert_eq!(request_bodies.len(), 2);
     assert_eq!(request_bodies[0]["tool_choice"], "required");
     assert!(request_bodies[1].get("tool_choice").is_none());
+}
+
+fn base_payload(input: ResponsesInput) -> RequestPayload {
+    RequestPayload {
+        model: "test-model".to_owned(),
+        input,
+        instructions: None,
+        previous_response_id: None,
+        conversation_id: None,
+        tools: None,
+        tool_choice: None,
+        stream: false,
+        store: true,
+        include: None,
+        reasoning: None,
+        text: None,
+        temperature: None,
+        top_p: None,
+        max_output_tokens: Some(1024),
+        truncation: None,
+        metadata: None,
+        parallel_tool_calls: None,
+        cache_salt: None,
+        context_management: None,
+    }
 }
 
 #[tokio::test]
@@ -1184,24 +1252,8 @@ async fn execute_returns_mixed_client_tool_calls_without_followup_model_request(
     }))
     .unwrap();
     let payload = RequestPayload {
-        model: "test-model".to_owned(),
-        input: ResponsesInput::Text("look up rust async and weather".to_owned()),
-        instructions: None,
-        previous_response_id: None,
-        conversation_id: None,
         tools: Some(vec![web_search, client_function]),
-        tool_choice: None,
-        stream: false,
-        store: true,
-        include: None,
-        temperature: None,
-        top_p: None,
-        max_output_tokens: Some(1024),
-        truncation: None,
-        metadata: None,
-        parallel_tool_calls: None,
-        cache_salt: None,
-        context_management: None,
+        ..base_payload(ResponsesInput::Text("look up rust async and weather".to_owned()))
     };
 
     let result = ExecuteRequest::new(payload, Arc::clone(&exec_ctx)).run().await.unwrap();
@@ -1233,24 +1285,13 @@ async fn execute_returns_mixed_client_tool_calls_without_followup_model_request(
     assert_eq!(function_names, ["get_weather"]);
 
     let continuation_payload = RequestPayload {
-        model: "test-model".to_owned(),
-        input: ResponsesInput::Text("continue".to_owned()),
-        instructions: None,
         previous_response_id: Some(response.id),
-        conversation_id: None,
-        tools: None,
-        tool_choice: None,
-        stream: false,
-        store: true,
-        include: None,
-        temperature: None,
-        top_p: None,
-        max_output_tokens: Some(1024),
-        truncation: None,
-        metadata: None,
-        parallel_tool_calls: None,
-        cache_salt: None,
-        context_management: None,
+        ..base_payload(ResponsesInput::Items(vec![InputItem::FunctionCallOutput(
+            FunctionToolResultMessage {
+                call_id: "call_weather".to_owned(),
+                output: ToolCallOutput::Text("{\"city\":\"San Francisco\",\"temperature_c\":18}".to_owned()),
+            },
+        )]))
     };
     let continuation = ExecuteRequest::new(continuation_payload, exec_ctx).run().await.unwrap();
     assert!(matches!(continuation, Either::Left(_)));
@@ -1263,12 +1304,8 @@ async fn execute_returns_mixed_client_tool_calls_without_followup_model_request(
         .iter()
         .find(|item| item["type"] == "function_call_output" && item["call_id"] == "call_search")
         .expect("continuation includes persisted web_search output");
-    assert!(
-        tool_output["output"]
-            .as_str()
-            .unwrap()
-            .contains("https://example.com/rust")
-    );
+    let tool_output = tool_output["output"].as_str().unwrap();
+    assert!(tool_output.contains("https://example.com/rust"));
 }
 
 #[tokio::test]
@@ -1276,16 +1313,17 @@ async fn web_search_rejects_incompatible_domain_filters_before_calling_you() {
     let (base_url, mut captured, _handle) = spawn_mock_you().await;
     let handler =
         WebSearchHandler::with_api_key(Arc::new(reqwest::Client::new()), "secret-you-key".to_owned(), &base_url);
+    let params = serde_json::from_value::<WebSearchToolParam>(serde_json::json!({
+        "filters": {"allowed_domains": ["rust-lang.org"]}
+    }))
+    .expect("web search params");
 
     let err = handler
         .execute(
             "call_search",
             "web_search",
             r#"{"query":"rust async","exclude_domains":["example.com"]}"#,
-            &serde_json::json!({
-                "type": "web_search_preview",
-                "filters": {"allowed_domains": ["rust-lang.org"]}
-            }),
+            &params,
         )
         .await
         .expect_err("allowed_domains and exclude_domains should be rejected");
@@ -1315,6 +1353,8 @@ async fn execute_accumulates_usage_across_web_search_model_rounds() {
         stream: false,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1360,6 +1400,8 @@ async fn stream_emits_web_search_lifecycle_events_before_final_payload() {
         stream: true,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1480,6 +1522,8 @@ async fn multi_round_stream_has_single_lifecycle_and_monotonic_public_sequence()
         stream: true,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1555,6 +1599,8 @@ async fn stream_hides_web_search_function_events_when_name_arrives_on_done() {
         stream: true,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1619,6 +1665,8 @@ async fn stream_orders_gateway_lifecycle_before_later_client_function_events() {
         stream: true,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1702,6 +1750,8 @@ async fn execute_runs_multiple_web_search_calls_concurrently() {
         stream: false,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1752,6 +1802,8 @@ async fn execute_feeds_web_search_execution_errors_back_to_model() {
         stream: false,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1804,6 +1856,8 @@ async fn execute_returns_incomplete_after_max_gateway_tool_rounds() {
         stream: false,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1856,6 +1910,8 @@ async fn execute_feeds_invalid_web_search_arguments_back_to_model() {
         stream: false,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1915,6 +1971,8 @@ async fn execute_runs_large_gateway_fanout_without_hard_cap() {
         stream: false,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -1982,6 +2040,8 @@ async fn stream_error_events_escape_error_messages() {
         stream: true,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -2056,6 +2116,8 @@ async fn incomplete_turn_persists_a_consistent_conversation_for_continuation() {
         stream: false,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -2084,6 +2146,8 @@ async fn incomplete_turn_persists_a_consistent_conversation_for_continuation() {
         stream: false,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),
@@ -2156,6 +2220,8 @@ async fn stream_returns_incomplete_after_max_gateway_tool_rounds() {
         stream: true,
         store: true,
         include: None,
+        reasoning: None,
+        text: None,
         temperature: None,
         top_p: None,
         max_output_tokens: Some(1024),

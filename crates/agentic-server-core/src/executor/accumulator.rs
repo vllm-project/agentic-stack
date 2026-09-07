@@ -21,7 +21,7 @@ use crate::types::event::{MessageStatus, ResponseStatus};
 use crate::types::io::output::McpListTools;
 use crate::types::io::{
     ApplyDone, CompactionItem, CustomToolCall, FunctionToolCall, OutputItem, OutputMessage, OutputTextContent,
-    ReasoningOutput, ReasoningTextContent, ResponseUsage,
+    ReasoningOutput, ResponseUsage, ToolSearchCall,
 };
 use crate::types::io::{McpCall, WebSearchCall};
 use crate::types::request_response::{IncompleteDetails, ResponsePayload};
@@ -32,9 +32,9 @@ use crate::utils::uuid7_str;
 /// accumulated text/arguments buffer.
 enum InFlight {
     Message { item: OutputMessage, text: String },
-    Reasoning { item: ReasoningOutput, text: String },
+    Reasoning { item: ReasoningOutput },
     FunctionCall { item: FunctionToolCall, arguments: String },
-    ToolSearchCall { item: crate::types::io::ToolSearchCall },
+    ToolSearchCall { item: ToolSearchCall },
     CustomToolCall { item: CustomToolCall, input: String },
     WebSearchCall { item: Option<WebSearchCall> },
     McpCall { item: McpCall },
@@ -61,12 +61,7 @@ impl std::fmt::Debug for InFlight {
 impl InFlight {
     fn finalize(self) -> Option<OutputItem> {
         match self {
-            Self::Reasoning { mut item, text } => {
-                if !text.is_empty() {
-                    item.content.push(ReasoningTextContent::new(text));
-                }
-                Some(OutputItem::Reasoning(item))
-            }
+            Self::Reasoning { item } => Some(OutputItem::Reasoning(item)),
             Self::FunctionCall { mut item, arguments } => {
                 if !arguments.is_empty() && item.arguments.is_empty() {
                     item.arguments = arguments;
@@ -274,9 +269,13 @@ impl ResponseAccumulator {
 
     pub(crate) fn process_sse_line(&mut self, line: &str) -> Option<EventFrame> {
         let frame = normalize_sse_line(line)?;
-        self.capture_terminal_details_if_needed(&frame);
-        self.process_event(&frame);
+        self.process_normalized_event(&frame);
         Some(frame)
+    }
+
+    pub(crate) fn process_normalized_event(&mut self, frame: &EventFrame) {
+        self.capture_terminal_details_if_needed(frame);
+        self.process_event(frame);
     }
 
     pub(super) fn process_sse_line_with_translator(
@@ -347,6 +346,11 @@ impl ResponseAccumulator {
         }
     }
 
+    /// Ask before `finish_stream`, which forces an unterminated stream to `completed`.
+    pub(crate) fn saw_terminal_frame(&self) -> bool {
+        self.status != ResponseStatus::InProgress
+    }
+
     pub(crate) fn finish_stream(&mut self) {
         self.finalize_all();
         if self.status == ResponseStatus::InProgress {
@@ -370,18 +374,20 @@ impl ResponseAccumulator {
             (SSEEventType::OutputItemDone, payload @ EventPayload::OutputItemDone { .. }) => {
                 self.complete_call_item(payload);
             }
-            (SSEEventType::ReasoningTextDelta, EventPayload::ReasoningDelta { delta, item_id }) => {
-                if let Some(InFlight::Reasoning { text, .. }) =
-                    self.in_flight.get_mut(item_id).map(|entry| &mut entry.item)
-                {
-                    text.push_str(delta);
-                }
-            }
-            (SSEEventType::ReasoningTextDone, EventPayload::ReasoningDone { item_id, .. }) => {
-                if let Some(InFlight::Reasoning { item, text }) =
-                    self.in_flight.get_mut(item_id).map(|entry| &mut entry.item)
-                {
-                    item.apply_done(&frame.payload, text);
+            (
+                SSEEventType::ReasoningTextDone,
+                payload @ EventPayload::ReasoningTextDone {
+                    item_id, output_index, ..
+                },
+            )
+            | (
+                SSEEventType::ReasoningSummaryTextDone,
+                payload @ EventPayload::ReasoningSummaryTextDone {
+                    item_id, output_index, ..
+                },
+            ) => {
+                if let Some(item) = self.in_flight_reasoning_mut(item_id, *output_index) {
+                    item.apply_done(payload, &mut String::new());
                 }
             }
             (
@@ -462,17 +468,16 @@ impl ResponseAccumulator {
             return;
         };
         let item = match item_type {
-            SSEItemType::Reasoning => ReasoningOutput::try_from(payload).ok().map(|item| InFlight::Reasoning {
-                item,
-                text: String::with_capacity(256),
-            }),
+            SSEItemType::Reasoning => ReasoningOutput::try_from(payload)
+                .ok()
+                .map(|item| InFlight::Reasoning { item }),
             SSEItemType::FunctionCall => FunctionToolCall::try_from(payload)
                 .ok()
                 .map(|item| InFlight::FunctionCall {
                     item,
                     arguments: String::with_capacity(128),
                 }),
-            SSEItemType::ToolSearchCall => crate::types::io::ToolSearchCall::try_from(payload)
+            SSEItemType::ToolSearchCall => ToolSearchCall::try_from(payload)
                 .ok()
                 .map(|item| InFlight::ToolSearchCall { item }),
             SSEItemType::CustomToolCall => {
@@ -536,10 +541,23 @@ impl ResponseAccumulator {
         else {
             return;
         };
-        let in_flight_key = self.in_flight_call_key(item_id, *item_type, *output_index);
-        let done_item = deserialize_from_value_opt::<OutputItem>(raw_item.clone());
+        let in_flight_key = if *item_type == SSEItemType::Reasoning {
+            self.in_flight_reasoning_key(item_id, *output_index)
+        } else {
+            self.in_flight_call_key(item_id, *item_type, *output_index)
+        };
+        let done_item = if *item_type == SSEItemType::Reasoning {
+            ReasoningOutput::try_from(payload).ok().map(OutputItem::Reasoning)
+        } else {
+            deserialize_from_value_opt::<OutputItem>(raw_item.clone())
+        };
         if let Some(entry) = in_flight_key.as_deref().and_then(|key| self.in_flight.get_mut(key)) {
             match (&mut entry.item, done_item) {
+                (InFlight::Message { item, text }, Some(OutputItem::Message(done_message))) => {
+                    *item = done_message;
+                    text.clear();
+                }
+                (InFlight::Reasoning { item }, _) => item.apply_done(payload, &mut String::new()),
                 (InFlight::FunctionCall { item, arguments }, _) => item.apply_done(payload, arguments),
                 (InFlight::ToolSearchCall { item }, _) => item.apply_done(payload, &mut String::new()),
                 (InFlight::CustomToolCall { item, input }, _) => item.apply_done(payload, input),
@@ -561,7 +579,8 @@ impl ResponseAccumulator {
         }
 
         if let Some(
-            mut output_item @ (OutputItem::FunctionCall(_)
+            mut output_item @ (OutputItem::Reasoning(_)
+            | OutputItem::FunctionCall(_)
             | OutputItem::ToolSearchCall(_)
             | OutputItem::CustomToolCall(_)
             | OutputItem::WebSearchCall(_)
@@ -579,6 +598,27 @@ impl ResponseAccumulator {
             }
             self.completed.push((*output_index, output_item));
         }
+    }
+
+    fn in_flight_reasoning_mut(&mut self, item_id: &str, output_index: u32) -> Option<&mut ReasoningOutput> {
+        let key = self.in_flight_reasoning_key(item_id, output_index)?;
+        let InFlight::Reasoning { item } = &mut self.in_flight.get_mut(&key)?.item else {
+            return None;
+        };
+        Some(item)
+    }
+
+    fn in_flight_reasoning_key(&self, item_id: &str, output_index: u32) -> Option<String> {
+        self.in_flight
+            .get(item_id)
+            .filter(|entry| entry.output_index == output_index && matches!(entry.item, InFlight::Reasoning { .. }))
+            .map(|_| item_id.to_owned())
+            .or_else(|| {
+                self.in_flight.iter().find_map(|(key, entry)| {
+                    (entry.output_index == output_index && matches!(entry.item, InFlight::Reasoning { .. }))
+                        .then(|| key.clone())
+                })
+            })
     }
 
     fn in_flight_call_key(&self, item_id: &str, item_type: SSEItemType, output_index: u32) -> Option<String> {
@@ -635,7 +675,8 @@ impl ResponseAccumulator {
 fn in_flight_matches_call_type(item: &InFlight, item_type: SSEItemType) -> bool {
     matches!(
         (item, item_type),
-        (InFlight::FunctionCall { .. }, SSEItemType::FunctionCall)
+        (InFlight::Message { .. }, SSEItemType::Message)
+            | (InFlight::FunctionCall { .. }, SSEItemType::FunctionCall)
             | (InFlight::ToolSearchCall { .. }, SSEItemType::ToolSearchCall)
             | (InFlight::CustomToolCall { .. }, SSEItemType::CustomToolCall)
             | (InFlight::WebSearchCall { .. }, SSEItemType::WebSearchCall)
@@ -1225,6 +1266,179 @@ mod tests {
         } else {
             panic!("expected OutputItem::Message");
         }
+    }
+
+    #[test]
+    fn completed_reasoning_replaces_partial_deltas_without_duplication() {
+        let lines = [
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_1","type":"reasoning","content":[],"summary":[]}}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_text.delta","item_id":"rs_1","output_index":0,"content_index":0,"delta":"partial content"}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"partial summary"}"#.to_owned(),
+            r#"data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","content":[{"type":"reasoning_text","text":"complete content"},{"type":"reasoning_text","text":"second content"}],"summary":[{"type":"summary_text","text":"complete summary"}],"encrypted_content":"opaque-state","status":"completed"}}"#.to_owned(),
+            r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
+        ];
+
+        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+
+        assert_eq!(acc.output.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&acc.output[0]).unwrap(),
+            serde_json::json!({
+                "type": "reasoning",
+                "id": "rs_1",
+                "content": [
+                    {"type": "reasoning_text", "text": "complete content"},
+                    {"type": "reasoning_text", "text": "second content"},
+                ],
+                "summary": [{"type": "summary_text", "text": "complete summary"}],
+                "encrypted_content": "opaque-state",
+                "status": "completed",
+            })
+        );
+    }
+
+    #[test]
+    fn reasoning_done_events_keep_part_index_order() {
+        let lines = [
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_1","type":"reasoning"}}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_text.done","item_id":"rs_1","output_index":0,"content_index":1,"text":"second content"}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_text.done","item_id":"rs_1","output_index":0,"content_index":0,"text":"first content"}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_summary_text.done","item_id":"rs_1","output_index":0,"summary_index":1,"text":"second summary"}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_summary_text.done","item_id":"rs_1","output_index":0,"summary_index":0,"text":"first summary"}"#.to_owned(),
+            r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
+        ];
+
+        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let OutputItem::Reasoning(reasoning) = &acc.output[0] else {
+            panic!("expected reasoning output");
+        };
+
+        assert_eq!(
+            reasoning
+                .content
+                .iter()
+                .map(|part| part.text.as_str())
+                .collect::<Vec<_>>(),
+            ["first content", "second content"]
+        );
+        assert_eq!(
+            reasoning.summary,
+            [
+                serde_json::json!({"type": "summary_text", "text": "first summary"}),
+                serde_json::json!({"type": "summary_text", "text": "second summary"}),
+            ]
+        );
+    }
+
+    #[test]
+    fn completed_reasoning_preserves_done_fields_when_omitted() {
+        let lines = [
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_1","type":"reasoning"}}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_text.done","item_id":"rs_1","output_index":0,"content_index":0,"text":"completed content"}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_summary_text.done","item_id":"rs_1","output_index":0,"summary_index":0,"text":"completed summary"}"#.to_owned(),
+            r#"data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","encrypted_content":{"token":"opaque"},"status":"completed"}}"#.to_owned(),
+            r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
+        ];
+
+        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let OutputItem::Reasoning(reasoning) = &acc.output[0] else {
+            panic!("expected reasoning output");
+        };
+
+        assert_eq!(reasoning.content[0].text, "completed content");
+        assert_eq!(
+            reasoning.summary,
+            [serde_json::json!({"type": "summary_text", "text": "completed summary"})]
+        );
+        assert_eq!(
+            reasoning.encrypted_content,
+            Some(serde_json::json!({"token": "opaque"}))
+        );
+        assert_eq!(reasoning.status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn completed_reasoning_null_and_empty_fields_are_authoritative_independently() {
+        let content_null = [
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_content_null","type":"reasoning"}}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_text.done","item_id":"rs_content_null","output_index":0,"content_index":0,"text":"discarded content"}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_summary_text.done","item_id":"rs_content_null","output_index":0,"summary_index":0,"text":"kept summary"}"#.to_owned(),
+            r#"data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_content_null","type":"reasoning","content":null}}"#.to_owned(),
+        ];
+        let summary_empty = [
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_summary_empty","type":"reasoning"}}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_text.done","item_id":"rs_summary_empty","output_index":0,"content_index":0,"text":"kept content"}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_summary_text.done","item_id":"rs_summary_empty","output_index":0,"summary_index":0,"text":"discarded summary"}"#.to_owned(),
+            r#"data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_summary_empty","type":"reasoning","summary":[]}}"#.to_owned(),
+        ];
+
+        let content_null = ResponseAccumulator::from_sse_lines(content_null, None);
+        let OutputItem::Reasoning(content_null) = &content_null.output[0] else {
+            panic!("expected reasoning output");
+        };
+        assert!(content_null.content.is_empty());
+        assert_eq!(content_null.summary[0]["text"], "kept summary");
+
+        let summary_empty = ResponseAccumulator::from_sse_lines(summary_empty, None);
+        let OutputItem::Reasoning(summary_empty) = &summary_empty.output[0] else {
+            panic!("expected reasoning output");
+        };
+        assert_eq!(summary_empty.content[0].text, "kept content");
+        assert!(summary_empty.summary.is_empty());
+    }
+
+    #[test]
+    fn streaming_and_nonstreaming_nullable_reasoning_fields_are_equivalent() {
+        let streaming = ResponseAccumulator::from_sse_lines(
+            [r#"data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","content":null,"summary":null,"encrypted_content":null,"status":"completed"}}"#.to_owned()],
+            None,
+        );
+        let nonstreaming = ResponseAccumulator::from_json(
+            r#"{"id":"resp_1","status":"completed","output":[{"id":"rs_1","type":"reasoning","content":null,"summary":null,"encrypted_content":null,"status":"completed"}]}"#,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            serde_json::to_value(&streaming.output).unwrap(),
+            serde_json::to_value(&nonstreaming.output).unwrap()
+        );
+    }
+
+    #[test]
+    fn done_only_reasoning_uses_output_index_order() {
+        let lines = [
+            r#"data: {"type":"response.output_item.added","output_index":1,"item":{"id":"msg_1","type":"message"}}"#.to_owned(),
+            r#"data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":1,"content_index":0,"delta":"answer"}"#.to_owned(),
+            r#"data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","content":[{"type":"reasoning_text","text":"thinking"}],"summary":[],"encrypted_content":null,"status":"completed"}}"#.to_owned(),
+            r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
+        ];
+
+        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+
+        assert_eq!(acc.output.len(), 2);
+        assert!(matches!(acc.output[0], OutputItem::Reasoning(_)));
+        assert!(matches!(acc.output[1], OutputItem::Message(_)));
+    }
+
+    #[test]
+    fn malformed_completed_reasoning_retains_done_fields() {
+        let lines = [
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_1","type":"reasoning"}}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_text.done","item_id":"rs_1","output_index":0,"content_index":0,"text":"completed content"}"#.to_owned(),
+            r#"data: {"type":"response.reasoning_summary_text.done","item_id":"rs_1","output_index":0,"summary_index":0,"text":"completed summary"}"#.to_owned(),
+            r#"data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","content":"malformed","summary":[{"type":"summary_text","text":"ignored completion"}],"encrypted_content":"ignored"}}"#.to_owned(),
+            r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
+        ];
+
+        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let OutputItem::Reasoning(reasoning) = &acc.output[0] else {
+            panic!("expected reasoning output");
+        };
+
+        assert_eq!(reasoning.content[0].text, "completed content");
+        assert_eq!(reasoning.summary[0]["text"], "completed summary");
+        assert!(reasoning.encrypted_content.is_none());
     }
 
     #[test]
@@ -1853,45 +2067,5 @@ mod tests {
         assert_eq!(call.call_id, "call_1");
         assert_eq!(call.name, "raw_echo");
         assert_eq!(call.input, "hello");
-    }
-
-    #[test]
-    fn native_tool_search_call_accumulates_from_added_and_done() {
-        let acc = ResponseAccumulator::from_sse_lines(
-            [
-                r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"tool_search_call","id":"tsc_native","call_id":"call_search","execution":"client","arguments":{},"status":"in_progress"}}"#.to_owned(),
-                r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"tool_search_call","id":"tsc_native","call_id":"call_search","execution":"client","arguments":{"query":"weather"},"status":"completed"}}"#.to_owned(),
-                r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
-            ],
-            None,
-        );
-
-        let [OutputItem::ToolSearchCall(call)] = acc.output.as_slice() else {
-            panic!("expected native tool_search_call");
-        };
-        assert_eq!(call.id, "tsc_native");
-        assert_eq!(call.call_id, "call_search");
-        assert_eq!(call.arguments["query"], "weather");
-        assert_eq!(call.status, crate::types::tools::ToolSearchStatus::Completed);
-    }
-
-    #[test]
-    fn blocking_native_tool_search_call_remains_typed() {
-        let body = serde_json::json!({
-            "id": "resp_1",
-            "status": "completed",
-            "output": [{
-                "type": "tool_search_call",
-                "id": "tsc_native",
-                "call_id": "call_search",
-                "execution": "client",
-                "arguments": {"query": "weather"},
-                "status": "completed"
-            }]
-        })
-        .to_string();
-
-        let acc = ResponseAccumulator::from_json(&body, None).expect("valid blocking response");
-        assert!(matches!(acc.output.as_slice(), [OutputItem::ToolSearchCall(_)]));
     }
 }

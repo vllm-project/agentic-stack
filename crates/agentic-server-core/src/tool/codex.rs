@@ -3,13 +3,11 @@ use std::collections::HashMap;
 
 use serde_json::{Map, Value};
 
+use super::handler::{ToolError, ToolHandler};
+use super::registry::{ToolEntry, ToolType};
 use crate::events::WireEvent;
 use crate::types::io::{FunctionTool, FunctionToolCall, InputItem, OutputItem, ResponsesInput, ToolChoice};
 use crate::types::tools::{CodexNamespaceMember, CodexNamespaceToolParam, NonEmptyToolName, ResponsesTool};
-use crate::utils::common::serialize_to_value_or_custom_default;
-
-use super::handler::{ToolError, ToolHandler};
-use super::registry::{ToolEntry, ToolType};
 
 // Upstream Responses-compatible backends only see flat function names. Prefix
 // flattened Codex namespace members so generated names are recognizable,
@@ -47,33 +45,21 @@ pub fn model_visible_namespace_member_name(namespace: &str, member: &str) -> Str
 /// namespace members to those flat names first (see
 /// [`CodexNamespaceHandler::resolve_namespace_members`]).
 pub(crate) fn insert_namespace_entries(entries: &mut HashMap<String, ToolEntry>, p: &CodexNamespaceToolParam) {
-    serialize_to_value_or_custom_default(
-        p,
-        "namespace tool config serialization failed",
-        |config| {
-            for member in &p.tools {
-                let CodexNamespaceMember::Function(function) = member else {
-                    continue;
-                };
-                let name = function.name.as_str().to_owned();
-                if entries
-                    .insert(
-                        name.clone(),
-                        ToolEntry {
-                            tool_type: ToolType::CodexNamespace,
-                            config: config.clone(),
-                            server_label: Some(p.name.clone()),
-                            handler: None,
-                        },
-                    )
-                    .is_some()
-                {
-                    tracing::warn!(name = %name, namespace = %p.name, "duplicate tool name - previous definition overwritten");
-                }
-            }
-        },
-        (),
-    );
+    for member in &p.tools {
+        let CodexNamespaceMember::Function(function) = member else {
+            continue;
+        };
+        let name = function.name.as_str().to_owned();
+        if entries
+            .insert(
+                name.clone(),
+                ToolEntry::client(ToolType::CodexNamespace, Some(p.name.clone())),
+            )
+            .is_some()
+        {
+            tracing::warn!(name = %name, namespace = %p.name, "duplicate tool name - previous definition overwritten");
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -347,26 +333,22 @@ impl CodexNamespaceHandler {
 }
 
 impl ToolHandler for CodexNamespaceHandler {
+    type ToolParams = CodexNamespaceToolParam;
+
     fn tool_type(&self) -> ToolType {
         ToolType::CodexNamespace
     }
 
-    fn validate(&self, param: &Value) -> Result<(), ToolError> {
-        serde_json::from_value::<CodexNamespaceToolParam>(param.clone())
-            .map(|_| ())
-            .map_err(|e| ToolError::Config(format!("invalid codex namespace tool config: {e}")))
+    fn validate(&self, _params: &CodexNamespaceToolParam) -> Result<(), ToolError> {
+        Ok(())
     }
 
     /// Converts an already-renamed namespace's function members straight to
     /// `FunctionTool`s. Callers must rename members to their flat, model-visible
     /// names first via [`CodexNamespaceHandler::resolve_namespace_members`] —
     /// this method has no sibling-tool context to do that itself.
-    fn normalize(&self, param: &Value) -> Vec<FunctionTool> {
-        let Ok(namespace) = serde_json::from_value::<CodexNamespaceToolParam>(param.clone()) else {
-            tracing::warn!("normalize() called with invalid codex namespace param - validate() must be called first");
-            return vec![];
-        };
-        namespace
+    fn normalize(&self, params: &CodexNamespaceToolParam) -> Vec<FunctionTool> {
+        params
             .tools
             .iter()
             .filter_map(|member| match member {

@@ -4,11 +4,82 @@
 //! injecting them into the enriched request before it is forwarded to the LLM.
 
 use crate::executor::error::{ExecutorError, ExecutorResult};
+use crate::executor::pending_calls::pending_calls;
 use crate::executor::request::{ExecutionContext, RequestContext};
 use crate::storage::InOutItem;
-use crate::types::io::{InputItem, ResponsesInput, resolve_tool_choice, resolve_tools};
+use crate::tool::ToolError;
+use crate::types::io::{
+    InputItem, ReasoningOutput, ReasoningTextContent, ResponsesInput, resolve_tool_choice, resolve_tools,
+};
 use crate::types::request_response::RequestPayload;
 use crate::utils::uuid7_str;
+
+fn has_plaintext_reasoning(reasoning: &ReasoningOutput) -> bool {
+    reasoning.content.iter().any(|content| !content.text.is_empty())
+}
+
+fn has_opaque_reasoning_state(reasoning: &ReasoningOutput) -> bool {
+    reasoning
+        .encrypted_content
+        .as_ref()
+        .is_some_and(|encrypted| !encrypted.is_null())
+}
+
+/// Reject opaque reasoning that vLLM cannot replay before any normal inference call.
+pub(super) fn validate_reasoning_for_vllm(input: &ResponsesInput) -> ExecutorResult<()> {
+    let ResponsesInput::Items(items) = input else {
+        return Ok(());
+    };
+
+    if items.iter().any(|item| {
+        matches!(item, InputItem::Reasoning(reasoning) if has_opaque_reasoning_state(reasoning) && !has_plaintext_reasoning(reasoning))
+    }) {
+        return Err(ExecutorError::InvalidRequest(
+            "reasoning item contains encrypted state without plaintext reasoning content and cannot be replayed to vLLM"
+                .to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Prepare reasoning in the vLLM-bound request copy.
+///
+/// vLLM can replay plaintext reasoning content but cannot interpret opaque provider state. Its generic Responses
+/// conversion reads only the first reasoning content part and falls back to a summary when content is absent, while
+/// its Harmony conversion joins all content parts. Normalize usable plaintext into one ordered, newline-delimited part
+/// and remove summaries so both paths receive the same continuation state. Summary-only items have no usable vLLM
+/// state and are omitted. [`RequestContext`] keeps the original request and new input items separately, so none of
+/// these changes mutate persisted state.
+pub(super) fn prepare_reasoning_for_vllm(input: &mut ResponsesInput) -> ExecutorResult<()> {
+    // Validate the complete input before mutation so an error never leaves a partially prepared request behind.
+    validate_reasoning_for_vllm(input)?;
+
+    let ResponsesInput::Items(items) = input else {
+        return Ok(());
+    };
+
+    items.retain_mut(|item| {
+        let InputItem::Reasoning(reasoning) = item else {
+            return true;
+        };
+        if !has_plaintext_reasoning(reasoning) {
+            return false;
+        }
+
+        let plaintext = reasoning
+            .content
+            .iter()
+            .map(|content| content.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        reasoning.content = vec![ReasoningTextContent::new(plaintext)];
+        reasoning.summary.clear();
+        reasoning.encrypted_content = None;
+        true
+    });
+    Ok(())
+}
 
 /// Step 1 — Build [`RequestContext`] by rehydrating conversation history.
 ///
@@ -49,15 +120,12 @@ pub async fn rehydrate_conversation(
 
     if ctx.original_request.conversation_id.is_some() {
         from_conversation(&mut ctx, exec_ctx).await?;
-        return Ok(ctx);
-    }
-
-    if ctx.original_request.previous_response_id.is_some() {
+    } else if ctx.original_request.previous_response_id.is_some() {
         from_response(&mut ctx, exec_ctx).await?;
-        return Ok(ctx);
+    } else {
+        ctx.enriched_request.input = ResponsesInput::Items(ctx.new_input_items.clone());
     }
 
-    ctx.enriched_request.input = ResponsesInput::Items(ctx.new_input_items.clone());
     Ok(ctx)
 }
 
@@ -73,6 +141,11 @@ async fn from_response(ctx: &mut RequestContext, exec_ctx: &ExecutionContext) ->
     let mut items = InOutItem::into_input_items(history);
     items.reserve(ctx.new_input_items.len());
     items.extend(ctx.new_input_items.iter().cloned());
+    if let Some(pending) = pending_calls(&items)?.into_iter().next() {
+        return Err(ExecutorError::Tool(ToolError::MissingOutput {
+            call_id: pending.call_id,
+        }));
+    }
 
     ctx.enriched_request.previous_response_id = None;
     ctx.enriched_request.input = ResponsesInput::Items(items);
@@ -100,6 +173,11 @@ async fn from_conversation(ctx: &mut RequestContext, exec_ctx: &ExecutionContext
     let mut items = InOutItem::into_input_items(snapshot.items);
     items.reserve(ctx.new_input_items.len());
     items.extend(ctx.new_input_items.iter().cloned());
+    if let Some(pending) = pending_calls(&items)?.into_iter().next() {
+        return Err(ExecutorError::Tool(ToolError::MissingOutput {
+            call_id: pending.call_id,
+        }));
+    }
 
     ctx.enriched_request.input = ResponsesInput::Items(items);
     ctx.conversation_id = Some(conv_data.conversation_id);
@@ -131,7 +209,136 @@ mod tests {
         ConversationStore, ConversationVersion, InOutItem, ResponseMetadata, ResponseStore, create_pool_with_schema,
     };
     use crate::tool::ToolError;
+    use crate::types::io::output::{McpListTools, OutputItem};
     use crate::types::request_response::RequestPayload;
+
+    fn reasoning_item(content: &[&str], encrypted_content: Option<serde_json::Value>) -> InputItem {
+        InputItem::Reasoning(ReasoningOutput {
+            id: "rs_prior".to_owned(),
+            content: content.iter().map(|text| ReasoningTextContent::new(*text)).collect(),
+            summary: vec![serde_json::json!({"type": "summary_text", "text": "public summary"})],
+            encrypted_content,
+            status: Some("completed".to_owned()),
+        })
+    }
+
+    #[test]
+    fn plaintext_reasoning_is_normalized_for_both_vllm_paths() {
+        let mut input = ResponsesInput::Items(vec![reasoning_item(
+            &["first continuation part", "second continuation part"],
+            Some(serde_json::json!({"ciphertext": "opaque-provider-state"})),
+        )]);
+
+        prepare_reasoning_for_vllm(&mut input).expect("plaintext reasoning is replayable");
+
+        let ResponsesInput::Items(items) = input else {
+            panic!("expected structured input");
+        };
+        let InputItem::Reasoning(reasoning) = &items[0] else {
+            panic!("expected reasoning item");
+        };
+        assert_eq!(reasoning.id, "rs_prior");
+        assert_eq!(reasoning.content.len(), 1);
+        assert_eq!(
+            reasoning.content[0].text,
+            "first continuation part\nsecond continuation part"
+        );
+        assert!(reasoning.summary.is_empty());
+        assert_eq!(reasoning.status.as_deref(), Some("completed"));
+        assert_eq!(reasoning.encrypted_content, None);
+    }
+
+    #[test]
+    fn encrypted_reasoning_requires_nonempty_plaintext_content() {
+        for content in [Vec::new(), vec![""], vec!["", ""]] {
+            let mut input = ResponsesInput::Items(vec![reasoning_item(
+                &content,
+                Some(serde_json::json!("opaque-provider-state")),
+            )]);
+
+            let error =
+                prepare_reasoning_for_vllm(&mut input).expect_err("encrypted-only reasoning must not reach vLLM");
+
+            assert_eq!(error.http_status(), http::StatusCode::BAD_REQUEST);
+            assert!(
+                error
+                    .to_string()
+                    .contains("encrypted state without plaintext reasoning content")
+            );
+            assert!(!error.to_string().contains("opaque-provider-state"));
+        }
+    }
+
+    #[test]
+    fn plaintext_reasoning_with_null_encrypted_state_is_normalized_without_summary() {
+        let mut item = reasoning_item(&["plaintext continuation"], Some(serde_json::Value::Null));
+        let InputItem::Reasoning(reasoning) = &mut item else {
+            panic!("expected reasoning item");
+        };
+        reasoning.content[0].type_ = "unexpected_provider_type".to_owned();
+        let mut input = ResponsesInput::Items(vec![item]);
+
+        prepare_reasoning_for_vllm(&mut input).expect("null encrypted state is valid");
+
+        let ResponsesInput::Items(items) = input else {
+            panic!("expected structured input");
+        };
+        let InputItem::Reasoning(reasoning) = &items[0] else {
+            panic!("expected reasoning item");
+        };
+        assert_eq!(reasoning.content[0].type_, "reasoning_text");
+        assert_eq!(reasoning.content[0].text, "plaintext continuation");
+        assert!(reasoning.summary.is_empty());
+        assert_eq!(reasoning.encrypted_content, None);
+    }
+
+    #[test]
+    fn summary_only_reasoning_without_opaque_state_is_removed_from_vllm_copy() {
+        for encrypted_content in [None, Some(serde_json::Value::Null)] {
+            let mut input = ResponsesInput::Items(vec![reasoning_item(&[], encrypted_content)]);
+
+            prepare_reasoning_for_vllm(&mut input).expect("summary-only reasoning has no usable vLLM state");
+
+            let ResponsesInput::Items(items) = input else {
+                panic!("expected structured input");
+            };
+            assert!(
+                items.is_empty(),
+                "a reasoning summary must never be promoted to reasoning text"
+            );
+        }
+    }
+
+    #[test]
+    fn validation_failure_does_not_partially_mutate_input() {
+        let valid = reasoning_item(
+            &["plaintext continuation"],
+            Some(serde_json::json!("first-opaque-state")),
+        );
+        let invalid = reasoning_item(&[], Some(serde_json::json!("second-opaque-state")));
+        let mut input = ResponsesInput::Items(vec![valid.clone(), invalid]);
+
+        prepare_reasoning_for_vllm(&mut input).expect_err("the complete input must validate before normalization");
+
+        let ResponsesInput::Items(items) = input else {
+            panic!("expected structured input");
+        };
+        let (InputItem::Reasoning(actual), InputItem::Reasoning(expected)) = (&items[0], &valid) else {
+            panic!("expected reasoning items");
+        };
+        assert_eq!(actual.content[0].text, expected.content[0].text);
+        assert_eq!(actual.summary, expected.summary);
+        assert_eq!(actual.encrypted_content, expected.encrypted_content);
+    }
+
+    #[test]
+    fn text_input_is_unchanged() {
+        let mut input = ResponsesInput::Text("plain user input".to_owned());
+
+        prepare_reasoning_for_vllm(&mut input).expect("text input contains no reasoning item");
+
+        assert!(matches!(input, ResponsesInput::Text(ref text) if text == "plain user input"));
+    }
 
     fn request(conversation_id: Option<&str>, previous_response_id: Option<&str>) -> RequestPayload {
         RequestPayload {
@@ -145,6 +352,8 @@ mod tests {
             stream: false,
             store: true,
             include: None,
+            reasoning: None,
+            text: None,
             temperature: None,
             top_p: None,
             max_output_tokens: None,
@@ -201,6 +410,45 @@ mod tests {
         let ctx = rehydrate_conversation(request(Some(&conversation.conversation_id), None), &exec_ctx).await?;
 
         assert_eq!(ctx.conversation_version, Some(ConversationVersion::LastSequence(0)));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn conversation_rehydration_remembers_listed_mcp_servers() -> Result<(), Box<dyn std::error::Error>> {
+        let pool = create_pool_with_schema(Some("sqlite://?mode=memory")).await?;
+        let conversation_store = ConversationStore::new(pool);
+        let conversation = conversation_store.create().await?;
+        conversation_store
+            .persist(
+                &conversation.conversation_id,
+                "resp_prior",
+                None,
+                vec![InOutItem::Output(OutputItem::McpListTools(McpListTools::new(
+                    "mcpl_prior",
+                    "counter",
+                    Vec::new(),
+                )))],
+                &ResponseMetadata::default(),
+            )
+            .await?;
+        let exec_ctx = execution_context(conversation_store, ResponseStore::disabled());
+
+        let ctx = rehydrate_conversation(request(Some(&conversation.conversation_id), None), &exec_ctx).await?;
+
+        let ResponsesInput::Items(items) = &ctx.enriched_request.input else {
+            panic!("rehydrated input should contain items");
+        };
+        assert!(
+            matches!(items.first(), Some(InputItem::McpListTools(list_tools)) if list_tools.server_label == "counter")
+        );
+        let ResponsesInput::Items(model_items) = ctx.enriched_request.input.model_input().into_owned() else {
+            panic!("model input should contain items");
+        };
+        assert!(
+            model_items
+                .iter()
+                .all(|item| !matches!(item, InputItem::McpListTools(_)))
+        );
         Ok(())
     }
 
@@ -393,6 +641,43 @@ mod tests {
         let ctx = rehydrate_conversation(request(None, Some("resp_prior")), &exec_ctx).await?;
 
         assert_eq!(ctx.conversation_version, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn previous_response_rehydration_remembers_listed_mcp_servers() -> Result<(), Box<dyn std::error::Error>> {
+        let pool = create_pool_with_schema(Some("sqlite://?mode=memory")).await?;
+        let response_store = ResponseStore::new(pool);
+        response_store
+            .persist(
+                "resp_prior",
+                None,
+                vec![InOutItem::Output(OutputItem::McpListTools(McpListTools::new(
+                    "mcpl_prior",
+                    "counter",
+                    Vec::new(),
+                )))],
+                &ResponseMetadata::default(),
+            )
+            .await?;
+        let exec_ctx = execution_context(ConversationStore::disabled(), response_store);
+
+        let ctx = rehydrate_conversation(request(None, Some("resp_prior")), &exec_ctx).await?;
+
+        let ResponsesInput::Items(items) = &ctx.enriched_request.input else {
+            panic!("rehydrated input should contain items");
+        };
+        assert!(
+            matches!(items.first(), Some(InputItem::McpListTools(list_tools)) if list_tools.server_label == "counter")
+        );
+        let ResponsesInput::Items(model_items) = ctx.enriched_request.input.model_input().into_owned() else {
+            panic!("model input should contain items");
+        };
+        assert!(
+            model_items
+                .iter()
+                .all(|item| !matches!(item, InputItem::McpListTools(_)))
+        );
         Ok(())
     }
 }

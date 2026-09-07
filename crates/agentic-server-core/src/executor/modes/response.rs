@@ -92,7 +92,8 @@ impl ResponseHandler {
         new_items.extend(ctx.new_input_items.into_iter().map(InOutItem::Input));
         new_items.extend(output_items.into_iter().map(InOutItem::Output));
 
-        self.store
+        let result = self
+            .store
             .persist_with_conversation_id(
                 &ctx.response_id,
                 ctx.conversation_id.as_deref(),
@@ -100,8 +101,15 @@ impl ResponseHandler {
                 new_items,
                 &metadata,
             )
-            .await
-            .map_err(ExecutorError::Storage)
+            .await;
+        match result {
+            Err(error) if error.is_unique_violation() => Err(ExecutorError::Conflict(format!(
+                "a turn is already stored under '{}'",
+                ctx.response_id
+            ))),
+            Err(error) => Err(ExecutorError::Storage(error)),
+            Ok(()) => Ok(()),
+        }
     }
 }
 
@@ -127,6 +135,8 @@ mod tests {
             stream: false,
             store: true,
             include: None,
+            reasoning: None,
+            text: None,
             temperature: None,
             top_p: None,
             max_output_tokens: None,

@@ -952,6 +952,105 @@ async fn test_store_false_with_web_search_reaches_executor() {
 }
 
 #[tokio::test]
+async fn test_stateful_request_forwards_reasoning_configuration() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let reasoning = serde_json::json!({
+        "context": "all_turns",
+        "effort": "high",
+        "generate_summary": "concise",
+        "mode": "pro",
+        "summary": "detailed"
+    });
+
+    let response = reqwest::Client::new()
+        .post(format!("{gateway_url}/v1/responses"))
+        .json(&serde_json::json!({
+            "model": "test",
+            "input": "hi",
+            "reasoning": reasoning,
+            "store": true,
+            "stream": false
+        }))
+        .send()
+        .await
+        .expect("stateful response request");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["reasoning"], reasoning);
+}
+
+#[tokio::test]
+async fn test_stateful_request_forwards_text_configuration() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let text = serde_json::json!({
+        "format": {
+            "type": "json_schema",
+            "name": "weather",
+            "schema": {
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+                "additionalProperties": false
+            },
+            "strict": true,
+            "x-format-extension": "kept"
+        },
+        "verbosity": "low",
+        "x-text-extension": {"enabled": true}
+    });
+
+    let response = reqwest::Client::new()
+        .post(format!("{gateway_url}/v1/responses"))
+        .json(&serde_json::json!({
+            "model": "test",
+            "input": "hi",
+            "text": text,
+            "store": true,
+            "stream": false
+        }))
+        .send()
+        .await
+        .expect("stateful response request");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["text"], text);
+}
+
+#[tokio::test]
+async fn test_stateful_request_rejects_malformed_text_configuration_before_upstream() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!("{gateway_url}/v1/responses"))
+        .json(&serde_json::json!({
+            "model": "test",
+            "input": "hi",
+            "text": {"format": {"type": "json_schema", "name": "missing_schema"}},
+            "store": true,
+            "stream": false
+        }))
+        .send()
+        .await
+        .expect("malformed stateful response request");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(
+        requests.lock().await.is_empty(),
+        "invalid request must not reach upstream"
+    );
+}
+
+#[tokio::test]
 async fn test_gateway_normalization_preserves_parallel_tool_calls() {
     // Arrange
     let (llm_url, requests, _h1) = spawn_mock_vllm_json_capture().await;
@@ -977,6 +1076,34 @@ async fn test_gateway_normalization_preserves_parallel_tool_calls() {
     let requests = requests.lock().await;
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["parallel_tool_calls"], false);
+}
+
+#[tokio::test]
+async fn test_gateway_normalization_allows_parallel_tool_calls_true() {
+    // Arrange
+    let (llm_url, requests, _h1) = spawn_mock_vllm_json_capture().await;
+    let (gw_url, _h2) = spawn_gateway(test_state(&test_config(&llm_url))).await;
+
+    // Act
+    let resp = reqwest::Client::new()
+        .post(format!("{gw_url}/v1/responses"))
+        .json(&serde_json::json!({
+            "model": "test",
+            "input": [{"type": "message", "role": "user", "content": "hi"}],
+            "tools": [{"type": "web_search_preview"}],
+            "parallel_tool_calls": true,
+            "store": false,
+            "stream": false
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Assert
+    assert_eq!(resp.status(), 200);
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["parallel_tool_calls"], true);
 }
 
 #[tokio::test]

@@ -312,10 +312,17 @@ pub struct WebSearchActionSearch {
     #[serde(skip, default = "default_web_search_action_search_type")]
     pub type_: String,
     pub query: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub queries: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<WebSearchSource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum WebSearchActionError {
+    #[error("web search action requires at least one query")]
+    EmptyQueries,
 }
 
 fn default_web_search_action_search_type() -> String {
@@ -323,14 +330,19 @@ fn default_web_search_action_search_type() -> String {
 }
 
 impl WebSearchActionSearch {
-    #[must_use]
-    pub fn new(query: impl Into<String>, sources: Vec<WebSearchSource>) -> Self {
-        Self {
+    /// Builds a search action from a non-empty query list.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WebSearchActionError::EmptyQueries`] if `queries` is empty.
+    pub fn try_new(queries: Vec<String>, sources: Vec<WebSearchSource>) -> Result<Self, WebSearchActionError> {
+        let query = queries.first().cloned().ok_or(WebSearchActionError::EmptyQueries)?;
+        Ok(Self {
             type_: default_web_search_action_search_type(),
-            query: query.into(),
-            queries: Vec::new(),
+            query,
+            queries,
             sources,
-        }
+        })
     }
 }
 
@@ -382,18 +394,22 @@ pub struct WebSearchCall {
 }
 
 impl WebSearchCall {
-    #[must_use]
-    pub fn new(
+    /// Builds a web-search call from a non-empty query list.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WebSearchActionError::EmptyQueries`] if `queries` is empty.
+    pub fn try_new(
         id: impl Into<String>,
         status: WebSearchCallStatus,
-        query: impl Into<String>,
+        queries: Vec<String>,
         sources: Vec<WebSearchSource>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, WebSearchActionError> {
+        Ok(Self {
             id: id.into(),
             status,
-            action: WebSearchAction::Search(WebSearchActionSearch::new(query, sources)),
-        }
+            action: WebSearchAction::Search(WebSearchActionSearch::try_new(queries, sources)?),
+        })
     }
 }
 
@@ -473,7 +489,7 @@ impl McpCall {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct McpListTool {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -581,12 +597,20 @@ impl ReasoningTextContent {
 pub struct ReasoningOutput {
     #[serde(default)]
     pub id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_nullable_vec")]
     pub content: Vec<ReasoningTextContent>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_nullable_vec")]
     pub summary: Vec<Value>,
     pub encrypted_content: Option<Value>,
     pub status: Option<String>,
+}
+
+fn deserialize_nullable_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<Vec<T>>::deserialize(deserializer).map(Option::unwrap_or_default)
 }
 
 impl ReasoningOutput {
@@ -605,42 +629,93 @@ impl TryFrom<&EventPayload> for ReasoningOutput {
     type Error = ExecutorError;
 
     fn try_from(payload: &EventPayload) -> Result<Self, Self::Error> {
-        let EventPayload::OutputItemAdded { item_id, .. } = payload else {
-            return Err(ExecutorError::ParseError("expected OutputItemAdded payload".into()));
-        };
-        let id = if item_id.is_empty() {
-            uuid7_str("rs_")
-        } else {
-            item_id.clone()
-        };
-        Ok(Self::new(id))
+        match payload {
+            EventPayload::OutputItemAdded { item_id, .. } => {
+                let id = if item_id.is_empty() {
+                    uuid7_str("rs_")
+                } else {
+                    item_id.clone()
+                };
+                Ok(Self::new(id))
+            }
+            EventPayload::OutputItemDone { item, .. } => {
+                let Some(OutputItem::Reasoning(item)) = deserialize_from_value_opt::<OutputItem>(item.clone()) else {
+                    return Err(ExecutorError::ParseError(
+                        "expected a complete reasoning output item".into(),
+                    ));
+                };
+                if item.id.is_empty() {
+                    return Err(ExecutorError::ParseError(
+                        "complete reasoning output item is missing its id".into(),
+                    ));
+                }
+                Ok(item)
+            }
+            _ => Err(ExecutorError::ParseError(
+                "expected a reasoning output-item lifecycle payload".into(),
+            )),
+        }
     }
 }
 
 /// Applies a `*Done` event payload onto an in-flight output item.
 ///
-/// `buffer` holds accumulated delta text/arguments. If the payload's own field
-/// is empty the buffer is used as the final value and then cleared; otherwise
-/// the buffer is discarded and the payload value is used directly.
+/// `buffer` holds accumulated delta text/arguments when an output type needs
+/// fallback reconstruction. Implementations clear it when the done payload is
+/// authoritative.
 pub trait ApplyDone {
     fn apply_done(&mut self, payload: &EventPayload, buffer: &mut String);
 }
 
 impl ApplyDone for ReasoningOutput {
     fn apply_done(&mut self, payload: &EventPayload, buffer: &mut String) {
-        let EventPayload::ReasoningDone { text, .. } = payload else {
-            return;
-        };
-        let text = if text.is_empty() {
-            std::mem::take(buffer)
-        } else {
-            buffer.clear();
-            text.clone()
-        };
-        if !text.is_empty() {
-            self.content.push(ReasoningTextContent::new(text));
+        match payload {
+            EventPayload::ReasoningTextDone {
+                text, content_index, ..
+            } => {
+                buffer.clear();
+                if !text.is_empty() {
+                    insert_at_part_index(&mut self.content, *content_index, ReasoningTextContent::new(text));
+                }
+            }
+            EventPayload::ReasoningSummaryTextDone {
+                text, summary_index, ..
+            } => {
+                buffer.clear();
+                if !text.is_empty() {
+                    insert_at_part_index(
+                        &mut self.summary,
+                        *summary_index,
+                        serde_json::json!({"type": "summary_text", "text": text}),
+                    );
+                }
+            }
+            EventPayload::OutputItemDone { item, .. } => {
+                let Some(raw_item) = item.as_object() else {
+                    return;
+                };
+                let Ok(mut completed) = Self::try_from(payload) else {
+                    return;
+                };
+
+                if !raw_item.contains_key("content") {
+                    completed.content = std::mem::take(&mut self.content);
+                }
+                if !raw_item.contains_key("summary") {
+                    completed.summary = std::mem::take(&mut self.summary);
+                }
+                *self = completed;
+            }
+            _ => {}
         }
     }
+}
+
+fn insert_at_part_index<T>(parts: &mut Vec<T>, part_index: u32, part: T) {
+    // Part indexes address a contiguous wire array. Clamp malformed sparse
+    // indexes instead of manufacturing placeholder parts that never arrived.
+    let index = usize::try_from(part_index).unwrap_or(usize::MAX).min(parts.len());
+    parts.insert(index, part);
 }
 
 impl ApplyDone for FunctionToolCall {
@@ -807,7 +882,7 @@ impl OutputItem {
         match self {
             Self::FunctionCall(call) => registry
                 .lookup(&call.name)
-                .is_none_or(|entry| !entry.tool_type.is_gateway_owned()),
+                .is_none_or(|entry| !entry.ownership.is_gateway()),
             Self::ToolSearchCall(_) | Self::CustomToolCall(_) => true,
             Self::Message(_)
             | Self::WebSearchCall(_)
@@ -819,6 +894,10 @@ impl OutputItem {
         }
     }
 
+    /// Shapes a stored output item as continuation input.
+    /// Public output for gateway-executed built-in tools is omitted because the model-facing
+    /// function call and output are persisted separately as input items. MCP
+    /// list metadata is retained here and removed by `ResponsesInput::model_input`.
     #[must_use]
     pub fn to_input_item(&self) -> Option<InputItem> {
         match self {
@@ -827,8 +906,9 @@ impl OutputItem {
             Self::FunctionCall(call) => Some(InputItem::FunctionCall(InputFunctionToolCall::from(call.clone()))),
             Self::ToolSearchCall(call) => InputToolSearchCall::try_from(call).ok().map(InputItem::ToolSearchCall),
             Self::CustomToolCall(call) => Some(InputItem::FunctionCall(call.clone().into())),
+            Self::McpListTools(list_tools) => Some(InputItem::McpListTools(list_tools.clone())),
             Self::Compaction(item) => Some(InputItem::Compaction(item.clone())),
-            Self::WebSearchCall(_) | Self::McpCall(_) | Self::McpListTools(_) | Self::Unknown => None,
+            Self::WebSearchCall(_) | Self::McpCall(_) | Self::Unknown => None,
         }
     }
 }
@@ -963,6 +1043,62 @@ mod tests {
     }
 
     #[test]
+    fn web_search_call_rejects_empty_queries() {
+        let error = WebSearchCall::try_new("ws_1", WebSearchCallStatus::Completed, Vec::new(), Vec::new()).unwrap_err();
+
+        assert_eq!(error, WebSearchActionError::EmptyQueries);
+    }
+
+    #[test]
+    fn web_search_call_preserves_valid_search_action_wire_shape() {
+        let call = WebSearchCall::try_new(
+            "ws_1",
+            WebSearchCallStatus::Completed,
+            vec!["rust async".to_owned()],
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            serde_json::to_value(call).unwrap(),
+            serde_json::json!({
+                "id": "ws_1",
+                "status": "completed",
+                "action": {
+                    "type": "search",
+                    "query": "rust async",
+                    "queries": ["rust async"]
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn gateway_public_tool_outputs_are_not_replayed_as_model_input() {
+        let web_search = OutputItem::WebSearchCall(
+            WebSearchCall::try_new(
+                "ws_1",
+                WebSearchCallStatus::Completed,
+                vec!["rust async".to_owned()],
+                Vec::new(),
+            )
+            .unwrap(),
+        );
+        let mcp = OutputItem::McpCall(McpCall::new(
+            "mcp_1",
+            "counter",
+            "increment",
+            "{}",
+            McpCallStatus::Completed,
+            Some("1".to_owned()),
+            None,
+        ));
+
+        assert!(web_search.to_input_item().is_none());
+        assert!(mcp.to_input_item().is_none());
+    }
+
+    #[test]
     fn custom_tool_call_status_remains_optional_on_the_wire() {
         let call: CustomToolCall = serde_json::from_value(serde_json::json!({
             "id": "ctc_1",
@@ -997,6 +1133,127 @@ mod tests {
         let serialized = serde_json::to_value(&item).unwrap();
         assert_eq!(serialized["type"], "reasoning");
         assert_eq!(serialized["id"], "rs_abc");
+    }
+
+    #[test]
+    fn reasoning_output_builds_from_added_and_applies_indexed_done_events() {
+        let added = EventPayload::OutputItemAdded {
+            item_id: "rs_1".to_owned(),
+            item_type: crate::events::SSEItemType::Reasoning,
+            output_index: 2,
+            name: None,
+            namespace: None,
+            call_id: None,
+        };
+        let mut item = ReasoningOutput::try_from(&added).unwrap();
+
+        for (content_index, text) in [(1, "second thought"), (0, "first thought")] {
+            item.apply_done(
+                &EventPayload::ReasoningTextDone {
+                    text: text.to_owned(),
+                    item_id: "rs_1".to_owned(),
+                    output_index: 2,
+                    content_index,
+                },
+                &mut String::new(),
+            );
+        }
+        for (summary_index, text) in [(1, "second summary"), (0, "first summary")] {
+            item.apply_done(
+                &EventPayload::ReasoningSummaryTextDone {
+                    text: text.to_owned(),
+                    item_id: "rs_1".to_owned(),
+                    output_index: 2,
+                    summary_index,
+                },
+                &mut String::new(),
+            );
+        }
+
+        assert_eq!(item.id, "rs_1");
+        assert_eq!(
+            item.content.iter().map(|part| part.text.as_str()).collect::<Vec<_>>(),
+            ["first thought", "second thought"]
+        );
+        assert_eq!(item.summary[0]["text"], "first summary");
+        assert_eq!(item.summary[1]["text"], "second summary");
+    }
+
+    #[test]
+    fn reasoning_output_done_owns_authoritative_field_reconciliation() {
+        let mut item = ReasoningOutput::new("rs_1");
+        item.content.push(ReasoningTextContent::new("buffered thought"));
+        item.summary
+            .push(serde_json::json!({"type": "summary_text", "text": "buffered summary"}));
+        let done = EventPayload::OutputItemDone {
+            item_id: "rs_1".to_owned(),
+            item_type: crate::events::SSEItemType::Reasoning,
+            output_index: 0,
+            item: serde_json::json!({
+                "id": "rs_1",
+                "type": "reasoning",
+                "summary": null,
+                "encrypted_content": "opaque-state",
+                "status": "completed",
+            }),
+        };
+
+        let parsed = ReasoningOutput::try_from(&done).unwrap();
+        assert!(parsed.content.is_empty());
+        assert!(parsed.summary.is_empty());
+
+        item.apply_done(&done, &mut String::new());
+        assert_eq!(item.content[0].text, "buffered thought");
+        assert!(item.summary.is_empty());
+        assert_eq!(item.encrypted_content, Some(serde_json::json!("opaque-state")));
+        assert_eq!(item.status.as_deref(), Some("completed"));
+
+        let before = serde_json::to_value(&item).unwrap();
+        let malformed = EventPayload::OutputItemDone {
+            item_id: "rs_1".to_owned(),
+            item_type: crate::events::SSEItemType::Reasoning,
+            output_index: 0,
+            item: serde_json::json!({
+                "id": "rs_1",
+                "type": "reasoning",
+                "content": "not-an-array",
+            }),
+        };
+        item.apply_done(&malformed, &mut String::new());
+        assert_eq!(serde_json::to_value(item).unwrap(), before);
+    }
+
+    #[test]
+    fn reasoning_done_text_is_authoritative_even_when_empty() {
+        let mut item = ReasoningOutput::new("rs_1");
+        let mut stale_delta = "partial reasoning".to_owned();
+
+        item.apply_done(
+            &EventPayload::ReasoningTextDone {
+                text: String::new(),
+                item_id: "rs_1".to_owned(),
+                output_index: 0,
+                content_index: 0,
+            },
+            &mut stale_delta,
+        );
+
+        assert!(item.content.is_empty());
+        assert!(stale_delta.is_empty());
+
+        let mut stale_summary_delta = "partial summary".to_owned();
+        item.apply_done(
+            &EventPayload::ReasoningSummaryTextDone {
+                text: String::new(),
+                item_id: "rs_1".to_owned(),
+                output_index: 0,
+                summary_index: 0,
+            },
+            &mut stale_summary_delta,
+        );
+
+        assert!(item.summary.is_empty());
+        assert!(stale_summary_delta.is_empty());
     }
 
     #[test]

@@ -16,7 +16,6 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_stream::stream;
 use futures::StreamExt;
@@ -35,9 +34,6 @@ use crate::utils::common::{deserialize_from_str, serialize_to_string};
 use crate::executor::messages_loop::{
     GATEWAY_TOOL_TIMEOUT, MAX_GATEWAY_TOOL_ROUNDS, MessagesResponse, MessagesUpstream,
 };
-/// vLLM streaming chunk timeout (per line). Generous — the loop's own budget is
-/// the round cap, not this.
-const CHUNK_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Drive the streaming Messages-native loop, yielding Anthropic SSE lines for
 /// the client. Owns the multi-round → single-message accumulation.
@@ -93,7 +89,7 @@ pub async fn run_messages_stream(
                     Err(e) => { yield executor_error_sse(&e); return; }
                 }
             };
-            let mut response_stream = Box::pin(response_lines(response, CHUNK_TIMEOUT));
+            let mut response_stream = Box::pin(response_lines(response, exec_ctx.streaming_timeout));
 
             acc.begin_round();
             while let Some(line) = response_stream.next().await {

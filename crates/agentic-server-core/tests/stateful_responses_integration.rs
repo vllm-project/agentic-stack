@@ -7,12 +7,16 @@ mod support;
 
 use agentic_core::executor::execute;
 use agentic_core::executor::request::RequestContext;
+use agentic_core::storage::InOutItem;
 use agentic_core::types::request_response::RequestPayload;
 use agentic_core::types::tools::{FunctionToolParam, NonEmptyToolName};
-use agentic_core::{FunctionToolResultMessage, InputItem, ResponsesInput, ResponsesTool, ToolChoice};
+use agentic_core::{
+    FunctionToolResultMessage, InputItem, OutputItem, ReasoningOutput, ResponsesInput, ResponsesTool, ToolChoice,
+};
 use either::Either;
 use futures::StreamExt;
 use serde_json::{Value, json};
+use std::fmt::Write as _;
 use std::sync::Arc;
 use support::{
     MockResponse, TestFixture, collect_stream, expected_text, function_call_response, load_cassette, make_request,
@@ -440,6 +444,73 @@ async fn test_previous_response_id_rehydrates_function_call_before_tool_output()
     assert_eq!(input[1]["name"], "run");
     assert_eq!(input[2]["type"], "function_call_output");
     assert_eq!(input[2]["call_id"], "call_1");
+}
+
+#[tokio::test]
+async fn test_previous_response_id_replays_plaintext_reasoning_without_opaque_state() {
+    assert_plaintext_reasoning_replay(false, false, true).await;
+}
+
+#[tokio::test]
+async fn test_streaming_previous_response_id_replays_plaintext_reasoning_without_opaque_state() {
+    assert_plaintext_reasoning_replay(true, false, true).await;
+}
+
+#[tokio::test]
+async fn test_conversation_replays_plaintext_reasoning_without_opaque_state() {
+    assert_plaintext_reasoning_replay(false, true, true).await;
+}
+
+#[tokio::test]
+async fn test_streaming_conversation_replays_plaintext_reasoning_with_null_state() {
+    assert_plaintext_reasoning_replay(true, true, false).await;
+}
+
+#[tokio::test]
+async fn test_summary_only_reasoning_is_not_replayed() {
+    for stream in [false, true] {
+        for conversation in [false, true] {
+            assert_summary_only_reasoning_not_replayed(stream, conversation).await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_encrypted_only_persisted_reasoning_fails_before_upstream() {
+    let fixture = TestFixture::new_with_responses(vec![reasoning_response(false, &[], true)]).await;
+    let first = unwrap_blocking(
+        execute(
+            make_request("historical user", true, false, None, None),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("persist encrypted-only reasoning"),
+    );
+
+    for stream in [false, true] {
+        let mut continuation = make_request("continue", true, stream, Some(first.id.clone()), None);
+        continuation.input = ResponsesInput::Items(vec![InputItem::FunctionCallOutput(FunctionToolResultMessage {
+            call_id: "call_prior".to_owned(),
+            output: "tool output".into(),
+        })]);
+        let result = execute(continuation, Arc::clone(&fixture.exec_ctx)).await;
+        let Err(error) = result else {
+            panic!("encrypted-only reasoning must be rejected before inference");
+        };
+        assert_eq!(error.http_status(), http::StatusCode::BAD_REQUEST);
+        assert!(
+            error
+                .to_string()
+                .contains("encrypted state without plaintext reasoning content")
+        );
+        assert!(!error.to_string().contains("opaque-provider-state"));
+    }
+
+    assert_eq!(
+        fixture.request_bodies().await.len(),
+        1,
+        "invalid continuations must not call the upstream"
+    );
 }
 
 #[tokio::test]
@@ -1117,4 +1188,303 @@ fn contains_key(value: &Value, key: &str) -> bool {
         Value::Array(values) => values.iter().any(|nested| contains_key(nested, key)),
         Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => false,
     }
+}
+
+async fn assert_plaintext_reasoning_replay(stream: bool, conversation: bool, opaque_state: bool) {
+    let follow_up = if stream {
+        let cassette = load_cassette(&format!("{DIR}/resp-single-gpt-4o-streaming.yaml"));
+        MockResponse::from_turn(&cassette.turns[0])
+    } else {
+        text_response("follow-up answer")
+    };
+    let fixture = TestFixture::new_with_responses(vec![
+        reasoning_response(stream, &["", "plaintext continuation"], opaque_state),
+        follow_up,
+    ])
+    .await;
+    let conversation_id = conversation.then(|| "conv_reasoning_replay".to_owned());
+    let first = run_response(
+        make_request("historical user", true, stream, None, conversation_id.clone()),
+        Arc::clone(&fixture.exec_ctx),
+    )
+    .await;
+    let previous_response_id = (!conversation).then(|| first.id.clone());
+
+    let mut second = make_request(
+        "ignored",
+        true,
+        stream,
+        previous_response_id.clone(),
+        conversation_id.clone(),
+    );
+    second.input = serde_json::from_value(serde_json::json!([
+        {
+            "type": "function_call_output",
+            "call_id": "call_prior",
+            "output": "tool output"
+        },
+        {"role": "user", "content": "new user input"}
+    ]))
+    .expect("valid follow-up input");
+    let result = execute(second, Arc::clone(&fixture.exec_ctx))
+        .await
+        .expect("execute continuation");
+    if stream {
+        collect_stream(result).await;
+    } else {
+        unwrap_blocking(result);
+    }
+
+    let requests = fixture.request_bodies().await;
+    assert_eq!(requests.len(), 2);
+    let input = requests[1]["input"].as_array().expect("rehydrated input array");
+    let item_types = input
+        .iter()
+        .map(|item| item["type"].as_str().expect("typed input item"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        item_types,
+        [
+            "message",
+            "reasoning",
+            "message",
+            "function_call",
+            "function_call_output",
+            "message"
+        ]
+    );
+
+    let reasoning = &input[1];
+    assert_eq!(reasoning["id"], "rs_prior");
+    assert_eq!(reasoning["content"].as_array().map(Vec::len), Some(1));
+    assert_eq!(reasoning["content"][0]["text"], "\nplaintext continuation");
+    assert_eq!(reasoning["summary"], serde_json::json!([]));
+    assert_eq!(reasoning["status"], "completed");
+    assert!(
+        reasoning["encrypted_content"].is_null(),
+        "opaque provider state must not be forwarded to vLLM"
+    );
+    assert!(!contains_key(&requests[1], "_agentic_item_kind"));
+
+    let lookup = lookup_context(previous_response_id, conversation_id);
+    let history = if conversation {
+        fixture
+            .exec_ctx
+            .conv_handler
+            .rehydrate(&lookup)
+            .await
+            .expect("rehydrate conversation")
+    } else {
+        fixture
+            .exec_ctx
+            .resp_handler
+            .rehydrate(&lookup)
+            .await
+            .expect("rehydrate response")
+    };
+    let stored = persisted_reasoning(&history);
+    assert_eq!(stored.content.len(), 2);
+    assert_eq!(stored.content[0].text, "");
+    assert_eq!(stored.content[1].text, "plaintext continuation");
+    assert_eq!(stored.summary[0]["text"], "public summary");
+    let expected_state = opaque_state.then(|| serde_json::json!("opaque-provider-state"));
+    assert_eq!(stored.encrypted_content, expected_state);
+    assert_eq!(stored.status.as_deref(), Some("completed"));
+}
+
+async fn assert_summary_only_reasoning_not_replayed(stream: bool, conversation: bool) {
+    let follow_up = if stream {
+        let cassette = load_cassette(&format!("{DIR}/resp-single-gpt-4o-streaming.yaml"));
+        MockResponse::from_turn(&cassette.turns[0])
+    } else {
+        text_response("follow-up answer")
+    };
+    let fixture = TestFixture::new_with_responses(vec![reasoning_response(stream, &[], false), follow_up]).await;
+    let conversation_id = conversation.then(|| format!("conv_summary_only_{stream}"));
+    let first = run_response(
+        make_request("historical user", true, stream, None, conversation_id.clone()),
+        Arc::clone(&fixture.exec_ctx),
+    )
+    .await;
+    let previous_response_id = (!conversation).then(|| first.id.clone());
+
+    let mut second = make_request(
+        "ignored",
+        true,
+        stream,
+        previous_response_id.clone(),
+        conversation_id.clone(),
+    );
+    second.input = serde_json::from_value(serde_json::json!([
+        {
+            "type": "function_call_output",
+            "call_id": "call_prior",
+            "output": "tool output"
+        },
+        {"role": "user", "content": "new user input"}
+    ]))
+    .expect("valid follow-up input");
+    run_response(second, Arc::clone(&fixture.exec_ctx)).await;
+
+    let requests = fixture.request_bodies().await;
+    assert_eq!(requests.len(), 2);
+    let input = requests[1]["input"].as_array().expect("rehydrated input array");
+    let item_types = input
+        .iter()
+        .map(|item| item["type"].as_str().expect("typed input item"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        item_types,
+        ["message", "message", "function_call", "function_call_output", "message"]
+    );
+    assert!(
+        input.iter().all(|item| item["type"] != "reasoning"),
+        "summary-only reasoning must not reach vLLM"
+    );
+    assert!(
+        !requests[1].to_string().contains("public summary"),
+        "a reasoning summary must never be promoted into the vLLM-bound copy"
+    );
+
+    let lookup = lookup_context(previous_response_id, conversation_id);
+    let history = if conversation {
+        fixture
+            .exec_ctx
+            .conv_handler
+            .rehydrate(&lookup)
+            .await
+            .expect("rehydrate conversation")
+    } else {
+        fixture
+            .exec_ctx
+            .resp_handler
+            .rehydrate(&lookup)
+            .await
+            .expect("rehydrate response")
+    };
+    let stored = persisted_reasoning(&history);
+    assert!(stored.content.is_empty());
+    assert_eq!(stored.summary[0]["text"], "public summary");
+    assert_eq!(stored.encrypted_content, None);
+    assert_eq!(stored.status.as_deref(), Some("completed"));
+}
+
+async fn run_response(
+    request: RequestPayload,
+    exec_ctx: Arc<agentic_core::executor::ExecutionContext>,
+) -> agentic_core::ResponsePayload {
+    let stream = request.stream;
+    let result = execute(request, exec_ctx).await.expect("execute response");
+    if stream {
+        collect_stream(result).await
+    } else {
+        unwrap_blocking(result)
+    }
+}
+
+fn lookup_context(previous_response_id: Option<String>, conversation_id: Option<String>) -> RequestContext {
+    let request = make_request("lookup", true, false, previous_response_id, conversation_id);
+    RequestContext {
+        enriched_request: request.clone(),
+        original_request: request,
+        new_input_items: Vec::new(),
+        response_id: "resp_lookup".to_owned(),
+        conversation_id: None,
+        conversation_version: None,
+    }
+}
+
+fn persisted_reasoning(history: &[InOutItem]) -> &ReasoningOutput {
+    history
+        .iter()
+        .find_map(|item| match item {
+            InOutItem::Output(OutputItem::Reasoning(reasoning)) => Some(reasoning),
+            InOutItem::Input(_) | InOutItem::Output(_) => None,
+        })
+        .expect("persisted reasoning item")
+}
+
+fn reasoning_response(stream: bool, plaintext: &[&str], opaque_state: bool) -> MockResponse {
+    let content = plaintext
+        .iter()
+        .map(|text| serde_json::json!({"type": "reasoning_text", "text": text}))
+        .collect::<Vec<_>>();
+    let reasoning = serde_json::json!({
+        "type": "reasoning",
+        "id": "rs_prior",
+        "content": content,
+        "summary": [{"type": "summary_text", "text": "public summary"}],
+        "encrypted_content": opaque_state.then_some("opaque-provider-state"),
+        "status": "completed"
+    });
+    let message = serde_json::json!({
+        "type": "message",
+        "id": "msg_prior",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{"type": "output_text", "text": "assistant context", "annotations": []}]
+    });
+    let function_call = serde_json::json!({
+        "type": "function_call",
+        "id": "fc_prior",
+        "call_id": "call_prior",
+        "name": "client_tool",
+        "arguments": "{}",
+        "status": "completed"
+    });
+    let response = serde_json::json!({
+        "id": "resp_reasoning",
+        "object": "response",
+        "created_at": 0,
+        "model": "test-model",
+        "status": "completed",
+        "output": [reasoning.clone(), message.clone(), function_call.clone()],
+        "usage": null,
+        "incomplete_details": null,
+        "error": null,
+        "previous_response_id": null,
+        "conversation_id": null,
+        "instructions": null
+    });
+    if !stream {
+        return MockResponse::Json(response.to_string());
+    }
+
+    let events = vec![
+        serde_json::json!({
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": reasoning
+        }),
+        serde_json::json!({
+            "type": "response.output_item.added",
+            "output_index": 1,
+            "item": {"type": "message", "id": "msg_prior", "role": "assistant", "status": "in_progress", "content": []}
+        }),
+        serde_json::json!({
+            "type": "response.output_text.delta",
+            "item_id": "msg_prior",
+            "output_index": 1,
+            "content_index": 0,
+            "delta": "assistant context"
+        }),
+        serde_json::json!({
+            "type": "response.output_item.done",
+            "output_index": 1,
+            "item": message
+        }),
+        serde_json::json!({
+            "type": "response.output_item.done",
+            "output_index": 2,
+            "item": function_call
+        }),
+        serde_json::json!({"type": "response.completed", "response": response}),
+    ];
+    let mut body = String::new();
+    for event in events {
+        let event_type = event["type"].as_str().expect("event type");
+        writeln!(body, "event: {event_type}\ndata: {event}\n").expect("write SSE fixture");
+    }
+    body.push_str("data: [DONE]\n\n");
+    MockResponse::Sse(body)
 }

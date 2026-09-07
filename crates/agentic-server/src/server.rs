@@ -61,7 +61,6 @@ async fn serve_gateway(
     let websocket_tracker = state.websocket_tracker.clone();
     let router = build_router_with_auth(state, &server_config, authenticator);
     let listener = TcpListener::bind(&addr).await?;
-    warn!("parallel tool calls are not supported; requests are serialized by the gateway");
     info!("gateway listening on {addr}");
     axum::serve(listener, router)
         .with_graceful_shutdown(async move {

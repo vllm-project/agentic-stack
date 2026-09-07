@@ -63,6 +63,10 @@ The gateway exposes discovery through the `mcp_list_tools` lifecycle before any 
 the corresponding output-item and `response.mcp_list_tools.*` events. A discovery failure produces a failed
 `mcp_list_tools` item with its error and does not register tools from that server.
 
+Within a stored response or conversation chain, that public list-tools lifecycle is emitted once per server label.
+Discovery may still be needed to rebuild executable handlers for a later request; public emission is a separate
+decision based on continuation history.
+
 ## Components
 
 ### `McpClient`
@@ -174,6 +178,29 @@ the original identity so public output uses:
 }
 ```
 
+The registry also owns list-tools lifecycle state. Current and historical records
+are grouped as `HashMap<String, Vec<McpListTools>>`, keyed by `server_label`.
+Registry construction inserts the current discovery record first, rehydrated
+`InputItem::McpListTools` records are appended only to labels present in the current
+registry, and entries with more than one record are treated as already listed.
+`mcp_list_tool_items()` exposes the remaining one-record entries directly to blocking
+output assembly and `emit_mcp_discovery_lifecycle()`. Streaming clears the map after
+round zero, so the lifecycle cannot repeat in later inference rounds.
+
+This metadata follows the normal history pipeline rather than a side channel:
+
+```text
+stored OutputItem::McpListTools
+  -> InOutItem::into_input_items
+  -> InputItem::McpListTools in enriched continuation history
+  -> ToolRegistry lifecycle cache
+  -> ResponsesInput::model_input removes it before vLLM
+```
+
+Stored public `mcp_call` items are not reconstructed as model input. The
+model-visible `function_call` and matching `function_call_output` pair is
+persisted separately and remains the canonical continuation source.
+
 ## Turn execution
 
 The gateway's existing tool loop handles MCP tools together with other gateway-executed built-in tools:
@@ -181,9 +208,10 @@ The gateway's existing tool loop handles MCP tools together with other gateway-e
 ```text
 build request-scoped registry
   -> discover MCP tools
+  -> suppress an already-recorded list-tools lifecycle by server label
   -> normalize request for upstream inference
   -> receive internal function call
-  -> registry dispatches to McpHandler
+  -> GatewayRound resolves the registry binding
   -> McpClient tools/call
   -> append function call output for the next upstream round
   -> expose public mcp_call item/events to the Responses client

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "agentic-api"
+dynamic = ["version"]
+description = "Agentic API gateway for OpenAI-compatible inference servers"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+local = ["vllm==0.11.0; platform_system == 'Linux'"]
+
+[tool.maturin]
+manifest-path = "crates/agentic-server/Cargo.toml"
+bindings = "bin"
+module-name = "agentic_api"
+python-source = "python"
+python-packages = ["agentic_api"]
+data = "python/agentic_api.data"
+strip = true

@@ -1207,6 +1207,8 @@ async fn test_websocket_first_turn_forwards_incremental_events_and_final_payload
             "type": "response.create",
             "model": "test-model",
             "input": [{"type": "message", "role": "user", "content": "hi"}],
+            "reasoning": {"effort": "high"},
+            "text": {"format": {"type": "json_object"}, "verbosity": "high"},
             "store": true,
             "stream": true
         }),
@@ -1237,6 +1239,11 @@ async fn test_websocket_first_turn_forwards_incremental_events_and_final_payload
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["stream"], true);
     assert_eq!(requests[0]["input"][0]["content"], "hi");
+    assert_eq!(requests[0]["reasoning"], json!({"effort": "high"}));
+    assert_eq!(
+        requests[0]["text"],
+        json!({"format": {"type": "json_object"}, "verbosity": "high"})
+    );
     assert!(requests[0].get("type").is_none());
 }
 
@@ -1874,6 +1881,7 @@ async fn test_websocket_continuation_rehydrates_previous_response() {
     let mock = MockResponsesServer::start(vec![
         sse_response("resp_upstream_1", "msg_upstream_1", "HELLO"),
         sse_response("resp_upstream_2", "msg_upstream_2", "WORLD"),
+        sse_response("resp_upstream_3", "msg_upstream_3", "AGAIN"),
     ])
     .await;
     let fixture = storage_backed_state(&mock.url).await;
@@ -1886,6 +1894,7 @@ async fn test_websocket_continuation_rehydrates_previous_response() {
             "type": "response.create",
             "model": "test-model",
             "input": [{"type": "message", "role": "user", "content": "hi"}],
+            "text": {"verbosity": "low"},
             "store": true,
             "stream": true
         }),
@@ -1902,6 +1911,7 @@ async fn test_websocket_continuation_rehydrates_previous_response() {
             "model": "test-model",
             "previous_response_id": previous_response_id,
             "input": [{"type": "message", "role": "user", "content": "continue"}],
+            "text": {"verbosity": "high"},
             "store": true,
             "stream": true
         }),
@@ -1929,8 +1939,30 @@ async fn test_websocket_continuation_rehydrates_previous_response() {
     assert_eq!(response["output"][0]["content"][0]["text"], "WORLD");
     assert_eq!(response["previous_response_id"], previous_response_id);
 
+    let second_response_id = response["id"].as_str().unwrap();
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "previous_response_id": second_response_id,
+            "input": [{"type": "message", "role": "user", "content": "again"}],
+            "store": true,
+            "stream": true
+        }),
+    )
+    .await;
+    let third = recv_until_completed(&mut ws).await;
+    assert_eq!(
+        third.last().unwrap()["response"]["output"][0]["content"][0]["text"],
+        "AGAIN"
+    );
+
     let requests = mock.request_bodies().await;
-    assert_eq!(requests.len(), 2);
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[0]["text"], json!({"verbosity": "low"}));
+    assert_eq!(requests[1]["text"], json!({"verbosity": "high"}));
+    assert!(requests[2].get("text").is_none());
     assert!(requests[1].get("previous_response_id").is_none());
     assert_eq!(requests[1]["input"][0]["content"], "hi");
     assert_eq!(requests[1]["input"][1]["role"], "assistant");

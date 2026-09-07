@@ -102,12 +102,13 @@ impl TryFrom<&InOutItem> for String {
 }
 
 impl InOutItem {
-    /// Converts stored history into input items suitable for a model request.
+    /// Converts stored history into input items for continuation processing.
+    /// Internal items are removed later by `ResponsesInput::model_input`.
     #[must_use]
     pub fn into_input_items(history: Vec<InOutItem>) -> Vec<InputItem> {
         history
             .into_iter()
-            .filter_map(|i| match i {
+            .filter_map(|item| match item {
                 InOutItem::Input(item) if item.is_unknown() => None,
                 InOutItem::Input(item) => Some(item),
                 InOutItem::Output(output) => output.to_input_item(),
@@ -120,9 +121,10 @@ impl InOutItem {
 mod tests {
     use super::*;
     use crate::types::event::MessageStatus;
+    use crate::types::io::output::McpListTools;
     use crate::types::io::{
         FunctionToolCall, InputContent, InputMessage, InputMessageContent, OutputMessage, OutputTextContent,
-        ReasoningOutput, ReasoningTextContent,
+        ReasoningOutput, ReasoningTextContent, ResponsesInput,
     };
 
     #[test]
@@ -241,6 +243,27 @@ mod tests {
         if let InputItem::FunctionCall(f) = &inputs[0] {
             assert_eq!(f.name, "my_tool");
         }
+    }
+
+    #[test]
+    fn input_items_preserve_mcp_list_tools_until_model_input() {
+        let history = vec![InOutItem::Output(OutputItem::McpListTools(McpListTools::new(
+            "mcpl_1",
+            "counter",
+            Vec::new(),
+        )))];
+
+        let input_items = InOutItem::into_input_items(history);
+
+        assert!(matches!(
+            input_items.as_slice(),
+            [InputItem::McpListTools(list_tools)] if list_tools.server_label == "counter"
+        ));
+        let model_input = ResponsesInput::Items(input_items).model_input().into_owned();
+        let ResponsesInput::Items(model_items) = model_input else {
+            panic!("model input should contain items");
+        };
+        assert!(model_items.is_empty());
     }
 
     #[test]

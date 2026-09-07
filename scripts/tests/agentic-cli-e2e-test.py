@@ -174,13 +174,95 @@ def run_harness(agentic: Path, mode: str, upstream: str, temp: Path, harness: Pa
     assert result.read_text() == f"{mode} passed\n"
 
 
+def run_python_source_install(repo: Path, temp: Path, expected_version: str) -> None:
+    """Install the Python package from this checkout and exercise its public CLI."""
+
+    environment = temp / "python-source-environment"
+    completed = subprocess.run(
+        [sys.executable, "-m", "venv", str(environment)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(f"creating Python E2E environment failed\n{completed.stdout}\n{completed.stderr}")
+
+    python = environment / "bin" / "python"
+    cli = environment / "bin" / "agentic-api"
+    install_package = subprocess.run(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-deps",
+            "--constraint",
+            str(repo / "python-build-constraints.txt"),
+            str(repo),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if install_package.returncode != 0:
+        raise AssertionError(
+            f"installing agentic-api from source failed\n{install_package.stdout}\n{install_package.stderr}"
+        )
+
+    import_check = subprocess.run(
+        [str(python), "-c", f"import agentic_api; assert agentic_api.__version__ == {expected_version!r}"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if import_check.returncode != 0:
+        raise AssertionError(
+            f"source-installed agentic_api import failed\n{import_check.stdout}\n{import_check.stderr}"
+        )
+
+    version_check = subprocess.run(
+        [str(cli), "--version"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if version_check.returncode != 0 or version_check.stdout.strip() != f"agentic-api {expected_version}":
+        raise AssertionError(
+            f"source-installed agentic-api --version failed\n{version_check.stdout}\n{version_check.stderr}"
+        )
+
+    doctor_check = subprocess.run(
+        [str(cli), "doctor", "--mode", "remote"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if doctor_check.returncode != 0 or "Remote mode health: ok" not in doctor_check.stdout:
+        raise AssertionError(
+            f"source-installed agentic-api doctor failed\n{doctor_check.stdout}\n{doctor_check.stderr}"
+        )
+
+
 def main() -> None:
     repo = Path(__file__).resolve().parents[2]
     agentic = Path(os.environ.get("AGENTIC_BIN", repo / "target/debug/agentic"))
     if not agentic.is_file():
         raise SystemExit(f"missing {agentic}; run cargo build --bins first")
+    metadata = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps", "--manifest-path", str(repo / "Cargo.toml")],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    expected_version = next(
+        package["version"]
+        for package in json.loads(metadata.stdout)["packages"]
+        if package["name"] == "agentic-server"
+    )
     with tempfile.TemporaryDirectory(prefix="agentic-cli-e2e-") as directory:
         temp = Path(directory)
+        run_python_source_install(repo, temp, expected_version)
         harness = temp / "fake-harness"
         harness.write_text(HARNESS)
         harness.chmod(0o755)

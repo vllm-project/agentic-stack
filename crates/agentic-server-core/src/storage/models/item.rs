@@ -374,22 +374,42 @@ mod tests {
     }
 
     #[test]
-    fn test_as_inout_uses_stored_kind_for_reasoning_output() {
+    fn complete_reasoning_round_trip_strips_storage_marker() {
         let mut reasoning = ReasoningOutput::new("rs_1");
-        reasoning.content.push(ReasoningTextContent::new("thinking..."));
+        reasoning.content.extend([
+            ReasoningTextContent::new("first thought"),
+            ReasoningTextContent::new("second thought"),
+        ]);
+        reasoning
+            .summary
+            .push(serde_json::json!({"type": "summary_text", "text": "concise summary"}));
+        reasoning.encrypted_content = Some(serde_json::json!({"ciphertext": "opaque"}));
+        reasoning.status = Some("completed".to_owned());
         let stored = InOutItem::Output(OutputItem::Reasoning(reasoning));
+        let stored_json = String::try_from(&stored).expect("serialization failed");
+        assert!(stored_json.contains(STORED_ITEM_KIND_KEY));
         let item = Item {
             id: "item_reasoning".to_string(),
-            data: String::try_from(&stored).expect("serialization failed"),
+            data: stored_json,
             created_at: 1_704_067_200,
             conversation_id: None,
             seq: None,
         };
 
-        assert!(matches!(
-            item.as_inout(),
-            Some(InOutItem::Output(OutputItem::Reasoning(_)))
-        ));
+        let Some(InOutItem::Output(OutputItem::Reasoning(reasoning))) = item.as_inout() else {
+            panic!("expected stored reasoning output");
+        };
+        assert_eq!(reasoning.id, "rs_1");
+        assert_eq!(reasoning.content.len(), 2);
+        assert_eq!(reasoning.summary[0]["text"], "concise summary");
+        assert_eq!(
+            reasoning.encrypted_content,
+            Some(serde_json::json!({"ciphertext": "opaque"}))
+        );
+        assert_eq!(reasoning.status.as_deref(), Some("completed"));
+
+        let reconstructed = serde_json::to_value(OutputItem::Reasoning(reasoning)).expect("reasoning value");
+        assert!(reconstructed.get(STORED_ITEM_KIND_KEY).is_none());
     }
 
     #[test]

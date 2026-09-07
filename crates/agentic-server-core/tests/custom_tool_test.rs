@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use agentic_core::executor::accumulator::ResponseAccumulator;
-use agentic_core::tool::{GatewayExecutors, ToolRegistry, ToolType};
+use agentic_core::tool::{GatewayExecutors, ToolOwnership, ToolRegistry, ToolType};
 use agentic_core::types::event::MessageStatus;
 use agentic_core::types::io::{CustomToolCall, OutputItem};
 use agentic_core::types::tools::ResponsesTool;
@@ -228,7 +228,7 @@ async fn custom_tool_type_normalizes_for_the_model_but_remains_client_owned() {
     let entry = registry.lookup("agentic_raw_echo").expect("custom entry");
     assert_eq!(entry.tool_type, ToolType::Custom);
     assert!(!entry.tool_type.is_gateway_owned());
-    assert!(entry.handler.is_none());
+    assert!(matches!(entry.ownership, ToolOwnership::Client));
 
     let normalized = tools[0].to_function_tools();
     assert_eq!(normalized.len(), 1);

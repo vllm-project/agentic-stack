@@ -1,0 +1,172 @@
+name: Release Python
+
+run-name: Release Python wheels (${{ inputs.version }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Build-only Python release version already merged into main"
+        required: true
+        type: string
+        default: "0.5.0"
+
+concurrency:
+  group: release-python-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-wheels:
+    name: Build ${{ matrix.target }} wheel artifact
+    runs-on: ${{ matrix.runs-on }}
+    if: github.ref == 'refs/heads/main'
+    env:
+      AGENTIC_API_RELEASE_VERSION: ${{ inputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs-on: ubuntu-22.04
+            os: linux
+            target: linux-x86_64
+            wheel-tag: py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64
+          - runs-on: macos-15-intel
+            os: macos
+            target: macos-x86_64
+            wheel-tag: py3-none-macosx_10_12_x86_64
+            deployment-target: "10.12"
+          - runs-on: macos-14
+            os: macos
+            target: macos-arm64
+            wheel-tag: py3-none-macosx_11_0_arm64
+            deployment-target: "11.0"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Verify build-only release gate version
+        run: scripts/validate-python-release-version.sh
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            python-build-constraints.txt
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.98.0
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release-python/${{ matrix.target }}
+          key: cargo-release-python-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'python-build-constraints.txt') }}
+          restore-keys: |
+            cargo-release-python-${{ runner.os }}-${{ matrix.target }}-
+            cargo-${{ runner.os }}-
+
+      - name: Install uv
+        run: python -m pip install --constraint python-build-constraints.txt uv
+
+      - name: Verify version agreement and prepare artifact directory
+        id: prepare
+        run: |
+          set -euo pipefail
+          scripts/validate-python-release-version.sh
+          requested_version="$AGENTIC_API_RELEASE_VERSION"
+          wheel_dir="target/release-python/${{ matrix.target }}/wheels"
+          cargo_version="$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "agentic-server") | .version')"
+          core_version="$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "agentic-server-core") | .version')"
+
+          if [ -z "$cargo_version" ] || [ "$cargo_version" = "null" ]; then
+            echo "::error::agentic-server package not found in workspace metadata"
+            exit 1
+          fi
+
+          if [ "$cargo_version" != "$core_version" ]; then
+            echo "::error::agentic-server ($cargo_version) and agentic-server-core ($core_version) versions differ"
+            exit 1
+          fi
+
+          if [ "$cargo_version" != "$requested_version" ]; then
+            echo "::error::workspace version $cargo_version does not match requested release version $requested_version"
+            exit 1
+          fi
+
+          rm -rf "$wheel_dir"
+          mkdir -p "$wheel_dir"
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python --constraint python-build-constraints.txt maturin pytest
+          echo "wheel_dir=$wheel_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Build pinned manylinux2014 x86_64 wheel
+        if: matrix.os == 'linux'
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # v1.49.4
+        with:
+          command: build
+          args: --release --locked --out ${{ steps.prepare.outputs.wheel_dir }}
+          container: quay.io/pypa/manylinux2014_x86_64@sha256:95440e0e72dd3a81dc8d2cf59a84d57af661456620f5bc821ff92048d0e54ff9
+          manylinux: "2014"
+          maturin-version: v1.14.1
+          rust-toolchain: 1.98.0
+          target: x86_64-unknown-linux-gnu
+
+      - name: Build macOS wheel
+        if: matrix.os == 'macos'
+        env:
+          CARGO_TARGET_DIR: target/release-python/${{ matrix.target }}/cargo
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment-target }}
+        run: >-
+          .venv/bin/python -m maturin build --release --locked
+          --out "${{ steps.prepare.outputs.wheel_dir }}"
+
+      - name: Validate exact wheel artifact
+        id: build
+        run: |
+          set -euo pipefail
+          scripts/validate-python-release-version.sh
+          requested_version="$AGENTIC_API_RELEASE_VERSION"
+          wheel_dir="${{ steps.prepare.outputs.wheel_dir }}"
+          expected_wheel_tag="${{ matrix.wheel-tag }}"
+          wheel_path="$wheel_dir/agentic_api-${requested_version}-${expected_wheel_tag}.whl"
+
+          if [ ! -f "$wheel_path" ]; then
+            echo "::error::expected wheel not found: $wheel_path"
+            find "$wheel_dir" -maxdepth 1 -type f -name '*.whl' -print
+            exit 1
+          fi
+
+          wheel_count="$(find "$wheel_dir" -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')"
+          if [ "$wheel_count" != "1" ]; then
+            echo "::error::expected exactly one wheel in $wheel_dir; found $wheel_count"
+            exit 1
+          fi
+
+          uv pip install --python .venv/bin/python "$wheel_path"
+          AGENTIC_API_TEST_WHEEL="$wheel_path" .venv/bin/python -m pytest tests/python -q
+          AGENTIC_API_CHECK_PYTHON=.venv/bin/python \
+            AGENTIC_API_CHECK_SCRIPTS_DIR=.venv/bin \
+            AGENTIC_API_EXPECTED_VERSION="$requested_version" \
+            AGENTIC_API_EXPECTED_WHEEL_TAG="$expected_wheel_tag" \
+            scripts/check-python-wheel.sh "$wheel_path"
+          echo "wheel_path=$wheel_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agentic-api-${{ inputs.version }}-${{ matrix.target }}
+          path: ${{ steps.build.outputs.wheel_path }}
+          if-no-files-found: error

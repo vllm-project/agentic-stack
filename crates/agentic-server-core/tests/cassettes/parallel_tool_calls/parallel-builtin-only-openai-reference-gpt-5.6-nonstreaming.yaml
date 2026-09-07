@@ -1,0 +1,731 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Do two separate web_search calls in parallel, in this single turn --
+        do not wait for one to finish before starting the other. The first web_search
+        call must batch two exact queries together: "potato nutrition facts" and "tomato
+        nutrition facts". The second web_search call must batch two different exact
+        queries together: "cucumber nutrition facts" and "carrot nutrition facts".
+        Issue both calls now, then summarize each of the four results in one sentence.'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - allowed_tools:
+        - search_tiktoken_documentation
+        require_approval: never
+        server_label: gitmcp_tiktoken
+        server_url: https://gitmcp.io/openai/tiktoken
+        type: mcp
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812391
+      created_at: 1787812379
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0c8c5523509b5def006a8fda1bcb6087d0a8c7913adb3c8942
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - id: mcpl_0c8c5523509b5def006a8fda1bd78487d0becd637e1aaca6da
+        server_label: gitmcp_tiktoken
+        tools:
+        - annotations:
+            read_only: false
+          description: 'Semantically search within the fetched documentation from
+            GitHub repository: openai/tiktoken. Useful for specific queries.'
+          input_schema:
+            $schema: http://json-schema.org/draft-07/schema#
+            additionalProperties: false
+            properties:
+              query:
+                description: The search query to find relevant documentation
+                type: string
+            required:
+            - query
+            type: object
+          name: search_tiktoken_documentation
+        type: mcp_list_tools
+      - content: []
+        encrypted_content: gAAAAABqj9onz6pdRAFJhk_BEjPLhaVLraA9PJdnV4nI95CqygMkOX60CGtpefxFqV9bwV-Kh6ESZ8XiBWnKULsiwmfQcCkxeBRW2k7yfkiRr_BlQCi07Hj6kkolM125-JVdQXUpAVKyJHO29GWqcxscOxphA2Dd7IsLJqiyZ0gmLgQ1CVjmMDvN9SKuhcXH69ibUrV7M4ORXkYqd9rZx3zIyQQnXrai-OdjdIYQfIxuT4ynx-uL7oc91lzjm5X2j7_zEf36-Ob48ss76cf9RG7xF-oCYZBac1f6G5z3Fo6LMcn1RwbSpY6q8DT8hwBn0rvv8m0UkVBJV2qBfJVxQCGJy3GH_Hxd0csdodC4jgPiixcNzDqx7cjFcNUejI9UlzhY1KUsW5tde32Iv0VCg8iKL7iBZtKq0aS7cWFSJt__GSq1npmLiFUfZDAQ-9n-uzkdmUVamP8twgzDkYTBmiLdUDIwGQGSLtGfeWa2jeEa5K4-9QVB-AVp-ZHUgrFc1KEvOq8epelnfZbp66xwKOztMRX73i50p1V2R8p2FWGgjbcNzLxi7wjcFTsScuT2fJ5wt0JxWYe12R74ku1R2KmxWAu402E3XUP0l9xPh7rmyOedMhQSsn_IDxkC36_zG2yj0y7rCPbUbSsAK3FMVvgkWBmF3ItUcCe07hFY9ZVbeoeRd56EsfI99KUOB5YoBKDg2M7jATg4ykd2JuDS8-gmg3Vi6pkQT6chNIBG7kNBtDAepcVfP9TY3FLm3W2XuEe4HtNCfPaY8Uch1WDNzeWfy1FhMNNx1IWc-DPuctKswEeBJvuT0lqXdwKeQwSQnx_do6PWv9-oc-gCP3mQmGgmB10wkiGD93ODh0sm-_MaZKG4aPIwrpTCPDRkhR2bluL_qFf1TLSDjCn6SpGxZNen8h67ZmCSUVdfKVKNjQQweGUaK_08Yxslor8aQZI7jx9Qu90A-NoI4jvgAiv_OsQY6v7GyymPxTYGkjeuPEa6Ruy0iMJsxrUmhJR7lzm6o_nHDiH08M1CRm5tLl8ewB6Ex4lBRd0MHLgxN6KlK7hV3O_j2atZkz9joglDOelJm_qrS0QYZZ9DiEqVPfGhqaz9sxlRvWFJfKQsZtGitstQXIiyXMPF6KMvqk7LEZJ7PVpXF2x5j5Szhnk3dn6oB_76FECxAjvOeyjNb11ft7hbAfXpBdWsSvP0O5ETtLkmD12yK888cSI0lZ3BLMw7VeFcoXxXLRrXCOwa3uIBLeT0O_vHV1hccDKIcijIaWt7h-xAx_X_PRuroHNpcOik-HUlpOsO79CrtOxPBnmgIVzFya3ceyYsMLMGZxEQ3wvw1f_0NR1JC-3d2VMKBusqFQFS9cW88MxJlgGD5RF-CH0TuFf16E-a011rx0WlkUNTZi8B3QdVd3FwFSHNVXy4skenQ5f47V7hT3xZlREGvtiaXOfhmAN-2gT14yfDu6T_OlcofV7GvNtf5j87R9rKk_JdUyhCZw1v33WoPh9SiNPSnwtYwY7xjVvDWo7ldsGpNCpNwUtKvDCZ
+        id: rs_0c8c5523509b5def006a8fda1d63a487d0b0fee576026f414d
+        summary: []
+        type: reasoning
+      - action:
+          queries:
+          - potato nutrition facts
+          - tomato nutrition facts
+          query: potato nutrition facts
+          type: search
+        id: ws_0c8c5523509b5def006a8fda1e251487d0a3c72a63c5423f33
+        status: completed
+        type: web_search_call
+      - action:
+          queries:
+          - cucumber nutrition facts
+          - carrot nutrition facts
+          query: cucumber nutrition facts
+          type: search
+        id: ws_0c8c5523509b5def006a8fda20d93087d098411993d9a0f36b
+        status: completed
+        type: web_search_call
+      - content: []
+        encrypted_content: gAAAAABqj9onNt-2N-SIU_Rev3LIbYnL8ulZFkw1ATDAmm7x6mloe8kOat5TuGJUHgNSCi3FZz6-eHFmEjrj9TObLg4cm3u9M4f-bGzQhAYA_qIZTHDl8b0wwWe70AaRVIu6b0tUIQDh9f1tDMmBCFTPnPFnionFpaBJZ2Vg8blVaoLj4qiaUaoOXika4flIFeKmbxhhNty6ivERnhPV5R2JSx_GuYzFnQ34k3IQEfbspQ4LAJ75W20d1Yo7rUS2y8K9KLHy-_GF2Z-LPPHVCu-vCCDfLdTGtQl3VteqZUb0ZMCYIwxa83mXm9mbcLyt-jVclDWzrgyVFZ0aVTo5o9aNxZsiMcJHtpFdGSDdmncYmHjA_nx_yoedSPvQ0HClzIN1QrFHQ-ZdfUqJOgBTvN6rvD57VbwO_UW046Ry6HAirr1arOBF70iQvkU0wVn2PZsBtThHGDKfc-wW56qbrp2GGYaGbWRLIGfV7C5XI60fCLv84TkHXHIPjpISgz19oMINxKgx4uYhmvJdorhJye73PNOgTvCTL7EudO_k7V_nGTpvAUL_v6qKLFIdGM9ipUX5GvOKLCRZ1TFy0NbTU8hj_rMO_5XcunJ5dsmhC5TDwM1tme9-mjd40VikGQOiXp6EKTTcRFe0XMvQUXVHnrFMCWBoDPSR2C5P1AznthqMHHs17S9OBQUJYlLeLSO9OXBTibsNTTJdGYBmi-DI3zVTikuc_xfk5AEtbzn_0JbvV_JKmOOyrhQTny_lyi7mqhauQSRclcpCBb46KiEt17eaXKemPOV5tb10YhoksBwleWjW-Fwwbd3kfdP6C5aV_1TerMpm-0hqhifpF9yy18-KyVLOOE4fHf35XNZq5o8usvxYQes8RpDX3gJXhvDC31XBKyNYitoczujQ-zYP83BW_YZ6N2zWpczbCGMuAIb2zWpjBYWoTUnjLp7LbsM4CBaQ64P4NA4To92Ap0wiGBQWOWIXFG3UYShqMxz4-FuBSSJBHyplDc3zc-ExqlomOsyRmOvau93pFvFSJtGFwbX3jJEU2HBAlLsCtGJBKI7OFUQmRydByFHja_m8gapy_zd3OzNbyu5_gzMSQobU5lYh9PL971gdTYkBFhcYu3omNzm_tx45ImNEVCo-H625sKcrfm2P6pHOAo9fKSb3hLt68uBpKJSkTJlIBiSMNI4egDuib_fSk1pwKhmUEjIqddVAFE9YltfZIlISKtgp2WnAGk4M-UP8GFGX8b7R6sIpEJt9gNsDoN6AAqwdibrGNbM_fwLE0xJGHpAyFa1fQOD_qHyr4xc4MSYOGCYkX1U5PwDelLntziT2oZ9sWdu6IzfTfxjFT0XkHzK1zGaAJHI2fVW0tX9ZCldhWXBi96Bk9kmcG97XTu5AfNCCCjVkOtCk3mcsYfCLfcikKPZ-LlQa5H3vHyGnrGTEIpmIIi_lHv-L9LmfH6uhRmr9dqYNPkPkuPBnDQK0Prf2GADbYU41ZG3vECD19zw0YDOt2W5DHSEuaVfi4m-70jVKf4VF6geaFGi3a8Gcw52XZMKqa6X8Apdhhb20XlwDc6jBFSAb9yXXV_SmIQ_gaIsun8nmwYUsKzlEElm5yfjHqIukF2IXJDMkkHbekangPoW9hkyvnPUlWb_IqtEV79EnTeeqSDkBhltK5Tp8hv-tjPlNx5Ppos0zrJh0DJ8e4TDL15Cm3p_RjJIEsTcbkoFdIIjMSCTS7QbnOB7C
+        id: rs_0c8c5523509b5def006a8fda25593087d08c2ca022a3350854
+        summary: []
+        type: reasoning
+      - content:
+        - annotations:
+          - end_index: 238
+            start_index: 162
+            title: Potato
+            type: url_citation
+            url: https://en.wikipedia.org/wiki/Potato?utm_source=openai
+          - end_index: 465
+            start_index: 391
+            title: Tomato Nutrition Facts | Food Index
+            type: url_citation
+            url: https://foodindexhq.com/food/tomato?utm_source=openai
+          - end_index: 798
+            start_index: 605
+            title: Cucumber, peeled, raw, 1 large (8-1/4" long) | University Hospitals
+            type: url_citation
+            url: https://www.uhhospitals.org/health-information/health-and-wellness-library/nutrition-facts/article/nutritionfacts-v1/cucumber-peeled-raw-1-large-8-14-long?utm_source=openai
+          - end_index: 1069
+            start_index: 968
+            title: Carrots | SNAP-Ed
+            type: url_citation
+            url: https://snaped.fns.usda.gov/seasonal-produce-guide/carrots?utm_source=openai
+          logprobs: []
+          text: '- **Potato:** A 100-gram boiled potato with skin provides about 87
+            calories, 20 grams of carbohydrates, 2 grams of fiber, 2 grams of protein,
+            and negligible fat. ([en.wikipedia.org](https://en.wikipedia.org/wiki/Potato?utm_source=openai))
+
+            - **Tomato:** One medium tomato (about 123 grams) provides roughly 22
+            calories, 4.8 grams of carbohydrates, 1.1 grams of protein, and 0.2 grams
+            of fat. ([foodindexhq.com](https://foodindexhq.com/food/tomato?utm_source=openai))
+
+            - **Cucumber:** Raw cucumber is approximately 95% water and is a very
+            low-calorie, low-sodium food that supplies a modest amount of fiber. ([uhhospitals.org](https://www.uhhospitals.org/health-information/health-and-wellness-library/nutrition-facts/article/nutritionfacts-v1/cucumber-peeled-raw-1-large-8-14-long?utm_source=openai))
+
+            - **Carrot:** One medium carrot contains about 25 calories, 6 grams of
+            carbohydrates, 1.5–2 grams of fiber, minimal fat, and abundant vitamin
+            A–producing beta-carotene. ([snaped.fns.usda.gov](https://snaped.fns.usda.gov/seasonal-produce-guide/carrots?utm_source=openai))'
+          type: output_text
+        id: msg_0c8c5523509b5def006a8fda26813c87d0b73026393ef8a8b0
+        phase: final_answer
+        role: assistant
+        status: completed
+        type: message
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: null
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 2
+      tools:
+      - search_content_types:
+        - text
+        search_context_size: medium
+        type: web_search_preview
+        user_location:
+          city: null
+          country: US
+          region: null
+          timezone: null
+          type: approximate
+      - allowed_tools:
+        - search_tiktoken_documentation
+        headers: null
+        require_approval: never
+        server_description: null
+        server_label: gitmcp_tiktoken
+        server_url: https://gitmcp.io/openai/tiktoken
+        type: mcp
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 13246
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 4643
+        output_tokens: 472
+        output_tokens_details:
+          reasoning_tokens: 221
+        total_tokens: 13718
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input: 'Call gitmcp_tiktoken__search_tiktoken_documentation in parallel for
+        two separate exact queries -- do not wait for one to finish before starting
+        the other: (1) {"query":"encoding"} and (2) {"query":"tokenizer"}. Issue both
+        calls now in this single turn, then summarize each result in one sentence.'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0c8c5523509b5def006a8fda1bcb6087d0a8c7913adb3c8942
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - allowed_tools:
+        - search_tiktoken_documentation
+        require_approval: never
+        server_label: gitmcp_tiktoken
+        server_url: https://gitmcp.io/openai/tiktoken
+        type: mcp
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812398
+      created_at: 1787812392
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0c8c5523509b5def006a8fda28093887d084b33cf16a64e7b9
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqj9ounsugFaVF-_TauZU6l8WhDIwdV4zGNOQPdYkWZmRtFbjv6JISTvU9VMNFy_viUodvB5_M1PLYbEsRzgXQuuGlZ9OOtLPP4bySL1ASbGtxALoYZpIA1MYtbOAlD7OlLBJDsgR50bIiSPeS-S1yGYglyye2EAx8CRw0iD3a3L8TJLkLt66oJYn-w5ehKQRpbhMwKxHIBRW1EtDEStZSRAZH42TT_u6mj6V3mZYpZZZh7rcyXLYxCDZ_EwsGVTYN1ICGGpPjDBBfZiEgvmDgPakEMYYPGX4kHoXVLoWrtpcGb_cg7H_h-W8u2SyC71XFIZTJrRDPyJSFZXsMj7B6NO9F9D1C3hSm0uGikU3fQQVdC7n6ICLfdvTZ_Bw_N7lBTfarWRjTItsOWToOE9BDY3cZSGcC4btk6LbEgJ_GyTIMRz2Nj06BSGjGWZ-HU7-nvFYfs9klVEZ1YEqu8UMLdUIjieiYvNB3AVxnVLsTrpgecUyA-pPjPFNalczH5FStW5TUeUPtsGdVkCWFcEoizku6Ur4SPHQAAcR16ja1h8Y7nr_0XA8cqiWxuz4hASXviEJ3AxFL2rGEvOhDrll559nFVtXU7LmVet2pRF0Es4C_CDCgm5qC_sR68-72hlMVWJ16cpkxbCUn7uTp4357N3T_T8z--6qbQiTEAYkqo5uJhmA16Fmh0lwPy4H_R49m4o-_0QQHTWemY2n_YNTOFljBL9Y_Or0Gd4L2PVMKTjgLZkHHml5pA9Mfyovocxr5jkmYXQHooe4uPGkXbdSGwIsyVI4LoIKii9rZjZi7_WaGDZrrWXy_Koffef9PLztfgy5PxBISS5idrbRU_9K4KUkUU0jDmtRKUzzoV7tuufkw2Qs2GQMzpFZsXevHd1rsUkeXlS5KoyJfuija9Xn2qwFIhfw2rsyGHmQb8ua0f1HKF5HGtQOR5tF7zMIFl6hPKzr3_TBwhVHyGbKKYLeZbiDRlcx_ch7UJ1Kyf_vrBvOWRh3RvJ0JypqOQO5nbFLJg7dn7TMqh_dKPCrMRuPJObIxtIx14qG-aJQhdwAvEhNR6qK7BgH90vEwO1eiC85XqBDJK9ZpBGeAaI_dUcqsxtyj3omZ__mGo-dHpx68sPpjQUNvtpgGsxNbWIPILZy8k2wrwvMW_dIAzSzpTh3T8wpnVbxC_NfU7nJt_Db9w_MnxYi4mY1F3eufqP4fQ2zJHtZij6sj5X-ZflrmwqxUM2Jhmn2UREfoiYJu_LlseTTbkvd3iRxGhsO-X4vWydhVbDIy9oDqyIH5SM4xGWRw8MjKGIrbwaliV6amOYbsNr_aJvQ=
+        id: rs_0c8c5523509b5def006a8fda28c63c87d0869e325ca9aa4d0e
+        summary: []
+        type: reasoning
+      - approval_request_id: null
+        arguments: '{"query":"encoding"}'
+        error: null
+        id: mcp_0c8c5523509b5def006a8fda29315c87d0bac0e49f2d96279d
+        name: search_tiktoken_documentation
+        output: "### Search Results for: \"encoding\"\n\nNo relevant documentation\
+          \ found for your query. It's either being indexed or the search query did\
+          \ not match any documentation.\n\nAs a fallback, this is the documentation\
+          \ for openai/tiktoken:\n\n# ⏳ tiktoken\n\ntiktoken is a fast [BPE](https://en.wikipedia.org/wiki/Byte_pair_encoding)\
+          \ tokeniser for use with\nOpenAI's models.\n\n```python\nimport tiktoken\n\
+          enc = tiktoken.get_encoding(\"o200k_base\")\nassert enc.decode(enc.encode(\"\
+          hello world\")) == \"hello world\"\n\n# To get the tokeniser corresponding\
+          \ to a specific model in the OpenAI API:\nenc = tiktoken.encoding_for_model(\"\
+          gpt-4o\")\n```\n\nThe open source version of `tiktoken` can be installed\
+          \ from [PyPI](https://pypi.org/project/tiktoken):\n```\npip install tiktoken\n\
+          ```\n\nThe tokeniser API is documented in `tiktoken/core.py`.\n\nExample\
+          \ code using `tiktoken` can be found in the\n[OpenAI Cookbook](https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb).\n\
+          \n\n## Performance\n\n`tiktoken` is between 3-6x faster than a comparable\
+          \ open source tokeniser:\n\n![image](https://raw.githubusercontent.com/openai/tiktoken/main/perf.svg)\n\
+          \nPerformance measured on 1GB of text using the GPT-2 tokeniser, using `GPT2TokenizerFast`\
+          \ from\n`tokenizers==0.13.2`, `transformers==4.24.0` and `tiktoken==0.2.0`.\n\
+          \n\n## Getting help\n\nPlease post questions in the [issue tracker](https://github.com/openai/tiktoken/issues).\n\
+          \nIf you work at OpenAI, make sure to check the internal documentation or\
+          \ feel free to contact\n@shantanu.\n\n## What is BPE anyway?\n\nLanguage\
+          \ models don't see text like you and I, instead they see a sequence of numbers\
+          \ (known as tokens).\nByte pair encoding (BPE) is a way of converting text\
+          \ into tokens. It has a couple desirable\nproperties:\n1) It's reversible\
+          \ and lossless, so you can convert tokens back into the original text\n\
+          2) It works on arbitrary text, even text that is not in the tokeniser's\
+          \ training data\n3) It compresses the text: the token sequence is shorter\
+          \ than the bytes corresponding to the\n   original text. On average, in\
+          \ practice, each token corresponds to about 4 bytes.\n4) It attempts to\
+          \ let the model see common subwords. For instance, \"ing\" is a common subword\
+          \ in\n   English, so BPE encodings will often split \"encoding\" into tokens\
+          \ like \"encod\" and \"ing\"\n   (instead of e.g. \"enc\" and \"oding\"\
+          ). Because the model will then see the \"ing\" token again and\n   again\
+          \ in different contexts, it helps models generalise and better understand\
+          \ grammar.\n\n`tiktoken` contains an educational submodule that is friendlier\
+          \ if you want to learn more about\nthe details of BPE, including code that\
+          \ helps visualise the BPE procedure:\n```python\nfrom tiktoken._educational\
+          \ import *\n\n# Train a BPE tokeniser on a small amount of text\nenc = train_simple_encoding()\n\
+          \n# Visualise how the GPT-4 encoder encodes text\nenc = SimpleBytePairEncoding.from_tiktoken(\"\
+          cl100k_base\")\nenc.encode(\"hello world aaaaaaaaaaaa\")\n```\n\n\n## Extending\
+          \ tiktoken\n\nYou may wish to extend `tiktoken` to support new encodings.\
+          \ There are two ways to do this.\n\n\n**Create your `Encoding` object exactly\
+          \ the way you want and simply pass it around.**\n\n```python\ncl100k_base\
+          \ = tiktoken.get_encoding(\"cl100k_base\")\n\n# In production, load the\
+          \ arguments directly instead of accessing private attributes\n# See openai_public.py\
+          \ for examples of arguments for specific encodings\nenc = tiktoken.Encoding(\n\
+          \    # If you're changing the set of special tokens, make sure to use a\
+          \ different name\n    # It should be clear from the name what behaviour\
+          \ to expect.\n    name=\"cl100k_im\",\n    pat_str=cl100k_base._pat_str,\n\
+          \    mergeable_ranks=cl100k_base._mergeable_ranks,\n    special_tokens={\n\
+          \        **cl100k_base._special_tokens,\n        \"<|im_start|>\": 100264,\n\
+          \        \"<|im_end|>\": 100265,\n    }\n)\n```\n\n**Use the `tiktoken_ext`\
+          \ plugin mechanism to register your `Encoding` objects with `tiktoken`.**\n\
+          \nThis is only useful if you need `tiktoken.get_encoding` to find your encoding,\
+          \ otherwise prefer\noption 1.\n\nTo do this, you'll need to create a namespace\
+          \ package under `tiktoken_ext`.\n\nLayout your project like this, making\
+          \ sure to omit the `tiktoken_ext/__init__.py` file:\n```\nmy_tiktoken_extension\n\
+          ├── tiktoken_ext\n│   └── my_encodings.py\n└── setup.py\n```\n\n`my_encodings.py`\
+          \ should be a module that contains a variable named `ENCODING_CONSTRUCTORS`.\n\
+          This is a dictionary from an encoding name to a function that takes no arguments\
+          \ and returns\narguments that can be passed to `tiktoken.Encoding` to construct\
+          \ that encoding. For an example, see\n`tiktoken_ext/openai_public.py`. For\
+          \ precise details, see `tiktoken/registry.py`.\n\nYour `setup.py` should\
+          \ look something like this:\n```python\nfrom setuptools import setup, find_namespace_packages\n\
+          \nsetup(\n    name=\"my_tiktoken_extension\",\n    packages=find_namespace_packages(include=['tiktoken_ext*']),\n\
+          \    install_requires=[\"tiktoken\"],\n    ...\n)\n```\n\nThen simply `pip\
+          \ install ./my_tiktoken_extension` and you should be able to use your\n\
+          custom encodings! Make sure **not** to use an editable install.\n\n\n\n\
+          If you'd like to retry the search, try changing the query to increase the\
+          \ likelihood of a match."
+        server_label: gitmcp_tiktoken
+        status: completed
+        type: mcp_call
+      - approval_request_id: null
+        arguments: '{"query":"tokenizer"}'
+        error: null
+        id: mcp_0c8c5523509b5def006a8fda2c1b2487d09a00eb99191f9295
+        name: search_tiktoken_documentation
+        output: "### Search Results for: \"tokenizer\"\n\nNo relevant documentation\
+          \ found for your query. It's either being indexed or the search query did\
+          \ not match any documentation.\n\nAs a fallback, this is the documentation\
+          \ for openai/tiktoken:\n\n# ⏳ tiktoken\n\ntiktoken is a fast [BPE](https://en.wikipedia.org/wiki/Byte_pair_encoding)\
+          \ tokeniser for use with\nOpenAI's models.\n\n```python\nimport tiktoken\n\
+          enc = tiktoken.get_encoding(\"o200k_base\")\nassert enc.decode(enc.encode(\"\
+          hello world\")) == \"hello world\"\n\n# To get the tokeniser corresponding\
+          \ to a specific model in the OpenAI API:\nenc = tiktoken.encoding_for_model(\"\
+          gpt-4o\")\n```\n\nThe open source version of `tiktoken` can be installed\
+          \ from [PyPI](https://pypi.org/project/tiktoken):\n```\npip install tiktoken\n\
+          ```\n\nThe tokeniser API is documented in `tiktoken/core.py`.\n\nExample\
+          \ code using `tiktoken` can be found in the\n[OpenAI Cookbook](https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb).\n\
+          \n\n## Performance\n\n`tiktoken` is between 3-6x faster than a comparable\
+          \ open source tokeniser:\n\n![image](https://raw.githubusercontent.com/openai/tiktoken/main/perf.svg)\n\
+          \nPerformance measured on 1GB of text using the GPT-2 tokeniser, using `GPT2TokenizerFast`\
+          \ from\n`tokenizers==0.13.2`, `transformers==4.24.0` and `tiktoken==0.2.0`.\n\
+          \n\n## Getting help\n\nPlease post questions in the [issue tracker](https://github.com/openai/tiktoken/issues).\n\
+          \nIf you work at OpenAI, make sure to check the internal documentation or\
+          \ feel free to contact\n@shantanu.\n\n## What is BPE anyway?\n\nLanguage\
+          \ models don't see text like you and I, instead they see a sequence of numbers\
+          \ (known as tokens).\nByte pair encoding (BPE) is a way of converting text\
+          \ into tokens. It has a couple desirable\nproperties:\n1) It's reversible\
+          \ and lossless, so you can convert tokens back into the original text\n\
+          2) It works on arbitrary text, even text that is not in the tokeniser's\
+          \ training data\n3) It compresses the text: the token sequence is shorter\
+          \ than the bytes corresponding to the\n   original text. On average, in\
+          \ practice, each token corresponds to about 4 bytes.\n4) It attempts to\
+          \ let the model see common subwords. For instance, \"ing\" is a common subword\
+          \ in\n   English, so BPE encodings will often split \"encoding\" into tokens\
+          \ like \"encod\" and \"ing\"\n   (instead of e.g. \"enc\" and \"oding\"\
+          ). Because the model will then see the \"ing\" token again and\n   again\
+          \ in different contexts, it helps models generalise and better understand\
+          \ grammar.\n\n`tiktoken` contains an educational submodule that is friendlier\
+          \ if you want to learn more about\nthe details of BPE, including code that\
+          \ helps visualise the BPE procedure:\n```python\nfrom tiktoken._educational\
+          \ import *\n\n# Train a BPE tokeniser on a small amount of text\nenc = train_simple_encoding()\n\
+          \n# Visualise how the GPT-4 encoder encodes text\nenc = SimpleBytePairEncoding.from_tiktoken(\"\
+          cl100k_base\")\nenc.encode(\"hello world aaaaaaaaaaaa\")\n```\n\n\n## Extending\
+          \ tiktoken\n\nYou may wish to extend `tiktoken` to support new encodings.\
+          \ There are two ways to do this.\n\n\n**Create your `Encoding` object exactly\
+          \ the way you want and simply pass it around.**\n\n```python\ncl100k_base\
+          \ = tiktoken.get_encoding(\"cl100k_base\")\n\n# In production, load the\
+          \ arguments directly instead of accessing private attributes\n# See openai_public.py\
+          \ for examples of arguments for specific encodings\nenc = tiktoken.Encoding(\n\
+          \    # If you're changing the set of special tokens, make sure to use a\
+          \ different name\n    # It should be clear from the name what behaviour\
+          \ to expect.\n    name=\"cl100k_im\",\n    pat_str=cl100k_base._pat_str,\n\
+          \    mergeable_ranks=cl100k_base._mergeable_ranks,\n    special_tokens={\n\
+          \        **cl100k_base._special_tokens,\n        \"<|im_start|>\": 100264,\n\
+          \        \"<|im_end|>\": 100265,\n    }\n)\n```\n\n**Use the `tiktoken_ext`\
+          \ plugin mechanism to register your `Encoding` objects with `tiktoken`.**\n\
+          \nThis is only useful if you need `tiktoken.get_encoding` to find your encoding,\
+          \ otherwise prefer\noption 1.\n\nTo do this, you'll need to create a namespace\
+          \ package under `tiktoken_ext`.\n\nLayout your project like this, making\
+          \ sure to omit the `tiktoken_ext/__init__.py` file:\n```\nmy_tiktoken_extension\n\
+          ├── tiktoken_ext\n│   └── my_encodings.py\n└── setup.py\n```\n\n`my_encodings.py`\
+          \ should be a module that contains a variable named `ENCODING_CONSTRUCTORS`.\n\
+          This is a dictionary from an encoding name to a function that takes no arguments\
+          \ and returns\narguments that can be passed to `tiktoken.Encoding` to construct\
+          \ that encoding. For an example, see\n`tiktoken_ext/openai_public.py`. For\
+          \ precise details, see `tiktoken/registry.py`.\n\nYour `setup.py` should\
+          \ look something like this:\n```python\nfrom setuptools import setup, find_namespace_packages\n\
+          \nsetup(\n    name=\"my_tiktoken_extension\",\n    packages=find_namespace_packages(include=['tiktoken_ext*']),\n\
+          \    install_requires=[\"tiktoken\"],\n    ...\n)\n```\n\nThen simply `pip\
+          \ install ./my_tiktoken_extension` and you should be able to use your\n\
+          custom encodings! Make sure **not** to use an editable install.\n\n\n\n\
+          If you'd like to retry the search, try changing the query to increase the\
+          \ likelihood of a match."
+        server_label: gitmcp_tiktoken
+        status: completed
+        type: mcp_call
+      - content:
+        - annotations: []
+          logprobs: []
+          text: '- **“encoding”:** No direct match was found, but the fallback documentation
+            explains how to load model encodings, encode/decode text, visualize BPE,
+            and create or register custom `Encoding` objects.
+
+            - **“tokenizer”:** No direct match was found, but the fallback describes
+            `tiktoken` as a fast, reversible BPE tokenizer for OpenAI models and points
+            to its core API and educational tools.'
+          type: output_text
+        id: msg_0c8c5523509b5def006a8fda2ce3cc87d08e193c1ab309c631
+        phase: final_answer
+        role: assistant
+        status: completed
+        type: message
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: resp_0c8c5523509b5def006a8fda1bcb6087d0a8c7913adb3c8942
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - search_content_types:
+        - text
+        search_context_size: medium
+        type: web_search_preview
+        user_location:
+          city: null
+          country: US
+          region: null
+          timezone: null
+          type: approximate
+      - allowed_tools:
+        - search_tiktoken_documentation
+        headers: null
+        require_approval: never
+        server_description: null
+        server_label: gitmcp_tiktoken
+        server_url: https://gitmcp.io/openai/tiktoken
+        type: mcp
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 16168
+        input_tokens_details:
+          cache_write_tokens: 8797
+          cached_tokens: 4643
+        output_tokens: 173
+        output_tokens_details:
+          reasoning_tokens: 23
+        total_tokens: 16341
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t3
+  request:
+    body:
+      input: 'Do both of these right now, in parallel, in this single turn -- do not
+        wait for one to finish before starting the other: (1) search the web for the
+        exact query "latest vLLM release notes", and (2) call gitmcp_tiktoken__search_tiktoken_documentation
+        with {"query":"encoding"}. Do not call any other tool.'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0c8c5523509b5def006a8fda28093887d084b33cf16a64e7b9
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - allowed_tools:
+        - search_tiktoken_documentation
+        require_approval: never
+        server_label: gitmcp_tiktoken
+        server_url: https://gitmcp.io/openai/tiktoken
+        type: mcp
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812411
+      created_at: 1787812399
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0c8c5523509b5def006a8fda2eec6087d089091d42bae62c77
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqj9o7lK_MwC93x3ZRvQlHzkJyyzBs-wvcPq56Q4dSHPIHnX20JcWzFluuwoPpMG6hrZ6yorQMSjIIScxWUgvZosMs7snW7ixhHWdgBbZS6K3m4iiNyj8jLzZGJPEAyaf4ddBXzS9coUGop8pgi51Ziqop4VLxDa6WdeCCwFQ1mm3r-JOUcIPeuUba8zRAIYSYIHILqv-kdvXNRxF2qtz58rzGdLOhSbwklnewPw_lja_ysbP6tR-9x_s_7Dxcsb7xIf4kqu-LrFaCrQ9L6ROdxTg0PqbVOqOOXcrZXSJ5707YYteUAYXhPF1q81LDhlJYUhoPR0y4FhIrIAdGLGxp-k4XTD0RVT5orLlF0-tuwrX9pZ4a2y0sMCAU3NHaHOq9u4DZPm8nudOsdbR3jjqgnjNHehefSEDZjp5XJbnQCf-NXXgZ4Qknqh-lZbBjFvxJGE-PVibEDR_RdEV7fv1fCqeiiYz5Kr6SfsCa0Srb51kZxLWQJ6whompfju_U38J14T-WWlsARyNjslYZC9ZIURJww5U1KjEyZeKxY0RmlOrXUWFfEvgOf2GkeVrcPhgiR4SxTfYj1Wr8rIDMcactvghJiXHoLn_UFucdffysunB1d4fGh9jLOh5skB_RqlHe4jBsLPeqxQH2cS_2qwcymWv5NhGq0ar2zq7PVUu9zuuvZbuLxAzWAnF6gDbHt1axVLroZJIIgcZ4lOT4gq2tpVKPjwt-AfgZgoh9A00Zi0FTa4MUg1v40YkHWB8irUgs_aOkgEIIzoyJlhGTQnzCK6KbrlUbvIK3tCY3FSura19s0n7iICJ5138xsPqZJAHPUpTmPLsMswCIWzbJLfHqMEj_gUpOFXvygRoB6xHR-MRFv6NA4CQF9I7UBRkHO6PEEMJStcJRc6mQ24KJ2wp84s0n4FjqgFa-LQ5nVMWCHOqN484DBsqB6UqiP5Fp7n4kS8HZ39Z_l7VGsHKF0DS0d3WxI3k8cfbkLKXk76AuFluSQA8Tt8FWt2Ks4yGhLkWmuMr1cNhgSBixy7NyODbj9Fo6jSoGgq5Qc58xtbmj_GuDF3ErkVhHuhwGoyVz-caPW69M8kvuZw5_VgXUhrdiv-zRKB_vSNNNitwWkd70R3kBS1aKK8O-boRu0pjQUHzs1Sp3o5peb2K-_w4i-VxeOXPobRF8lhgwqJwG9F1Ff4xnKFMOTUjhn5o-_cxcLFDDwohYA6xw3ErpI4o0KJoF1h8c-Ra643Xv9507MAuOgWb3Eg86UqwGlLFjDccKaS6BcJVbvfaBp3QmThc_2DAuEpVhKPq7oJNJKFjaiM0F8Xe1470=
+        id: rs_0c8c5523509b5def006a8fda308ea887d09286d6f951e9e986
+        summary: []
+        type: reasoning
+      - action:
+          queries:
+          - latest vLLM release notes
+          query: latest vLLM release notes
+          type: search
+        id: ws_0c8c5523509b5def006a8fda30fe9887d0821f4ea6d86a7acc
+        status: completed
+        type: web_search_call
+      - approval_request_id: null
+        arguments: '{"query":"encoding"}'
+        error: null
+        id: mcp_0c8c5523509b5def006a8fda35470487d0a9f467e7eae26a7f
+        name: search_tiktoken_documentation
+        output: "### Search Results for: \"encoding\"\n\nNo relevant documentation\
+          \ found for your query. It's either being indexed or the search query did\
+          \ not match any documentation.\n\nAs a fallback, this is the documentation\
+          \ for openai/tiktoken:\n\n# ⏳ tiktoken\n\ntiktoken is a fast [BPE](https://en.wikipedia.org/wiki/Byte_pair_encoding)\
+          \ tokeniser for use with\nOpenAI's models.\n\n```python\nimport tiktoken\n\
+          enc = tiktoken.get_encoding(\"o200k_base\")\nassert enc.decode(enc.encode(\"\
+          hello world\")) == \"hello world\"\n\n# To get the tokeniser corresponding\
+          \ to a specific model in the OpenAI API:\nenc = tiktoken.encoding_for_model(\"\
+          gpt-4o\")\n```\n\nThe open source version of `tiktoken` can be installed\
+          \ from [PyPI](https://pypi.org/project/tiktoken):\n```\npip install tiktoken\n\
+          ```\n\nThe tokeniser API is documented in `tiktoken/core.py`.\n\nExample\
+          \ code using `tiktoken` can be found in the\n[OpenAI Cookbook](https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb).\n\
+          \n\n## Performance\n\n`tiktoken` is between 3-6x faster than a comparable\
+          \ open source tokeniser:\n\n![image](https://raw.githubusercontent.com/openai/tiktoken/main/perf.svg)\n\
+          \nPerformance measured on 1GB of text using the GPT-2 tokeniser, using `GPT2TokenizerFast`\
+          \ from\n`tokenizers==0.13.2`, `transformers==4.24.0` and `tiktoken==0.2.0`.\n\
+          \n\n## Getting help\n\nPlease post questions in the [issue tracker](https://github.com/openai/tiktoken/issues).\n\
+          \nIf you work at OpenAI, make sure to check the internal documentation or\
+          \ feel free to contact\n@shantanu.\n\n## What is BPE anyway?\n\nLanguage\
+          \ models don't see text like you and I, instead they see a sequence of numbers\
+          \ (known as tokens).\nByte pair encoding (BPE) is a way of converting text\
+          \ into tokens. It has a couple desirable\nproperties:\n1) It's reversible\
+          \ and lossless, so you can convert tokens back into the original text\n\
+          2) It works on arbitrary text, even text that is not in the tokeniser's\
+          \ training data\n3) It compresses the text: the token sequence is shorter\
+          \ than the bytes corresponding to the\n   original text. On average, in\
+          \ practice, each token corresponds to about 4 bytes.\n4) It attempts to\
+          \ let the model see common subwords. For instance, \"ing\" is a common subword\
+          \ in\n   English, so BPE encodings will often split \"encoding\" into tokens\
+          \ like \"encod\" and \"ing\"\n   (instead of e.g. \"enc\" and \"oding\"\
+          ). Because the model will then see the \"ing\" token again and\n   again\
+          \ in different contexts, it helps models generalise and better understand\
+          \ grammar.\n\n`tiktoken` contains an educational submodule that is friendlier\
+          \ if you want to learn more about\nthe details of BPE, including code that\
+          \ helps visualise the BPE procedure:\n```python\nfrom tiktoken._educational\
+          \ import *\n\n# Train a BPE tokeniser on a small amount of text\nenc = train_simple_encoding()\n\
+          \n# Visualise how the GPT-4 encoder encodes text\nenc = SimpleBytePairEncoding.from_tiktoken(\"\
+          cl100k_base\")\nenc.encode(\"hello world aaaaaaaaaaaa\")\n```\n\n\n## Extending\
+          \ tiktoken\n\nYou may wish to extend `tiktoken` to support new encodings.\
+          \ There are two ways to do this.\n\n\n**Create your `Encoding` object exactly\
+          \ the way you want and simply pass it around.**\n\n```python\ncl100k_base\
+          \ = tiktoken.get_encoding(\"cl100k_base\")\n\n# In production, load the\
+          \ arguments directly instead of accessing private attributes\n# See openai_public.py\
+          \ for examples of arguments for specific encodings\nenc = tiktoken.Encoding(\n\
+          \    # If you're changing the set of special tokens, make sure to use a\
+          \ different name\n    # It should be clear from the name what behaviour\
+          \ to expect.\n    name=\"cl100k_im\",\n    pat_str=cl100k_base._pat_str,\n\
+          \    mergeable_ranks=cl100k_base._mergeable_ranks,\n    special_tokens={\n\
+          \        **cl100k_base._special_tokens,\n        \"<|im_start|>\": 100264,\n\
+          \        \"<|im_end|>\": 100265,\n    }\n)\n```\n\n**Use the `tiktoken_ext`\
+          \ plugin mechanism to register your `Encoding` objects with `tiktoken`.**\n\
+          \nThis is only useful if you need `tiktoken.get_encoding` to find your encoding,\
+          \ otherwise prefer\noption 1.\n\nTo do this, you'll need to create a namespace\
+          \ package under `tiktoken_ext`.\n\nLayout your project like this, making\
+          \ sure to omit the `tiktoken_ext/__init__.py` file:\n```\nmy_tiktoken_extension\n\
+          ├── tiktoken_ext\n│   └── my_encodings.py\n└── setup.py\n```\n\n`my_encodings.py`\
+          \ should be a module that contains a variable named `ENCODING_CONSTRUCTORS`.\n\
+          This is a dictionary from an encoding name to a function that takes no arguments\
+          \ and returns\narguments that can be passed to `tiktoken.Encoding` to construct\
+          \ that encoding. For an example, see\n`tiktoken_ext/openai_public.py`. For\
+          \ precise details, see `tiktoken/registry.py`.\n\nYour `setup.py` should\
+          \ look something like this:\n```python\nfrom setuptools import setup, find_namespace_packages\n\
+          \nsetup(\n    name=\"my_tiktoken_extension\",\n    packages=find_namespace_packages(include=['tiktoken_ext*']),\n\
+          \    install_requires=[\"tiktoken\"],\n    ...\n)\n```\n\nThen simply `pip\
+          \ install ./my_tiktoken_extension` and you should be able to use your\n\
+          custom encodings! Make sure **not** to use an editable install.\n\n\n\n\
+          If you'd like to retry the search, try changing the query to increase the\
+          \ likelihood of a match."
+        server_label: gitmcp_tiktoken
+        status: completed
+        type: mcp_call
+      - content: []
+        encrypted_content: gAAAAABqj9o7s4Fda2S8xdQtY7T0zzBrvCzBocaxrI16sY0o2BogOMynSQ6_gGiipcFuop__GdqjXOwxQGaeN_oQxKdDiWZzfadh6f24ea0sjQfy9y7HiLXYZyczpjvk9OLbq89TtFy65wYw3568z0EcJm0tp77Obr0gLKjRb6DXLDHDXGxzzR__SoEtilfcW5s831zYuyCQyZhJ_IR9TpgVULlo_QOKVQ2bxMLW3E5BIYBIuSe4VLO_K24SPzSWAfckO6LSTW8BeECKET_Xk4FEVkwxQBqidQly3IPZ3-gLXrsxe46o3XqLghg-3_wFXv8NMrMZu_dkqqwH7gDMSEP17AYZkHYMO41LYja_ACCJiwJmFtGOiUZY1PUYXWTkwDgxgz5FvM6QrJtiKabvByYLVI9TJSPUFPPoTVGwMuqoVeZ_N4l8WNVGlQDTyfEPQhzSaQGgY2jYudH3vwiJmCTAAdtT3ad2Q1wHXBW9F7IcSca9UzzPgyjbo136oj7i5OhjbwLPxIGdJmiJdapQTmAkqcfAZlyIhuVDZAvDGlqIMo5RV80VaIp_dVdEKHQB2oVC2fiAYiANslwWuQq8fqYQ0gGLWPel2586cZE_1gkTks8TXuMcFKy6UYF8z6r6RARK9M446-xYhpAP3qzt7NDwvwUmftIef3r0dHs84Qfmn7ehaiOCPEKABNShpZ1Qk1IbmRKMFuHzXzXuhanHhyGXhf4xBnK4Cyg3Y7krSw941C1rrzVZ5jfetN5uXF1GcG-9jB4M1o2vCCdP3GR5mPxXVaJKJ-pCqRufYfy34L2ViMuSBuEYgP1f2gWlD6fP7S2taHkWLOLaoDbU1JTeNMUO5jY2u5bmZf1XTIk-xsB_HFHAAP_S1Y61yeDkFKAIG3vCfQ5Z9ybF-6yO1vqWA0XkCzukycJSXjuETEqAa06i5OI8AmFjc5fikIUjeLwWN63cfS253rUKponkNtiQuQY2nF76R_wrZTgImQuzJlAC8V4dYdyq-1cJDyuuWtWKPf9dJCHV4kh5T6wTlKXxvlJsOoVd5bvQD5P5BJHfjT9Dmb7_x5z8ami7fZ3DO_1FgZ1rHweeYZo3O_pJA72ilqGUHessrBL__jNTGNrTbKb6qe_Lmiq06Ez_E0Pjt_IHpeMjiCON3axc3X9H6fw-V6g3Zacpj55JM1AYajJBpuzWdGmoNNVyfiO4XgJflZtZPMtsxkZ6YXOOgRmKJM2qfg2okQpouctZuNst0W5zyASHmUPi6wVn-a3Uv-gV0Gj3BPHMgmyJz61p-c4EZsUmba7uKTI29pVjM6pnxspDXvbRKvLB2w4q2cmtr_zsQrnwYJb50WeWw1l5TsffqiPkJD0KDr4Jr35YY-dr0Bnm4wGvtq9APtLBe21H75Gx2QfMqXLv3DUUAk22VPDrEsYBGoZ73POsPQTSFWR9UuAiXAz9NUhim8QGGXc9l0CCJbTCYp_qLoNaLRSU5KY8jTsJ-O2eDICAhATZg-ubb9y9vQ8Rx7FbPIHnA91yuGPNVUAQT5TkdvLqrnK2PLEGIZ61gGM_6-op6QnptkVhwTIaWPHjBnWG3rCv_GlDb9IzBN56IQhAaic0jkvnvxmeBhP9sKYY5plebObt0V-9OzzNYO45L9qih0dIZyrQlZeJMCwd3DgRRgVgn_NgWefGdRXc9nAq5npmD-vBcb1FLC4M1hIP3ntq7A50WSGuS73_IMafRta4owL5OEFjU-8sMwX9kc-Q5TsdhEftVOnmOo7k8x1_HTLt-vKpftI=
+        id: rs_0c8c5523509b5def006a8fda389b8c87d0a3f5a107033ec2bd
+        summary: []
+        type: reasoning
+      - content:
+        - annotations:
+          - end_index: 250
+            start_index: 148
+            title: Releases · vllm-project/vllm · GitHub
+            type: url_citation
+            url: https://github.com/vllm-project/vllm/releases?specificity=1775725493&utm_source=openai
+          logprobs: []
+          text: '- **Web search:** Results point to vLLM **v0.28.0** as the latest
+            listed release, though some indexed GitHub snippets still display older
+            versions. ([github.com](https://github.com/vllm-project/vllm/releases?specificity=1775725493&utm_source=openai))
+
+            - **tiktoken documentation:** No direct match for “encoding” was found,
+            but the fallback documentation covers loading, using, extending, and registering
+            `tiktoken.Encoding` objects.'
+          type: output_text
+        id: msg_0c8c5523509b5def006a8fda39bba487d0b68c699a2ed81177
+        phase: final_answer
+        role: assistant
+        status: completed
+        type: message
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: resp_0c8c5523509b5def006a8fda28093887d084b33cf16a64e7b9
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 1
+      tools:
+      - search_content_types:
+        - text
+        search_context_size: medium
+        type: web_search_preview
+        user_location:
+          city: null
+          country: US
+          region: null
+          timezone: null
+          type: approximate
+      - allowed_tools:
+        - search_tiktoken_documentation
+        headers: null
+        require_approval: never
+        server_description: null
+        server_label: gitmcp_tiktoken
+        server_url: https://gitmcp.io/openai/tiktoken
+        type: mcp
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 21860
+        input_tokens_details:
+          cache_write_tokens: 2833
+          cached_tokens: 13440
+        output_tokens: 294
+        output_tokens_details:
+          reasoning_tokens: 164
+        total_tokens: 22154
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200

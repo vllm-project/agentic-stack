@@ -490,5 +490,10 @@ fn web_search_preview_normalizes_to_gateway_function() {
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0].get("type").and_then(Value::as_str), Some("function"));
     assert_eq!(tools[0].get("name").and_then(Value::as_str), Some("web_search"));
-    assert_eq!(tools[0]["parameters"]["required"], serde_json::json!(["query"]));
+    assert!(tools[0]["parameters"]["properties"]["query"].is_object());
+    assert!(tools[0]["parameters"]["properties"]["queries"].is_object());
+    assert_eq!(
+        tools[0]["parameters"]["anyOf"],
+        serde_json::json!([{"required": ["query"]}, {"required": ["queries"]}])
+    );
 }

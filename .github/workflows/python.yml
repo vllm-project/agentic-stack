@@ -1,0 +1,110 @@
+name: Python
+
+run-name: Python wheel build and validation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/python.yml"
+      - ".github/workflows/release-python.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**"
+      - "README.md"
+      - "docs/**"
+      - "pyproject.toml"
+      - "python-build-constraints.txt"
+      - "python/**"
+      - "scripts/check-python-wheel.sh"
+      - "scripts/validate-python-release-version.sh"
+      - "tests/python/**"
+  merge_group:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/python.yml"
+      - ".github/workflows/release-python.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**"
+      - "README.md"
+      - "docs/**"
+      - "pyproject.toml"
+      - "python-build-constraints.txt"
+      - "python/**"
+      - "scripts/check-python-wheel.sh"
+      - "scripts/validate-python-release-version.sh"
+      - "tests/python/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            python-build-constraints.txt
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.98.0
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-python-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('Cargo.lock', 'python-build-constraints.txt') }}
+          restore-keys: |
+            cargo-python-${{ runner.os }}-${{ matrix.python-version }}-
+            cargo-python-${{ runner.os }}-
+            cargo-${{ runner.os }}-
+
+      - name: Install uv
+        run: python -m pip install --constraint python-build-constraints.txt uv
+
+      - name: Build and validate wheel
+        run: |
+          set -euo pipefail
+          expected_version="$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "agentic-server") | .version')"
+          if [ -z "$expected_version" ] || [ "$expected_version" = "null" ]; then
+            echo "::error::agentic-server workspace version could not be determined"
+            exit 1
+          fi
+          uv venv --python "${{ matrix.python-version }}" .venv
+          uv pip install --python .venv/bin/python --constraint python-build-constraints.txt maturin pytest
+          wheel_dir="$RUNNER_TEMP/agentic-api-wheels-${{ matrix.python-version }}"
+          mkdir -p "$wheel_dir"
+          .venv/bin/python -m maturin build --release --locked --out "$wheel_dir"
+          wheel_path="$(
+            .venv/bin/python -c 'from pathlib import Path; import sys; matches = sorted(Path(sys.argv[1]).glob(f"agentic_api-{sys.argv[2]}-*.whl")); assert len(matches) == 1, f"expected exactly one wheel, found {[path.name for path in matches]}"; print(matches[0])' "$wheel_dir" "$expected_version"
+          )"
+          uv pip install --python .venv/bin/python "$wheel_path"
+          AGENTIC_API_TEST_WHEEL="$wheel_path" .venv/bin/python -m pytest tests/python -q
+          AGENTIC_API_CHECK_PYTHON=.venv/bin/python \
+            AGENTIC_API_CHECK_SCRIPTS_DIR=.venv/bin \
+            AGENTIC_API_EXPECTED_VERSION="$expected_version" \
+            scripts/check-python-wheel.sh "$wheel_path"

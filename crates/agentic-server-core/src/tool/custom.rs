@@ -222,53 +222,35 @@ fn model_visible_description(param: &CustomToolParam) -> String {
 }
 
 impl ToolHandler for CustomHandler {
+    type ToolParams = CustomToolParam;
+
     fn tool_type(&self) -> ToolType {
         ToolType::Custom
     }
 
-    fn validate(&self, param: &serde_json::Value) -> Result<(), ToolError> {
-        let param = serde_json::from_value::<CustomToolParam>(param.clone())
-            .map_err(|error| ToolError::Config(format!("invalid custom tool config: {error}")))?;
-        if param
+    fn validate(&self, params: &CustomToolParam) -> Result<(), ToolError> {
+        if params
             .format
             .as_ref()
             .is_some_and(|format| format.get("type").and_then(Value::as_str) != Some("text"))
         {
             return Err(ToolError::Config(format!(
                 "custom tool '{}' uses an unsupported format; gateway normalization cannot preserve constrained decoding",
-                param.name
+                params.name
             )));
         }
         Ok(())
     }
 
-    fn normalize(&self, param: &serde_json::Value) -> Vec<FunctionTool> {
-        match serde_json::from_value::<CustomToolParam>(param.clone()) {
-            Ok(param) => vec![Self::to_function_call(&param)],
-            Err(error) => {
-                tracing::warn!(%error, "invalid custom tool param");
-                Vec::new()
-            }
-        }
+    fn normalize(&self, params: &CustomToolParam) -> Vec<FunctionTool> {
+        vec![Self::to_function_call(params)]
     }
 }
 
 pub(crate) fn insert_custom_entry(entries: &mut HashMap<String, ToolEntry>, param: &CustomToolParam) {
-    serialize_to_value_or_custom_default(
-        param,
-        "custom tool config serialization failed",
-        |config| {
-            entries.insert(
-                param.name.as_str().to_owned(),
-                ToolEntry {
-                    tool_type: ToolType::Custom,
-                    config,
-                    server_label: None,
-                    handler: None,
-                },
-            );
-        },
-        (),
+    entries.insert(
+        param.name.as_str().to_owned(),
+        ToolEntry::client(ToolType::Custom, None),
     );
 }
 
@@ -349,8 +331,7 @@ mod tests {
         }))
         .expect("custom tool");
 
-        let value = serde_json::to_value(param).expect("custom tool value");
-        let mut tools = CustomHandler.normalize(&value);
+        let mut tools = CustomHandler.normalize(&param);
         let tool = tools.pop().expect("normalized custom tool");
 
         assert_eq!(tool.type_, "function");
@@ -380,18 +361,18 @@ mod tests {
             }))
             .expect("custom tool");
 
-            let value = serde_json::to_value(param).expect("custom tool value");
-            let error = CustomHandler.validate(&value).expect_err("grammar must be rejected");
+            let error = CustomHandler.validate(&param).expect_err("grammar must be rejected");
             assert!(error.to_string().contains("cannot preserve constrained decoding"));
         }
     }
 
     #[test]
     fn explicit_text_format_is_supported() {
-        let param = serde_json::json!({
+        let param = serde_json::from_value::<CustomToolParam>(serde_json::json!({
             "name": "freeform",
             "format": {"type": "text"}
-        });
+        }))
+        .expect("custom tool");
 
         CustomHandler
             .validate(&param)

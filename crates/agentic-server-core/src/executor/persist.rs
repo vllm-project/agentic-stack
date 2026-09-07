@@ -6,7 +6,7 @@
 use crate::executor::error::{ExecutorError, ExecutorResult};
 use crate::executor::modes::{ConversationHandler, ResponseHandler};
 use crate::executor::prepare::prepare_request_tools;
-use crate::executor::request::RequestContext;
+use crate::executor::request::{ExecutionContext, RequestContext};
 use crate::storage::ResponseMetadata;
 use crate::tool::{ToolSearchMetadata, ToolSearchState};
 use crate::types::event::ResponseStatus;
@@ -29,12 +29,14 @@ pub(crate) async fn persist_if_needed(
     resp_handler: ResponseHandler,
 ) -> ExecutorResult<()> {
     if should_persist(&ctx) {
-        persist_prepared_response(payload, ctx, tool_search_metadata, conv_handler, resp_handler)
-            .await
-            .map_err(|source| {
+        match persist_prepared_response(payload, ctx, tool_search_metadata, conv_handler, resp_handler).await {
+            Err(error @ ExecutorError::Conflict(_)) => Err(error),
+            Err(source) => {
                 error!(error = ?source, "failed to persist response");
-                ExecutorError::Persistence(Box::new(source))
-            })
+                Err(ExecutorError::Persistence(Box::new(source)))
+            }
+            Ok(()) => Ok(()),
+        }
     } else {
         Ok(())
     }
@@ -129,4 +131,40 @@ pub(crate) async fn persist_prepared_turn(
             .execute_turn_with_metadata(ctx, output_items, metadata)
             .await
     }
+}
+
+/// Stores a decoded turn for a caller that ran inference itself. A failed turn is
+/// returned unstored, as the in-process flow does.
+///
+/// # Errors
+/// [`ExecutorError::InvalidRequest`] for an unusable id or unfinished response,
+/// [`ExecutorError::Conflict`] for an id already stored, or a storage error.
+pub async fn commit(
+    ctx: RequestContext,
+    payload: ResponsePayload,
+    exec_ctx: &ExecutionContext,
+) -> ExecutorResult<ResponsePayload> {
+    if ctx.response_id.is_empty() {
+        return Err(ExecutorError::InvalidRequest(
+            "context has no reserved response id".to_owned(),
+        ));
+    }
+
+    // Storing an unfinished turn would return an id that can never be continued.
+    if payload.status.parse::<ResponseStatus>().unwrap_or_default() == ResponseStatus::InProgress {
+        return Err(ExecutorError::InvalidRequest(format!(
+            "upstream response status '{}' is not terminal",
+            payload.status
+        )));
+    }
+
+    persist_if_needed(
+        payload.clone(),
+        ctx,
+        None,
+        exec_ctx.conv_handler.clone(),
+        exec_ctx.resp_handler.clone(),
+    )
+    .await?;
+    Ok(payload)
 }

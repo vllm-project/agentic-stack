@@ -69,6 +69,15 @@ impl StorageError {
         matches!(self, Self::ConversationConflict { .. })
     }
 
+    /// Returns `true` when the database rejected a duplicate unique key.
+    #[must_use]
+    pub fn is_unique_violation(&self) -> bool {
+        matches!(
+            self,
+            Self::Database(sqlx::Error::Database(error)) if error.is_unique_violation()
+        )
+    }
+
     /// Extracts the resource type and ID if this is a "not found" error.
     #[must_use]
     pub fn not_found_details(&self) -> Option<(String, String)> {

@@ -23,7 +23,7 @@ ______________________________________________________________________
 
 vLLM gives you state-of-the-art inference throughput. But real agentic applications need more than raw tokens: they need **conversation state, tool-call loops, and multi-turn orchestration**. Today, all of that complexity lives in your client code.
 
-**Agentic API moves it server-side.** It is a Rust-native gateway that sits in front of vLLM and owns the stateful agentic APIs, starting with an OpenAI-compatible [Responses API](https://platform.openai.com/docs/api-reference/responses). Your application makes *one API call* and the server handles the rest: state hydration, tool execution, streaming, and continuation.
+**Agentic API moves it server-side.** It is a Rust-native gateway that sits in front of vLLM and owns the stateful agentic APIs, starting with an OpenAI-compatible [Responses API](https://platform.openai.com/docs/api-reference/responses). vLLM is one supported backend, not part of the Agentic API product name. Your application makes *one API call* and the server handles the rest: state hydration, tool execution, streaming, and continuation.
 
 ```mermaid
 flowchart LR
@@ -120,6 +120,42 @@ Use `AGENTIC_CODEX_BIN` or `AGENTIC_CLAUDE_BIN` to override harness binary disco
 `--quiet` for minimal lifecycle output. Use `--yolo` only in an externally isolated environment; it skips Claude
 permission checks and disables Codex approvals and sandboxing.
 
+### Python distribution
+
+The `agentic-api` wheel packages the Rust gateway and a small Python launcher. This release produces wheel artifacts
+for 0.5.0 as a build-only release: download the wheel for your platform from the release workflow, then install that local file. It is
+not published on PyPI yet.
+
+```bash
+WHEEL_PATH=/absolute/path/to/agentic_api-PLATFORM.whl
+uv pip install "$WHEEL_PATH"
+agentic-api serve --vllm-base-url http://existing-vllm:8000
+
+uv pip install "agentic-api[local] @ file://$WHEEL_PATH"
+agentic-api serve --model MODEL_ID
+```
+
+The base install is for remote mode and does not install vLLM. The `[local]` extra installs the pinned vLLM runtime so
+the launcher can manage a local vLLM process on supported Linux hosts.
+
+Use `agentic-api --version` for a quick install check and `agentic-api doctor --mode remote --json` when an agent or
+script needs machine-readable diagnostics.
+
+#### After PyPI publication
+
+These public-index and `uvx` examples apply only after the PyPI publication gate for a future release:
+
+```bash
+uv pip install agentic-api
+uv pip install "agentic-api[local]"
+uvx --from agentic-api agentic-api doctor
+uvx --from agentic-api agentic-api serve --vllm-base-url http://existing-vllm:8000
+```
+
+The Rust-native `agentic` CLI remains supported for `run codex`, `run claude`, `serve`, and `validate`. For the full
+installation walkthrough, managed-vLLM passthrough examples, `doctor` output, and known-good model profiles, see
+[Python installation and workflows](docs/guides/python-installation.md).
+
 For Claude sessions, Agentic API always sets both `--effort medium` and `CLAUDE_CODE_EFFORT_LEVEL=medium`; the
 environment variable is intentional because Claude Code gives it precedence over the command-line effort flag.
 Qwen3.8-27B's vLLM chat template accepts `low`, `medium`, and `xhigh` reasoning effort values but not Claude Code's
@@ -186,6 +222,12 @@ api_key_env = "YOU_API_KEY"
 [mcp]
 allowed_hosts = ["mcp.example.com"]
 
+[tools]
+# Upper bound for gateway-owned calls within one Responses round and for
+# provider requests inside a batched web-search call.
+# Must be greater than zero.
+max_concurrent_gateway_calls = 5
+
 [mcp_servers.counter]
 url = "https://mcp.example.com/mcp"
 allowed_tools = ["tool_1_name", "tool_2_name"]
@@ -193,9 +235,10 @@ require_approval = "never"
 ```
 
 `api_key_env` names the process environment variable containing the web-search credential; it does not contain the
-credential itself. `YOU_API_BASE_URL` and `AGENTIC_MCP_ALLOWED_HOSTS` can override their typed file settings. The MCP
-allowlist is used only for request-declared remote MCP URLs; configured `[mcp_servers]` entries are trusted operator
-configuration.
+credential itself. `YOU_API_BASE_URL`, `AGENTIC_MCP_ALLOWED_HOSTS`, and
+`AGENTIC_MAX_CONCURRENT_GATEWAY_CALLS` can override their typed file settings. The concurrency value is a sliding-window
+upper bound; handlers may further serialize calls to the same tool name. The MCP allowlist is used only for
+request-declared remote MCP URLs; configured `[mcp_servers]` entries are trusted operator configuration.
 
 With that file in place, inject only the secret when starting the server:
 

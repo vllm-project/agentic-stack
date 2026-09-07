@@ -8,7 +8,8 @@ This repository is Rust-first under the `vllm-project` GitHub organization.
 
 - **Rust** -- primary and active implementation language at the repo root.
 - **Docs** -- MkDocs documentation in `docs/`.
-- **Python gateway code has been removed** as part of the migration plan.
+- **Python** -- a lightweight distribution and launcher for the packaged Rust gateway; the gateway implementation
+  remains Rust-first.
 
 ## Terminology
 
@@ -27,6 +28,9 @@ This repository is Rust-first under the `vllm-project` GitHub organization.
 ├── crates/agentic-server/       # Axum binary, transport handlers, and configuration
 ├── crates/agentic-server-core/  # Protocol types, execution, tools, and persistence
 ├── crates/agentic-praxis/       # Praxis integration
+├── python/agentic_api/          # Python distribution, diagnostics, and launcher
+├── tests/python/                # Python package and CLI tests
+├── pyproject.toml               # Python wheel build metadata
 ├── Cargo.toml                    # Workspace manifest and shared dependencies/lints
 └── docs/                         # Documentation (MkDocs)
 ```
@@ -44,6 +48,12 @@ cargo build
 
 ```bash
 cargo test
+
+# Python distribution and CLI tests
+uv run --python 3.12 --with maturin==1.14.1 --with pytest==9.1.1 python -m pytest tests/python
+
+# Source-install CLI E2E (also exercises the packaged wheel build)
+python3 scripts/tests/agentic-cli-e2e-test.py
 ```
 
 - Before adding or updating replay cassettes, read `crates/agentic-server-core/tests/cassettes/README.md` and use its

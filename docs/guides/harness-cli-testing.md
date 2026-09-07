@@ -133,7 +133,8 @@ curl -s -w '\nHTTP %{http_code}\n' -H 'content-type: application/json' http://12
 | Gateway build | Result |
 |---|---|
 | Before PR #197 | `HTTP 400` — `invalid tool config: parallel_tool_calls must be false when using built-in tools` |
-| PR #197 or later | `HTTP 200`, `"status": "completed"`; the gateway forwards `parallel_tool_calls: false` upstream and serializes tool calls |
+| PR #197 through pre-#181 | `HTTP 200`, `"status": "completed"`; the gateway forwarded `parallel_tool_calls: false` upstream regardless of the request, serializing tool calls |
+| #181 or later | `HTTP 200`, `"status": "completed"`; the gateway forwards `parallel_tool_calls: true` upstream as requested, then executes emitted gateway-owned calls through its configured concurrency window and per-handler same-tool safety policy |
 
 Also run the mixed shape (a `function` tool plus a built-in such as `code_interpreter`) with `parallel_tool_calls:
 true`; it must return `HTTP 200` as well. Unit coverage lives in
@@ -260,8 +261,7 @@ kubectl --namespace agentic-api logs deploy/agentic-api --all-pods --since=10m |
 
 Match the log level rather than the word `error`: Codex closes its WebSocket without a closing handshake when
 `exec` finishes, which the gateway logs as a `WARN ... WebSocket protocol error: Connection reset without closing
-handshake` line per run. That line and the startup `WARN ... parallel tool calls are not supported` notice are
-expected; anything at `ERROR` level is not.
+handshake` line per run. That line is expected; anything at `ERROR` level is not.
 
 ## Troubleshooting
 

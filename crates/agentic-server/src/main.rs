@@ -1,16 +1,17 @@
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 
 use agentic_core::DatabaseBackend;
 use agentic_core::config::{
-    Config, DEFAULT_POSTGRES_ACQUIRE_TIMEOUT_SECONDS, DEFAULT_POSTGRES_IDLE_TIMEOUT_SECONDS,
-    DEFAULT_POSTGRES_LOCK_TIMEOUT_SECONDS, DEFAULT_POSTGRES_MAX_CONNECTIONS, DEFAULT_POSTGRES_MAX_LIFETIME_SECONDS,
-    DEFAULT_POSTGRES_MIGRATION_TIMEOUT_SECONDS, DEFAULT_POSTGRES_STATEMENT_TIMEOUT_SECONDS,
-    DEFAULT_SQLITE_JOURNAL_SIZE_LIMIT_BYTES, DEFAULT_SQLITE_MAX_CONNECTIONS, DEFAULT_SQLITE_MMAP_SIZE_BYTES,
-    PostgresConfig, SqliteConfig, SqliteTempStore, ToolRuntimeConfig, WebSearchProviderConfig, default_database_url,
-    ensure_agentic_api_home, normalize_base_url,
+    Config, DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS, DEFAULT_POSTGRES_ACQUIRE_TIMEOUT_SECONDS,
+    DEFAULT_POSTGRES_IDLE_TIMEOUT_SECONDS, DEFAULT_POSTGRES_LOCK_TIMEOUT_SECONDS, DEFAULT_POSTGRES_MAX_CONNECTIONS,
+    DEFAULT_POSTGRES_MAX_LIFETIME_SECONDS, DEFAULT_POSTGRES_MIGRATION_TIMEOUT_SECONDS,
+    DEFAULT_POSTGRES_STATEMENT_TIMEOUT_SECONDS, DEFAULT_SQLITE_JOURNAL_SIZE_LIMIT_BYTES,
+    DEFAULT_SQLITE_MAX_CONNECTIONS, DEFAULT_SQLITE_MMAP_SIZE_BYTES, PostgresConfig, SqliteConfig, SqliteTempStore,
+    ToolRuntimeConfig, WebSearchProviderConfig, default_database_url, ensure_agentic_api_home, normalize_base_url,
 };
 use agentic_core::error::Error;
 use agentic_server::auth::OidcConfig;
@@ -18,7 +19,7 @@ use agentic_server::auth::OidcConfig;
 mod config_file;
 mod server;
 
-use config_file::{FileConfig, McpFileConfig, MessagesGatewayFileConfig, WebSearchFileConfig};
+use config_file::{FileConfig, McpFileConfig, MessagesGatewayFileConfig, ToolsFileConfig, WebSearchFileConfig};
 
 #[derive(Args, Clone)]
 struct CommonArgs {
@@ -73,7 +74,11 @@ fn oidc_config_from_values(
 }
 
 #[derive(Parser)]
-#[command(name = "agentic-server", about = "Stateful API gateway for vLLM Responses API")]
+#[command(
+    name = "agentic-server",
+    about = "Stateful API gateway for vLLM Responses API",
+    version
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -134,6 +139,24 @@ fn parse_env_u32_value(name: &str, value: Result<String, std::env::VarError>, de
         }
         Err(std::env::VarError::NotPresent) => Ok(default),
         Err(e) => Err(Error::Config(format!("failed to read {name}: {e}"))),
+    }
+}
+
+fn parse_env_nonzero_usize(name: &str, default: NonZeroUsize) -> Result<NonZeroUsize, Error> {
+    parse_env_nonzero_usize_value(name, std::env::var(name), default)
+}
+
+fn parse_env_nonzero_usize_value(
+    name: &str,
+    value: Result<String, std::env::VarError>,
+    default: NonZeroUsize,
+) -> Result<NonZeroUsize, Error> {
+    match value {
+        Ok(value) => value
+            .parse::<NonZeroUsize>()
+            .map_err(|error| Error::Config(format!("{name} must be a positive integer: {error}"))),
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Err(error) => Err(Error::Config(format!("failed to read {name}: {error}"))),
     }
 }
 
@@ -245,6 +268,14 @@ fn build_config(llm_api_base: String, common: &CommonArgs, file: &FileConfig) ->
     let web_search_base_url = environment_value("YOU_API_BASE_URL").or_else(|| file.web_search.base_url.clone());
     let mcp_allowed_hosts = environment_value("AGENTIC_MCP_ALLOWED_HOSTS")
         .map_or_else(|| file.mcp.allowed_hosts.clone(), |value| parse_comma_separated(&value));
+    let max_concurrent_gateway_calls_default = file
+        .tools
+        .max_concurrent_gateway_calls
+        .unwrap_or(DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS);
+    let max_concurrent_gateway_calls = parse_env_nonzero_usize(
+        "AGENTIC_MAX_CONCURRENT_GATEWAY_CALLS",
+        max_concurrent_gateway_calls_default,
+    )?;
     Ok(Config {
         llm_api_base,
         openai_api_key: common.openai_api_key.clone(),
@@ -262,6 +293,7 @@ fn build_config(llm_api_base: String, common: &CommonArgs, file: &FileConfig) ->
             mcp_servers: file.mcp_servers.clone(),
             mcp_allowed_hosts,
             messages_gateway_tool_aliases: file.messages_gateway.tool_aliases.clone(),
+            max_concurrent_gateway_calls,
         },
     })
 }
@@ -276,6 +308,10 @@ fn generated_file_config(llm_api_base: String) -> FileConfig {
         mcp: McpFileConfig {
             allowed_hosts: environment_value("AGENTIC_MCP_ALLOWED_HOSTS")
                 .map_or_else(Vec::new, |value| parse_comma_separated(&value)),
+        },
+        tools: ToolsFileConfig {
+            max_concurrent_gateway_calls: environment_value("AGENTIC_MAX_CONCURRENT_GATEWAY_CALLS")
+                .and_then(|value| value.parse::<NonZeroUsize>().ok()),
         },
         messages_gateway: MessagesGatewayFileConfig {
             tool_aliases: environment_value("MESSAGES_GATEWAY_TOOL_ALIASES"),
@@ -373,7 +409,8 @@ mod tests {
 
     use super::{
         Cli, Commands, database_configs_from_env, oidc_config_from_values, parse_env_duration_value,
-        parse_env_optional_duration_value, parse_env_temp_store_value, parse_env_u32_value, parse_env_u64_value,
+        parse_env_nonzero_usize_value, parse_env_optional_duration_value, parse_env_temp_store_value,
+        parse_env_u32_value, parse_env_u64_value,
     };
     use agentic_core::config::{
         DEFAULT_POSTGRES_ACQUIRE_TIMEOUT_SECONDS, DEFAULT_POSTGRES_IDLE_TIMEOUT_SECONDS,
@@ -531,6 +568,30 @@ mod tests {
             SqliteTempStore::Memory
         );
         assert!(parse_env_temp_store_value(Ok("invalid".to_owned())).is_err());
+    }
+
+    #[test]
+    fn gateway_concurrency_env_parser_requires_a_nonzero_value() {
+        let default = agentic_core::config::DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS;
+        assert_eq!(
+            parse_env_nonzero_usize_value(
+                "AGENTIC_MAX_CONCURRENT_GATEWAY_CALLS",
+                Err(std::env::VarError::NotPresent),
+                default,
+            )
+            .expect("default value"),
+            default
+        );
+        assert_eq!(
+            parse_env_nonzero_usize_value("AGENTIC_MAX_CONCURRENT_GATEWAY_CALLS", Ok("3".to_owned()), default,)
+                .expect("positive value")
+                .get(),
+            3
+        );
+        assert!(
+            parse_env_nonzero_usize_value("AGENTIC_MAX_CONCURRENT_GATEWAY_CALLS", Ok("0".to_owned()), default,)
+                .is_err()
+        );
     }
 
     #[test]

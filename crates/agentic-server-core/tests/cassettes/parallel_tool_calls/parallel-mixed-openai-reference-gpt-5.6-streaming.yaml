@@ -1,0 +1,345 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Do all three of these right now, in parallel, in this single turn --
+        do not wait for one before starting another: (1) call get_weather for "Tokyo",
+        (2) call set_temperature_unit to set my preferred unit to "fahrenheit" for
+        the rest of this conversation, and (3) search the web for the exact query
+        "Tokyo weather today".'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_0ab8f408745e612d006a8fd9faf14887d0b11fd2fc878de000","object":"response","created_at":1787812347,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_0ab8f408745e612d006a8fd9faf14887d0b11fd2fc878de000","object":"response","created_at":1787812347,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"rs_0ab8f408745e612d006a8fd9fb891c87d0944ab30b02cc4c2e","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9n7-6edxsm1PM457GAgGIvFuAAbc6-XDZ0n-3hw7dCBCgMc1XBbmGNkUBSjgOvBufvSiGqsBsOr83B3Pa1i1JkFShSUGC5aGSoPgzIwQZhttzMHCm5Am9tIzJsdoneDmZUZ9IHTYBYCC7Ni_Aa7ufIOw0Bj11eaDH4ZYluc561ovNEiZJLYGsdi99K2snVIQUC7lUqk2JdlJNwFAjnb7pVUnsSYEm1o40oHpkMq_OHS6nBnNUlveUP2dLre8wRf_2Y2wiCfhKvX2LBHAuW116Qz2AIwBt0vk9s6PWUcVGOY5TV66hWTssG0HLzHqi1uNU5zSG4AtdToVzVvrjpS17ATDbEdHCNlOPpKkosvT4DoIHlqnYHU8iAUtxQOsHame-xMkeZIKX66b6ruyH21Ht_CBs_enEESiCUrimREZ1oWZUL-dmsVFDz70jKC-RHbnos-Dic44zDxJYsem9z0_usBRaVmrPNVY4FPyV0hQiVCSNiqTllXcg4_s0Al-L4Wfsy1KCtGz8HzzhQ40KNoXVkkd4n7IPNf-Ink2zDT8NYSwMnXd3Fs20JMGQoMoDsEFJwlBkdApWcdvPmGv7PyJSnw3rLkoK4e7PTpxsGFvI5ulnuNQX8yHk5dLsnWGFTwsc6kcC507ex-nx0Rd_5Dx9ufbd7OhmaheaVo9t_denf7IK4FUJVRVho-fzQSibkKkAMuY8w2IM4Uoxu1VvxhfzBOhaUIvcdIjNmQMSmDldXZG-Tcjx9ZT8JhvzjGQGyhdq4JZCQ8S1RoFguENc7GUqhrBYTdhCqBGgu7-G003imJzfCqYZWq4-NZUlmIH_xhVqL5w_5cLz_5xsmB7Y5zUYF0e0i7jHU-kadVRnfyoapDEm0HAJ4-WRGv1hSu5tFoky9IdVIs0l5S6m_f08Pz1u2NTFNcfVuekIBrdOOodjfLOp8Xs3Wvd3UlI5Hug_qFFRg3AFOP8iQvMtt5Ykury0S7LA9N9sEEoI_iDTS010An5UFaIbm5Hvpm0WhHHd6yqHK0dnvb-F6qwMq8EH_Kf-zR4aZD0dCdbhwPUDvNzW-i_qPWMf8ZlD9P3kqcgeEmQr1X7hQs0uvHolIrEZ9WhHOcyAYKFsV3pAH5kwzGyu7wOuOM50MhYSlT5OIpRc9kWo8u3aMPatI6Rgw7PzF6IdviLg==","summary":[]},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"rs_0ab8f408745e612d006a8fd9fb891c87d0944ab30b02cc4c2e","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9n9Fn4MObHIsPybAQKVF_nUkEKYNnVA1RGnHJ3t-hAW5KtLkYA8fwr1SrYfPP-XHKtdTyeOmHiGAMsqrNpsBRgMjOQeI-zdUK4epUBeQE0ujFLl7rGrabggipm21TjOI8nSp8fxvx-TX5AQywT8-2OMyNyZ9zAf4YkHRteiABYxgDTY3iPMsiWcXmO0yUaVveiUvaOg2qhA6NEvD1r7OQY_cU2qIF0-6rjnqkBWAjrmIG5EPTYZ8dluF_ujnbq6if9IfhkD4C8BVSP2oX3ybXfMVoaaXL5kcz065176ITS0RCiKxAgEiR8kZRM9OrwPuY-oU0Halc5h5KxkRyLv8JQ3w1dSrJSa5x1PtrXvLTELLEFf1brEezgWLTgUr3QWpODKDyKvrs4w5__0tTLEnNv-uGxyrAvnmFPNET4gbCvt-rXCg9-08PgohDdhYlaxdlS6cCSwiE6L_Vtf27AgJmPy4wEAO-9sOGbDk2JK9bu1gX2vNjBNYgIXgnBKUw8UnVVVEqmGei7uz5FTTgZqe51y93IQvckybk4B6CAuz7PvzIPn_Uk6CFUGDyKxzK3Ja1jddKcOxlJ_ET28WJKqi1Lkx-dW3MfhqgD92voH0UDVrMQVTrKA7U8XzPoXrBLz-CfV4a8qRvyBMPLHDZOB7Q6zsa4GFoouKWWHhssyuKF6w9SYmzfkmdrtdZqPqn5BXWY5RpOJ8ALyrkEk7pOfkFN67wCm7hV8U2tblIbmdlOHpWoc7d9zcek9-kp89rkA3pcnWklqqhFzvobGBWCSGnjcsWOv2z-XMGUPEu334zwu8zBEEzOF8VrB-h4ANVfo82xmzcOKgK4FXHkrneEWorJo96T60n1MYEYaBrViWSOjyL3f6LrIMKdJ_d3VVuz6yP199qsdwGREBpzsj81H6ErMRB6p027SjN36NdJCGanSt09jknr4hEKjQ9Qa54js2Vllc8JjPiET1611NXa39IJO6VhkUlYeJoZt1VLvGURT9TLmR5deRrjFvQ1aBpG8YvpiXmZF-AW9O7nDWE-msB2xqSFp76Or9UFITUUz7lKjuZnHbKA8vUGM6pG7Dm9ILfAHIw9HLSWUd4JEMXUb8C-mj9-1bc8hFaJDcj8DixKsAuT4q7_F6BUxwlmNTbFuI2zxyqeHtOlOIU5w-0bdM5x9PDtEgR8SKQxdv39ha2oyKFzIRc-ULqQtEIC2RMl7LahgoFaEM9qk0Va3lKIeTVPf4TncKzWbZ6ha3Z0Oh1oEo4OIZfs-_QbLhqT-5OoI_HDxWD6CqZMXiIJ5luXEtBxDJcIMLdhlDkc1JxixIxPqBxxzsP0cwhxIonIOsgSCAU9Pqzoch4Ip-4tsQpXYBL5Ia59EctS7x6oUCI0gg2SsAsWKVeDxrdYjy05bxM-4LWNZc7s85I_AGIE1NgzOliwNLcLqFRr6o8S3XH3CUqf0UfgogniwOFalgUmkLn2Pv7Ang4PQoVZ-gQg4dFP8pF0vW8GRzZMKJDsptHZyE7zTrSYAxGyiGFVI2o9626gc4vW8aGDGHnWH4jCCmQ-Eaa4i4b79qYYUcBo7SwQ1zoMXamTkKbAa9b-qwU7iSGZzPQ_KghAtjBqIk6lSvU0H6WyCghQlselVOMNqxgRFArwVzqCHDx5GQDty8t_3E9FjDNU0aLRx11r2BqKLv-4zSDZP4LyhsMKvxQ5tWfwcmbc7FU72ChDQhsBk20b8EXU5hSvyIlkGy35H3Bp5ThhJDGiPBetxRbfSC4OA8wn9lfV2vgTIWZnwAPVXdKA9VZMMTt2nk-AqtklELWZzuWtpPD87a7TvHFOJFTRhycCAoJB-FyliNcFaSTPxrg2ntSffO4BRo5c7li1bnepk-cNv0NaVHw==","summary":[]},"output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"ctc_0ab8f408745e612d006a8fd9fd005c87d08cb6de5a5f0ae9c7","type":"custom_tool_call","status":"in_progress","call_id":"call_94UWTasyNHYhCm4wmJqsDH0G","input":"","name":"set_temperature_unit"},"output_index":1,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.custom_tool_call_input.delta
+
+      '
+    - 'data: {"type":"response.custom_tool_call_input.delta","delta":"fahren","item_id":"ctc_0ab8f408745e612d006a8fd9fd005c87d08cb6de5a5f0ae9c7","obfuscation":"jLzx5ngZVy","output_index":1,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.custom_tool_call_input.delta
+
+      '
+    - 'data: {"type":"response.custom_tool_call_input.delta","delta":"heit","item_id":"ctc_0ab8f408745e612d006a8fd9fd005c87d08cb6de5a5f0ae9c7","obfuscation":"UYgYZ3md5jC6","output_index":1,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.custom_tool_call_input.delta
+
+      '
+    - 'data: {"type":"response.custom_tool_call_input.delta","delta":"\n","item_id":"ctc_0ab8f408745e612d006a8fd9fd005c87d08cb6de5a5f0ae9c7","obfuscation":"jhaIyW5pCPhbgej","output_index":1,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.custom_tool_call_input.done
+
+      '
+    - 'data: {"type":"response.custom_tool_call_input.done","input":"fahrenheit\n","item_id":"ctc_0ab8f408745e612d006a8fd9fd005c87d08cb6de5a5f0ae9c7","output_index":1,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"ctc_0ab8f408745e612d006a8fd9fd005c87d08cb6de5a5f0ae9c7","type":"custom_tool_call","status":"completed","call_id":"call_94UWTasyNHYhCm4wmJqsDH0G","input":"fahrenheit\n","name":"set_temperature_unit"},"output_index":1,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_0ab8f408745e612d006a8fd9faf14887d0b11fd2fc878de000","object":"response","created_at":1787812347,"status":"completed","background":false,"completed_at":1787812349,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"rs_0ab8f408745e612d006a8fd9fb891c87d0944ab30b02cc4c2e","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9n9R2Dz4kavjkD521jrfFyCxHJJL_LRkQ_6EuOVNI1Zq6gM5yb-YE6SHT1AEpDAj8axA6BM3TnUroJogpAkANRhkmMMd9ufh8Jqn17cpHFVscug90fuNN8w5DSyxWyAd4EzfRpBC8nN1OBWhCOInx_zQwSd8EYl4-Qs3k-0OgAbgY3Y2TrINv2ss2MgEcC7noj3MaV6LlzlhTXTC1DXfV6TSeoNqsoGQJ169X0MP4ZRdok8pnE3hgPRVrx93Z8CwEu9gm9AjWrjZB2OKEVtnbsOpkxBsJaQpTlN2vv5zXZ-PrYF51OExD76tK4vJ-qt07FqOGQxEmrAX2twrn_7QeOW2DFimWkA6EPV8LEWGVNKGe_wYWzsm6aBo8d81VYiQewiwhnW9n1BpPB7re1gIJaPvld9Sh1r_6-t-3zwMC20emHE-Gzp5MWgE1qu8UhwHRHrm94PJEr2XHHJgEDSXayDJLuGV8w2q4Dx21-N4X43sXcDTmQ7-fGehoVcGkMVRYy_tZBtHZ4yh6DGKAT7HLzESL29XCkWGY6CHt1Rc20OM7jCoRKsSBEv5MEA-RTy4Mflh2VsjDcP3_kNrtLM6vj5SVfUVftvkTuEm1bM90dfevLf06eMmvNK7myEfUNV_BSfocEz_EMoAR94Cwf0l-NvcSMvAmEuZyIOheyAfBGGeCiEQZneWp6qzSX7hr1nhHz7G7I_TjsBdC8KgxRP7Mh15hTEICp59s5cKXnWDA98_Klkr6XLpi62KjCIXxfB0P1KTO1J-c0Q8LiiMt0h-RFOTdoFhWn1KOndKh_7l7GZdGq8HSBsaSERboYk4zGx8OcdCRY9klU5vcl0ebVGMwqtaO4xQa7W0Q8sFLcTaJOz2Y0NsZBB-r2a0kLyfIe5sGfMqy7VWDMEkxn24HMZp4RTGNPia-ybOrrXpSxMi8ym_QHE2oSSPtJRgaIhalEXQI56AG2a1PRqru5XNU0i5Hh5mYKe2Sqy16rtpDAs8O12ZMm3FvE8niI5ygteSvlb_sn4ACcvJblXG0yW6Urc35_1B_JMNeXXe_SNcAO2q7wM1V8DLE1FKVcDdRIvaYMEsYWTl-JFacoiRAiJhIrhkITBNKI2VHc2mOX-EkTC-J1WAgJcURPaT2705xL2nwQDArMeTISC0xXlEKkQsmMbdiooCKxBE5bFzSvx7oTLzFqVrsB3PIIMnUnV6mmEGqt867jOA15of8jF5xsZzA96Ce8FBxAwr6cVeKZ24PwIEkZdsK8ZygPmxUVoEx92ZjLuJ6y6pglg7NlEilwovfmh_v8A2S7GEEKckuNEVBL1jwnrMsf-SVj8cFUvWdutQ9TMDc0pgWgzXf4fK33LMG-kcPIHOg4OQflOU_PQYeLM7vb2IdUPdPtsKeh2E1h86W45nq6mDd3FehE-Zubg4oW5pVbO_k6k4NPHWplj-2Rg7lS2_63ZpVsYLkZwc3Vgdwq5oPu4Olp4vtMeoLijUpjOMHe34NIF0edF3XHsrl2GhmJtOX0uJf4ilLK_Jl1UGOhwi_XhiRofDaWMrEq4eXAR15HoO6hasi_VzfZ-DvEKo_2-f1TLrlSWhnliKxi10c1_J3r9utNum9oW7uFhUgxJHpF1vFWO01xWXfZI94sMrsqFACsnbbbVU55hd-mfZs53bq1I_70I0ScG_zrgc1VbFOWerObWOoGljK211DT-qgkEmC8bgdesUQoeFoRoK1Olp5drn2pv08P2pJlX0ShH96cNtHE4PXTKhFoCZn2-e9yuXi266Fs4vJalS-ZtyYg-DSM7PZMlYnGmmT211s6TqgJQ5HRRH0w2uovVwJlccqHYXh0tlt-zMyOAF7pV-s6PG5XbDtavpIPkiQ3tbaLZM8sLpg==","summary":[]},{"id":"ctc_0ab8f408745e612d006a8fd9fd005c87d08cb6de5a5f0ae9c7","type":"custom_tool_call","status":"completed","call_id":"call_94UWTasyNHYhCm4wmJqsDH0G","input":"fahrenheit\n","name":"set_temperature_unit"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":4630,"input_tokens_details":{"cache_write_tokens":4587,"cached_tokens":0},"output_tokens":115,"output_tokens_details":{"reasoning_tokens":98},"total_tokens":4745},"user":null,"metadata":{}},"sequence_number":10}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: call_94UWTasyNHYhCm4wmJqsDH0G
+        output: '{"status": "ok", "unit": "fahrenheit"}'
+        type: custom_tool_call_output
+      - content: Now report Tokyo's current temperature using the unit I just told
+          you to prefer.
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0ab8f408745e612d006a8fd9faf14887d0b11fd2fc878de000
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_0ab8f408745e612d006a8fd9fda03487d0854930e3c92e5497","object":"response","created_at":1787812349,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0ab8f408745e612d006a8fd9faf14887d0b11fd2fc878de000","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_0ab8f408745e612d006a8fd9fda03487d0854930e3c92e5497","object":"response","created_at":1787812349,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0ab8f408745e612d006a8fd9faf14887d0b11fd2fc878de000","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"rs_0ab8f408745e612d006a8fd9ff9c6c87d09fdf156428c3bbeb","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9n_FHAdwOE4f7y76cwhcLph08SV2ZMIOl5zIVaqUeSAa9p3Rz1Lnf9mAyKwhpKsYzTIwHi-jwzxcFkwhFK_zg79N_1Z8uXxjtFlZ_o3KTOgyyX59oUtfnX8Kn08qd7e-rfhJxfCLqtwYf6VS1N1tThZhWcL6JdHvIJXu1gJEZHdq8fsyRVvouHnC6YZidOJ-vIdDW5fuGLfPPm2T2HOwS7TH8jsPGa8PvbL-e7qtCdTehjfnpHS2kitDGOqmhAzyq2aO4QjZ-yAiKKSTF_Io75uq-aKkiWsFCWat6KCMdHmM1cf5rSYKHMINAafsa_AmRjMziAzoX0fbutMFo2vos2Nv1jGjRCuikxAyfhmWAuvB20HuV85hbBQU1zBBZNQeJYEo9xA-0eZ9-JY_mm8AC2_b5EywkOKBjTNOiJsc9Jyj7SrYAVmsRP1SySgRz1_hJlMj3Bch2B1SuPHYH_FunxXa1d4JQABpHeNyTh5VCsOOn5fyOgtgMi-7mzyfMPeIrir1LBR34ur7f35gAcGGCoYktiLSbF0TaN1mZjb6YpIBWd1swJwW7D5oRujbWZE-16SUG-hEr4Es99gqRwjfXmJCfnmsCnCyUu3VbNSA3fOLRmyy0VQYrH7Ysre2cScQ4zzc5VFlaYNC2cswsBfPZ2uFa3Cv9tbMZsmnYbpyqVMOHAXWRFOsTkzygvE5NMt07ywkUgHJlF-CQ293AooM3zzH51PYlP5Obum1v0JYvKWtVAap8Aozgr1HXDE7phYxKn_Sxx-xEkdnGA_Jk2R4UFBbvOhyif4on1Yfj2HQayimuxvE9PBkbW1QLE6iDyVi2rgEtInmNN4IrL6Hzqf1WVBkTvUss4YKn_nvQoKri_eDPCLWGqSZpNy746KjGnuwAwMGa658fagks6_FR9O7lyjL7HK5PNnZPjLV1gkjj5mcpchjTahYABF24xdA7D8a9gRGOGBD9e5AdSYla90qOxwJKAJ9QJQJYehkEp9DKpEdi8fKfqptPbLIoNPOtyoQxdD1r6qEmVEJii6HgYHcS52ouNUN_h0lqWjO6AzKoT0dyj717tgkdkTyUN2dU6kNWj0mUcmEDCzGv5-LpPgGzOKvoH3PuZGZylYqOBF9B6yMmISolMp1yqk4l9fOz_Rg2r36LjWtT4pJoXnchUQXy7LVg==","summary":[]},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"rs_0ab8f408745e612d006a8fd9ff9c6c87d09fdf156428c3bbeb","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9n_X5gk5UO9topTbM2ZiOdYXoN-rvlNr2zN7KVGRroxTjb4VlD-SPyaxmcUbNO22uZwsQY1tnubs4HHwcftWTTOmHEYRgE5DWKwNAnqBOrnoxkMIboVUwYPfH_Rmnrc6gHVJPEGgcFFGvUUj-hoycjMdhdHYG9Iaj7I-f71rdJAJAf4gOcBJkcJZvIzOobLBcaUrSWSHaD6bdBxv6flG7hl0xFWVAaB2eSzG39qPDTBG1Y3LBESld80L4InJtU6pSz1J8RKH0_OAMq76hk4ee3A03luUdgXWSL8eUGO4XIOOYJKRPyxvnnG-XxTg4bFSpW8G9_JMG-9M-GnLkqsedQWuwNyfjXCBys3BJe-Qb7wCh8PgCrePTX4v7SKDswVPpCaQwfm6HJvo4FQkcB4t6D-0J1ey8ZOYDwIm2XxcmCI9Gez6ue-36s3-VIq8MtUBdGEPK1ScNILwMTOVpRtiQ2RZMwh0T8d5SOM1jg5ChMj5902tCiXVJX3hwvzFqEQpDLqR84PJ0s0DCKQmMJnYgTVzsn3f-53PgwpUGj9nfIAODAqUMTjWQ_OBNfjw6pyFaD_jbkuKvl2SBTUmolTXax4RAIl_OqGeHDrYfDcTChtwag9MTxYUmX-lqmvZJ7YVe6HCNAxO4Hyf4iWSo7VrSyb4IzAtkAVZ__ROOPoKCUYmHZikRjEvVtpJONGkMRl6UBsdwAJUDMCs-CeeKrIoAlagU4_s-1LQuOx4-rVYV2XiAD2VH_zalkewkWQwlpeH-zpAJpjYXy7xP_p_DtO1RGaanb5phfM2uUEx46Wnaxws-Tu_uXiCH9ly6MML-cOaoIFPZxRzp7dtCksmaTt-_VPgBZLRLYlaZEMRy0zLjPxriktRKEMluooWPPu15BO2HtrrUTq8NkBl3FDLc6FOTfLnLSoh21wWzrEbId3Uf56zr6OJgESupbId-8dBbJwa6CakMNgziAPVDm0qib060PRmXbJ1TsmInTr5MABEFgKwO2AYrkElbzeFItJM-IjIwpHFjZLzx-5garcFUggKw8FSzmD1zd7gsISgftqZ9BnKaatRSPYKwPLftFd9jaY8-qWH2aGM3PznpbOfyyCvgJnzJaEuqE3hV2bGr2Mk38IVWJBUb9ibkuYA5uUkPBb5uBux69yVuoYonh7xWUvO-OlJFtFWMAybyzqHiyr4jiXt6JUanmG2zs-vDARQVFAnzpT9W1Tf5Xumi0jat_Cu6eMsXA9hSnbklIvZGVMxyVulo0=","summary":[]},"output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_0ab8f408745e612d006a8fd9ffdba487d0872fc0216a4af722","type":"function_call","status":"in_progress","arguments":"","call_id":"call_siGKLNszmRQBvQ5pvqiY5t0I","name":"get_weather"},"output_index":1,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"","item_id":"fc_0ab8f408745e612d006a8fd9ffdba487d0872fc0216a4af722","obfuscation":"SZYBwtClQJ1WjZ","output_index":1,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"city","item_id":"fc_0ab8f408745e612d006a8fd9ffdba487d0872fc0216a4af722","obfuscation":"Wtbqj2TnjmY4","output_index":1,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"\":\"","item_id":"fc_0ab8f408745e612d006a8fd9ffdba487d0872fc0216a4af722","obfuscation":"J1h0yLKdJTf7U","output_index":1,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"Tokyo","item_id":"fc_0ab8f408745e612d006a8fd9ffdba487d0872fc0216a4af722","obfuscation":"KXf73ORTJg5","output_index":1,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"\"}","item_id":"fc_0ab8f408745e612d006a8fd9ffdba487d0872fc0216a4af722","obfuscation":"K2q4lPz3rTq56K","output_index":1,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"Tokyo\"}","item_id":"fc_0ab8f408745e612d006a8fd9ffdba487d0872fc0216a4af722","output_index":1,"sequence_number":10}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_0ab8f408745e612d006a8fd9ffdba487d0872fc0216a4af722","type":"function_call","status":"completed","arguments":"{\"city\":\"Tokyo\"}","call_id":"call_siGKLNszmRQBvQ5pvqiY5t0I","name":"get_weather"},"output_index":1,"sequence_number":11}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_0ab8f408745e612d006a8fd9fda03487d0854930e3c92e5497","object":"response","created_at":1787812349,"status":"completed","background":false,"completed_at":1787812352,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"rs_0ab8f408745e612d006a8fd9ff9c6c87d09fdf156428c3bbeb","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oAw8AR7g0xlNGzXv__j0MmPAy6C4u1YVyKeEP4SU2CQDO42Qtlo5Ybs4QKAps4l83ZFd1MtFJoYXmaQ46GYRGG990PG90zPXNDLWWqBl0UqIbd6HLTTiXjaw-Sd4Zz-ooajfQaOrkQdo-AMuD2syVuUfb0w7utQ95Kr2iuHGGSqGLcBQIOltX19zzkZLF-8fO0yA3qBVHfWFMF7yhezpTXo-mmIL82ohsHenX5kUc0hQ099b540FCVtV2OzihtK5ANQxM6Zs-6MDM_tr9Wu65j4JShLKsM1EXvseB9CqmuUI7YuBX9kQQteCXwTzt44PlbAnYn_CB2cC7eBC_qJgeZ6hToaLOVjpziEsVzy5YLnMUGxqkccTHr-FInIq4eTX2LFIbno-KKFxCWqu0bBYYlSSYdCVWsJvXRlajT-emJkCKpz_la48Jhl3PDOelrJbn4I6cmPYn3TFsxmzI1Z_1XcMyQCDq64954aMbeMa2a-7D2gcb38WbZeRlhrCdeYCaN1-NblJq0fBYjmWdYgs5oDPKar6OQz4rTkOGmWEvUJA7D1ShXVjcxBnJGm6WobPBx4rHP2bNIWCEElcQVrRDZUpGJy5eJ--4cj8t3N65y4rfl7HwvHe9X8s0PVlQMFyqbgFbPu1Iepdc7VHhSe6xSYp3l3XFj4axEpx8t3bKrKXUCThGGUsqpgBZK4yr4h8wfIIDKVqADUmM8PPbVRux5-1CATmbJLLUklYb5oY8iexCJOq38yP8VhfIRemr7nfzhAgoIq5UUbASTK-CHg_N8gAj6D3teyPG5FM_x1V_MggbVhV-92Zeb28_oxKF5XgakrVjTKIiY0Q-Z3jKrQdqXHozIwzVmoswCUzP74P2qWBzeTOafQXYKIT4FxI6L6aVx4gbBnJ5Ce2tpFtHmtXdUtxKx1yelT2WtYHvJnz8HF1DOchyg1jqvZ-AJjRuVV1FcUxrm0Ekl-nBmzq-szdeHy-THX6R004KkL7M2ALi_2Ij3H3XRMSHACqGKMPqMWn8-cpvFIgJ71SX84rv5sn2IZoCuLDAgeciDEIHJ70nQOGJoGh_tIz8AXTo_7f5AFvJoPxFLIHrsbJrMv16DxsNat2LhIwDQzP7XOhvlX4sgWxHtpBoDOUJ1AZjC0bd_uXUA1q6pAr_jFJqgyepZm0Mm2cWWFVqa5cAugq6RVnrNy2KB39CUJW8Y0p3hnaiE0ppLaiwhX4p1ukaWxSUqI9dbEjLurkVlS0VmmkMpWJ3Nylk=","summary":[]},{"id":"fc_0ab8f408745e612d006a8fd9ffdba487d0872fc0216a4af722","type":"function_call","status":"completed","arguments":"{\"city\":\"Tokyo\"}","call_id":"call_siGKLNszmRQBvQ5pvqiY5t0I","name":"get_weather"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0ab8f408745e612d006a8fd9faf14887d0b11fd2fc878de000","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Tokyo"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"web_search_preview","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":4790,"input_tokens_details":{"cache_write_tokens":160,"cached_tokens":4587},"output_tokens":35,"output_tokens_details":{"reasoning_tokens":15},"total_tokens":4825},"user":null,"metadata":{}},"sequence_number":12}
+
+      '
+    - '
+
+      '
+    status_code: 200

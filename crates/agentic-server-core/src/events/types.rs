@@ -311,11 +311,37 @@ pub enum EventPayload {
         output_index: u32,
     },
 
+    /// `response.reasoning_text.delta`
+    ReasoningTextDelta {
+        delta: String,
+        item_id: String,
+        output_index: u32,
+        content_index: u32,
+    },
+
+    /// `response.reasoning_text.done`
+    ReasoningTextDone {
+        text: String,
+        item_id: String,
+        output_index: u32,
+        content_index: u32,
+    },
+
     /// `response.reasoning_summary_text.delta`
-    ReasoningDelta { delta: String, item_id: String },
+    ReasoningSummaryTextDelta {
+        delta: String,
+        item_id: String,
+        output_index: u32,
+        summary_index: u32,
+    },
 
     /// `response.reasoning_summary_text.done`
-    ReasoningDone { text: String, item_id: String },
+    ReasoningSummaryTextDone {
+        text: String,
+        item_id: String,
+        output_index: u32,
+        summary_index: u32,
+    },
 
     /// Events we classify but don't deeply parse yet.
     Raw(Value),

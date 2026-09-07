@@ -191,6 +191,8 @@ mod tests {
             stream: false,
             store: true,
             include: None,
+            reasoning: None,
+            text: None,
             temperature: None,
             top_p: None,
             max_output_tokens: None,

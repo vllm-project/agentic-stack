@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::Path;
 
 use agentic_core::McpServerEntry;
@@ -37,6 +38,19 @@ impl McpFileConfig {
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
+pub(crate) struct ToolsFileConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_concurrent_gateway_calls: Option<NonZeroUsize>,
+}
+
+impl ToolsFileConfig {
+    fn is_empty(&self) -> bool {
+        self.max_concurrent_gateway_calls.is_none()
+    }
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub(crate) struct MessagesGatewayFileConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_aliases: Option<String>,
@@ -59,6 +73,8 @@ pub(crate) struct FileConfig {
     pub web_search: WebSearchFileConfig,
     #[serde(skip_serializing_if = "McpFileConfig::is_empty")]
     pub mcp: McpFileConfig,
+    #[serde(skip_serializing_if = "ToolsFileConfig::is_empty")]
+    pub tools: ToolsFileConfig,
     #[serde(skip_serializing_if = "MessagesGatewayFileConfig::is_empty")]
     pub messages_gateway: MessagesGatewayFileConfig,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
@@ -305,6 +321,40 @@ mod tests {
 
         let error = FileConfig::load(home.path()).expect_err("unknown field must fail");
         assert!(error.to_string().contains("unknown field"));
+    }
+
+    #[test]
+    fn rejects_zero_gateway_concurrency() {
+        let home = tempdir().expect("temp home");
+        fs::write(
+            home.path().join("config.toml"),
+            "[tools]\nmax_concurrent_gateway_calls = 0\n",
+        )
+        .expect("write config");
+
+        let error = FileConfig::load(home.path()).expect_err("zero concurrency must fail");
+        assert!(error.to_string().contains("max_concurrent_gateway_calls"));
+    }
+
+    #[test]
+    fn accepts_positive_gateway_concurrency() {
+        let home = tempdir().expect("temp home");
+        fs::write(
+            home.path().join("config.toml"),
+            "[tools]\nmax_concurrent_gateway_calls = 3\n",
+        )
+        .expect("write config");
+
+        let config = FileConfig::load(home.path())
+            .expect("positive concurrency must parse")
+            .expect("existing config");
+        assert_eq!(
+            config
+                .tools
+                .max_concurrent_gateway_calls
+                .map(std::num::NonZeroUsize::get),
+            Some(3)
+        );
     }
 
     #[test]

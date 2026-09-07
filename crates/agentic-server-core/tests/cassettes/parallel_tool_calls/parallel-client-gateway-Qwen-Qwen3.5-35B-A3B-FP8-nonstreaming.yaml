@@ -1,0 +1,520 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Do all three of these right now, in parallel, in this single turn --
+        do not wait for one before starting another: (1) call get_weather for "Tokyo",
+        (2) call get_stock_price for "AAPL", and (3) call set_temperature_unit to
+        set my preferred unit to "fahrenheit" for the rest of this conversation.'
+      max_output_tokens: 2048
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      parallel_tool_calls: true
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788257386
+      error: null
+      id: resp_01a05c72-3a1a-78a0-b711-496868354936
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user is asking me to call three different functions in parallel
+            within a single turn. They want me to:
+
+
+            1. Call get_weather for "Tokyo"
+
+            2. Call get_stock_price for "AAPL"
+
+            3. Call set_temperature_unit to set the preferred unit to "fahrenheit"
+
+
+            Looking at the function definitions:
+
+            - get_weather requires a "city" parameter (string)
+
+            - get_stock_price requires a "ticker" parameter (string)
+
+            - set_temperature_unit requires an "input" parameter (string) - they want
+            me to set it to "fahrenheit"
+
+
+            I need to make all three function calls in parallel. I should create three
+            separate tool calls.
+
+
+            For set_temperature_unit, the description says "Provide the raw tool input
+            in the `input` string field" and mentions "e.g. fahrenheit -- not JSON",
+            so I should pass "fahrenheit" as the input value.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_bd9f3c27576f22c9
+        status: null
+        summary: []
+        type: reasoning
+      - arguments: '{"city": "Tokyo"}'
+        call_id: chatcmpl-tool-895976e85aaaa2b6
+        id: fc_9330b8bb8f17693a
+        name: get_weather
+        status: completed
+        type: function_call
+      - arguments: '{"ticker": "AAPL"}'
+        call_id: chatcmpl-tool-badb0ba14d5f146d
+        id: fc_b20abc7d28614f24
+        name: get_stock_price
+        status: completed
+        type: function_call
+      - call_id: chatcmpl-tool-88b8a7f0c7ef49c1
+        id: ctc_b643137742459922
+        input: fahrenheit
+        name: set_temperature_unit
+        status: completed
+        type: custom_tool_call
+      previous_response_id: null
+      status: completed
+      usage:
+        input_tokens: 661
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 275
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 936
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: chatcmpl-tool-895976e85aaaa2b6
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - call_id: chatcmpl-tool-badb0ba14d5f146d
+        output: '{"ticker": "AAPL", "price": 231.45, "currency": "USD"}'
+        type: function_call_output
+      - call_id: chatcmpl-tool-88b8a7f0c7ef49c1
+        output: '{"status": "ok", "unit": "fahrenheit"}'
+        type: custom_tool_call_output
+      - content: What did you find for the weather and the stock price, and what temperature
+          unit did you just set?
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      parallel_tool_calls: true
+      previous_response_id: resp_01a05c72-3a1a-78a0-b711-496868354936
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788257388
+      error: null
+      id: resp_01a05c72-4176-7781-b876-aad0b866fd95
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user is asking me to summarize what I found from the three parallel
+            function calls I just made. Let me provide a clear summary of all three
+            results:
+
+
+            1. Weather for Tokyo: 22°C, Clear conditions
+
+            2. Stock price for AAPL: $231.45 USD
+
+            3. Temperature unit set to: fahrenheit
+
+
+            I should present this information in a clear, organized way.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_91ced026b6b78b19
+        status: null
+        summary: []
+        type: reasoning
+      - content:
+        - annotations: []
+          text: '
+
+
+            Here''s what I found from all three calls:
+
+
+            **Weather for Tokyo:**
+
+            - Temperature: 22°C (which I''ll convert to Fahrenheit now that I''ve
+            set your preference)
+
+            - Condition: Clear
+
+
+            **Stock Price for AAPL:**
+
+            - Price: $231.45 USD
+
+
+            **Temperature Unit:**
+
+            - Successfully set to fahrenheit for the rest of our conversation
+
+
+            So going forward, if I mention any temperatures, they''ll be in Fahrenheit
+            instead of Celsius. Would you like me to convert that Tokyo temperature
+            to Fahrenheit for you?'
+          type: output_text
+        id: msg_a51942b9361ad53e
+        role: assistant
+        status: completed
+        type: message
+      previous_response_id: resp_01a05c72-3a1a-78a0-b711-496868354936
+      status: completed
+      usage:
+        input_tokens: 850
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 205
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 1055
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t3
+  request:
+    body:
+      input: 'Do both of these right now, in parallel, in this single turn -- do not
+        wait for one before starting another: (1) call get_weather for "Tokyo", and
+        (2) call get_weather for "Paris".'
+      max_output_tokens: 2048
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      parallel_tool_calls: true
+      previous_response_id: resp_01a05c72-4176-7781-b876-aad0b866fd95
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788257389
+      error: null
+      id: resp_01a05c72-472e-7ad0-b67c-9a9b2e301268
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user wants me to make two parallel function calls:
+
+            1. get_weather for "Tokyo"
+
+            2. get_weather for "Paris"
+
+
+            Both calls can be made in parallel as they requested. I''ll make both
+            calls in a single turn.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_b44eec834ade6d78
+        status: null
+        summary: []
+        type: reasoning
+      - arguments: '{"city": "Tokyo"}'
+        call_id: chatcmpl-tool-9df9fe6344f46063
+        id: fc_be2ab7045a245dd6
+        name: get_weather
+        status: completed
+        type: function_call
+      - arguments: '{"city": "Paris"}'
+        call_id: chatcmpl-tool-946d4c89451deca8
+        id: fc_8b824eb1d960bc67
+        name: get_weather
+        status: completed
+        type: function_call
+      previous_response_id: resp_01a05c72-4176-7781-b876-aad0b866fd95
+      status: completed
+      usage:
+        input_tokens: 1022
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 108
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 1130
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t4
+  request:
+    body:
+      input:
+      - call_id: chatcmpl-tool-9df9fe6344f46063
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - call_id: chatcmpl-tool-946d4c89451deca8
+        output: '{"city": "Paris", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - content: What's the weather in each of those two cities?
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      parallel_tool_calls: true
+      previous_response_id: resp_01a05c72-472e-7ad0-b67c-9a9b2e301268
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788257390
+      error: null
+      id: resp_01a05c72-4a8c-7f13-afe9-bab26e5ff8d7
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user is asking about the weather in both Tokyo and Paris based
+            on the results from the two parallel tool calls I just made. I have the
+            data from both calls and can present it to the user.
+
+
+            From the results:
+
+            - Tokyo: 22°C, Clear
+
+            - Paris: 22°C, Clear
+
+
+            Since I previously set the temperature unit to fahrenheit, I should convert
+            these to Fahrenheit for the user. 22°C to Fahrenheit would be: (22 × 9/5)
+            + 32 = 39.6 + 32 = 71.6°F, which I can round to approximately 72°F.
+
+
+            Let me present this information clearly to the user.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_9a0775eb44a458a0
+        status: null
+        summary: []
+        type: reasoning
+      - content:
+        - annotations: []
+          text: '
+
+
+            Here''s the weather for both cities:
+
+
+            **Tokyo:**
+
+            - Temperature: 72°F (22°C)
+
+            - Condition: Clear
+
+
+            **Paris:**
+
+            - Temperature: 72°F (22°C)
+
+            - Condition: Clear
+
+
+            Interesting! Both cities are experiencing the same weather conditions
+            right now — clear skies and 22°C (72°F).'
+          type: output_text
+        id: msg_a1b353a6fd028973
+        role: assistant
+        status: completed
+        type: message
+      previous_response_id: resp_01a05c72-472e-7ad0-b67c-9a9b2e301268
+      status: completed
+      usage:
+        input_tokens: 1150
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 233
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 1383
+    headers:
+      content-type: application/json
+    status_code: 200

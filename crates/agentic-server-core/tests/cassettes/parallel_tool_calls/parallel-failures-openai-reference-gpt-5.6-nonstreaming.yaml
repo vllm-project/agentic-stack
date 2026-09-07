@@ -1,0 +1,737 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Do both of these right now, in parallel, in this single turn -- do not
+        wait for one before starting another: (1) call get_weather for "London", and
+        (2) call get_weather for "Tokyo".'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812431
+      created_at: 1787812430
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0a5e3c6121cde6b2006a8fda4e94dc87d0aa55fbde4ca0cac4
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - arguments: '{"city":"London"}'
+        call_id: call_WE8wWgV8UgVDxfoioUOBTOto
+        id: fc_0a5e3c6121cde6b2006a8fda4fc05887d0a35805c5b1e3a9c9
+        name: get_weather
+        status: completed
+        type: function_call
+      - arguments: '{"city":"Tokyo"}'
+        call_id: call_Agme3xEY7hwsd4ce5PdLuswX
+        id: fc_0a5e3c6121cde6b2006a8fda4fc07087d0a3afe2cfa6431c6d
+        name: get_weather
+        status: completed
+        type: function_call
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: null
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - search_content_types:
+        - text
+        search_context_size: medium
+        type: web_search_preview
+        user_location:
+          city: null
+          country: US
+          region: null
+          timezone: null
+          type: approximate
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        format:
+          type: text
+        name: set_temperature_unit
+        type: custom
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 4600
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 4557
+        output_tokens: 48
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 4648
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: call_WE8wWgV8UgVDxfoioUOBTOto
+        output: '{"error": "weather service unavailable: upstream timeout"}'
+        type: function_call_output
+      - call_id: call_Agme3xEY7hwsd4ce5PdLuswX
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - content: What did you find for each of those two cities?
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0a5e3c6121cde6b2006a8fda4e94dc87d0aa55fbde4ca0cac4
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812433
+      created_at: 1787812432
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0a5e3c6121cde6b2006a8fda507be087d0bffd23e048c74064
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content:
+        - annotations: []
+          logprobs: []
+          text: '- **London:** Weather lookup failed because the service timed out.
+
+            - **Tokyo:** **22°C**, clear.'
+          type: output_text
+        id: msg_0a5e3c6121cde6b2006a8fda51276087d0a5479db983ea3823
+        phase: final_answer
+        role: assistant
+        status: completed
+        type: message
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: resp_0a5e3c6121cde6b2006a8fda4e94dc87d0aa55fbde4ca0cac4
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - search_content_types:
+        - text
+        search_context_size: medium
+        type: web_search_preview
+        user_location:
+          city: null
+          country: US
+          region: null
+          timezone: null
+          type: approximate
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        format:
+          type: text
+        name: set_temperature_unit
+        type: custom
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 4713
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 4670
+        output_tokens: 27
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 4740
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t3
+  request:
+    body:
+      input: 'Do both of these right now, in parallel, in this single turn -- do not
+        wait for one before starting another: (1) call get_weather for "Tokyo", and
+        (2) call get_weather for "Atlantis".'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812438
+      created_at: 1787812435
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0c1c9e8e0577a7db006a8fda53774c87d0bae32d76950ae3b8
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqj9pWmv_C6VzOmq8zPnhLNFyCEdMdD9Ku2De-GVXExUda55SGUrQ2pY8TwES3jYgein_4NxwaCf62d61zC8NmIESNnVbdHBHCMqGsC5H3HGUs9HLPupv0hKIPnShJlcvi8ju3r8BSZPrlvtiC6Ltn2TfRc8QOoT3oiUrvquZIAEsiSMmiqByTWJBPxAewH76jcCYB4aTOI3Jepc_VVXP9fI7LE3XhYtSdwNILxK4Dw-gkPR1Yuw5Z8aznAK1lLf6kgfljLQ61xSRb9ny7x5_nj5_NY-MdFSfkm2AuLxHy3MzdpU3n2cHTFLeRbmasZy1qmqIC1w3Dq8TUbZd7C99ykXk54usec1WpfXWjIYvgfkZbAo23FaRA0ZHiF6Mv2puLplaVb5YfB9uxFyTmxvml2bCTWSnHVlgJqXTMIocVSYXA-CsDqmHBrw-FtvtlPNFsZpzLvYGlXGwje20iIna8u5ZiO8I4hI2PaKF8Pa_F1zeaEwJRBINdkg-f9kKerXxPCthRg108ExjLJFgVK-yVy8J0eMrgxdgucReYb-ao3rkCC5de5IYXI0hWwI-vOTeRQlmANkOFTb88r8zjuf_2ZDi57XS9wtZ-q7eUeRo5ptauFyhNkikq-8iZXvCTXx6D1VqZ9tpr-T0NeuSXR2ESanVlhl8llHitLvZOfFB7no8HA5rE1hNoJs1GecjoiiZb0mX_ySbo9n1vs2n6m0mY6udJ_sFJ5RPX9JnI4xTYv6CME4XasDFfIPfySza1DRAbqO7V7HDxhmC5QsFMZ9Kc0WJXsMZXFaO7PIunRc97Wws338lakQIP8DRNvLMt11MlKRRFqu2s2IfcEeWiKRLIvFi05GhasmNBWGZpRLF6lvwbaUUnyp0OgCVTbMGuUb-G3mEZmuk93yWIkfsiOK5viGgvWf_wzdRcMnFVwMNjh5ZGx5I18hIwFi3jBzrrz2mGNjIEuabJT_RjHBmkt0i1FLXu3pXwxE8GLEZxhJ-ZES8__qxWvez2vYzn1zRRhhuZpRENdcdROhBuT-W7vvIvu9-OmTPiTC0JH3WSDxb6POL1ZboOG-OvG0-6cw1mobI1dgTwdqLL-Q2PuosZAtGG9DG2ZwrhF_sFv-hM-JGz8CtVQSgvipsEmqPlsgwvaLAlSz0HLKqNE_1Rjsl82zQKVseEoxhMs3kfRPvB6gKzTrDQT5YsbqmJHH6VFAErLV7N8DeCYWn3-x726SWyFJ_5mpS5Kg==
+        id: rs_0c1c9e8e0577a7db006a8fda55ac5c87d08f39deed67b7a6c5
+        summary: []
+        type: reasoning
+      - arguments: '{"city":"Tokyo"}'
+        call_id: call_FjBBRxripdVfWpvRo1GDyGvr
+        id: fc_0c1c9e8e0577a7db006a8fda56151c87d0b3069c2aba8db747
+        name: get_weather
+        status: completed
+        type: function_call
+      - arguments: '{"city":"Atlantis"}'
+        call_id: call_RPIOKOFk43QbxegFLRxh1GxC
+        id: fc_0c1c9e8e0577a7db006a8fda56153087d0ace5e1b80a5f2ada
+        name: get_weather
+        status: completed
+        type: function_call
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: null
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - search_content_types:
+        - text
+        search_context_size: medium
+        type: web_search_preview
+        user_location:
+          city: null
+          country: US
+          region: null
+          timezone: null
+          type: approximate
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        format:
+          type: text
+        name: set_temperature_unit
+        type: custom
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 4601
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 4558
+        output_tokens: 63
+        output_tokens_details:
+          reasoning_tokens: 12
+        total_tokens: 4664
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t4
+  request:
+    body:
+      input:
+      - call_id: call_FjBBRxripdVfWpvRo1GDyGvr
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - content: What's the weather in Tokyo?
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0c1c9e8e0577a7db006a8fda53774c87d0bae32d76950ae3b8
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      error:
+        code: null
+        message: No tool output found for function call call_RPIOKOFk43QbxegFLRxh1GxC.
+        param: input
+        type: invalid_request_error
+    headers:
+      content-type: application/json
+    status_code: 400
+- filename: t5
+  request:
+    body:
+      input: 'Do both of these right now, in parallel, in this single turn -- do not
+        wait for one before starting another: (1) search the web for the exact query
+        "Atlantis weather today", and (2) call get_weather for "Atlantis".'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812445
+      created_at: 1787812440
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0d4d6420d6ed155e006a8fda58ebd887d088ae9c603a58c9b8
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqj9pdeAb3o8hirz8AJvIo-4CLtfrXCnQD_28E_PVeXWhbcTEx-cRTT9LUBj5K6rRtJ54hJNADtfwOM1jts0GW3HvhuGX-jdFmdkSpH06HN29EE8GuLEhUofohXs7XjRyDa9G3VXILZ8lfKk5aRBzOgJz1b4KcabdP_PPWQnSHuWpk3xZSQonjQRxpE_Ao2nIOxPWCDNy46CiR81MdyeyMC90NunN6fewA0F0m8gUOCku7zABFunOhCGkXNjnXNPynJK-hkPJEFp8Xl5qJ6YEzpDFmsb5H36S_9mInluO3GgEK44lP2gWrL4dxKHvRPGFHMdFPMZhE5Olpqw7EAXo30R8BM86ZBnQTPtGQTacO2KAmodwQp4iUE1DTfVY797PbmMrpt26YMNQNYl11YbgEwmJkQNIw9s-xXPtk49YODqHuDGSm3edX2ihGyVP0syadBaAmQQ8sXC8dPcup_sTD4C7267-w7rrlViJEbHNkbfUKhFcKgEiJHCsEGidjtLk5w0ywcyUsCVQekZaDUThunF87dHGk6m39c3g-IY-X1-OnpJgjqaDXOYY2cnx-8Yy97EQM33GD-HsJl1_4oYnq7CI43Lun-UoXaUkcBq3kTTdXID3hfjTg4Uo3bhtJrCAsMsSmED46bf75zceexqi1m5X6hUHr2xbAKwMUwuKMRkQllV44f2dkIW-9Lh3daj6AAtlXYX5mj_rvfckKW-BSmk5pRH5MML7H6lmORLQpwVcIG3Tcx0mKLNa3DjUtTQhLTOnobUqlZlzCTDftshEhOiSSLOfwL4qsTf4RrTesPwpwdeBw-3iLLRSU2WPYAer9W7EoVzTCv9EPkQNWgpc4YyZOdMK2w3fD8_sYGCcOow4NeWDYwUOcxtJWpHHuYSn9DV8--Zrj4L49gTj7kSjnrGlxQUV9p0cqgzw1ScfgYqY3EWCTKtAEhe9-3fTyLiwEpbGTvRXB4Q3OoS3OeITrR7jNfYY2djZfK6apWu-0nzd0H847ZlqVmGzjWhkIRzdqPy2m4mA6B-R48HLZ0o2vM9XOy9YZ3KPNpPXvUozoDTqgrmjJHFGe3UV5qjvSH1oB18XqNocbl1JS3hTWEiVP1tjut5NgcVgqQDYnLb7Tf9pCmz7b0c3pV0z7_6tekf-7wBGAuxvF3kO7fmR0mLVd7jbCToHmLezshIz7B6MmGRa-VGtf7Th-91736pEN3ARKJDDmXTR4cS2VYSxpMgEy0ohD7PRnCnwy87YN7Q-N20lY9oPNvRJrWahKWqAn8iStagMeNm4QoI5cEfOhKk40qOaVU8qxl8EZzHrtbv6Kh6KfW5citodX5IPBgdHm8TeqpGihvInpwX5Yvls3scXg0WPhZ7gf_5WervjQ4N7vVxkpDUjnW38iYYm0_cck-aNGXn9wP-w0AAXpRmyQcE4jWAPqHKg5UniNqiGwXFJetGa5mPR729m-qV9CzvNZYZd9OZrForQ7aRZLsuRkmJzsurp88Tw8NzkowvDee79emCMA7tlYRYHPKtHgz-llYM2uGKXT6E3ptaRcXarCiHh0lrCg8NsMUF31OCbLu5jV7ySq2iwFFGqoNx8Fdazo-0yt-bhBsP0OWnZMrCchU71waw1BICEkHzfrOAXtJ6rUrYcsPi6Jb9So1wS_oL-Cdz-GuhSIHHyKUgAty2ICxvXWVNfoEIdoUQl9NYvxuuKDij_jErZFq6K8GJDvyIjgDTLj98TsXSnuFAJEvky6aTKQHXGJdQTngo4LXKm6r_2EB21ZCpA6q8rAnqYCxGB7xQvBkdNszOTe-gcdpDwxP8dWiRQW7y6I4dTys0psPGMFlpDaF8bXqe9BTcw5KqFWZUijKVRbpFvVMeho-MNzhcj6WEzTjbg8qr3wEb0n7BmJ-obTBV8yxoHvt8joZD3fuF9R3Wb05SlKf0b2JIQtPWcDEnDbrDGuzH-SO_dS0vrOjaJJe6P4bwprB_ZXb8iNlMfoJo6YBE8NYnEtG-19-b0HDU7FPST-PjlKEXVoip0RMgB7EynYoLlyr6FvUui_qb193c67nDhJtZ944kFObg8q9tAHsLmPCRD1nBE36srq7X8pFnI=
+        id: rs_0d4d6420d6ed155e006a8fda59aed887d0a8ce7f135b964c4e
+        summary: []
+        type: reasoning
+      - action:
+          queries:
+          - '"Atlantis weather today"'
+          query: '"Atlantis weather today"'
+          type: search
+        id: ws_0d4d6420d6ed155e006a8fda5b579087d0be582f37bde92fdf
+        status: completed
+        type: web_search_call
+      - arguments: '{"city":"Atlantis"}'
+        call_id: call_DdPmBVseli7XUMPMbKii0SOX
+        id: fc_0d4d6420d6ed155e006a8fda5ce3c487d0a07d3b09faba768c
+        name: get_weather
+        status: completed
+        type: function_call
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: null
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 1
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - search_content_types:
+        - text
+        search_context_size: medium
+        type: web_search_preview
+        user_location:
+          city: null
+          country: US
+          region: null
+          timezone: null
+          type: approximate
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        format:
+          type: text
+        name: set_temperature_unit
+        type: custom
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 8692
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 4564
+        output_tokens: 174
+        output_tokens_details:
+          reasoning_tokens: 155
+        total_tokens: 8866
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t6
+  request:
+    body:
+      input:
+      - content: Never mind the weather lookup -- just tell me one fun fact about
+          Atlantis instead.
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0d4d6420d6ed155e006a8fda58ebd887d088ae9c603a58c9b8
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - type: web_search_preview
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Tokyo
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      error:
+        code: null
+        message: No tool output found for function call call_DdPmBVseli7XUMPMbKii0SOX.
+        param: input
+        type: invalid_request_error
+    headers:
+      content-type: application/json
+    status_code: 400

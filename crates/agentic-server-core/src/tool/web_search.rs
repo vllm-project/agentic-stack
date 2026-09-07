@@ -1,42 +1,41 @@
 use std::collections::HashMap;
 use std::future::Future;
+use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use futures::{StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::Semaphore;
 
+use super::handler::{GatewayExecutor, GatewayToolEventPlan, ToolError, ToolHandler, ToolOutput};
+use super::ownership::GatewayBinding;
+use super::registry::{ToolEntry, ToolType};
+use crate::config::DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS;
 use crate::types::io::output::{FunctionToolCall, WebSearchCall, WebSearchCallStatus, WebSearchSource};
 use crate::types::io::{FunctionTool, OutputItem};
 use crate::types::tools::{WebSearchContextSize, WebSearchToolParam};
-use crate::utils::common::serialize_to_value_or_custom_default;
-
-use super::handler::{GatewayExecutor, ToolError, ToolHandler, ToolOutput};
-use super::registry::{ToolEntry, ToolType};
 
 const YOU_API_KEY: &str = "YOU_API_KEY";
 const YOU_API_BASE_URL: &str = "YOU_API_BASE_URL";
+const MAX_WEB_SEARCH_QUERIES: usize = 5;
+
+pub(crate) type WebSearchExecutor =
+    dyn GatewayExecutor<ToolParams = WebSearchToolParam, ExecutionParams = WebSearchToolParam>;
 
 pub(crate) fn insert_web_search_entry(
     entries: &mut HashMap<String, ToolEntry>,
-    p: &WebSearchToolParam,
-    handler: Option<Arc<dyn GatewayExecutor>>,
+    params: &WebSearchToolParam,
+    executor: Arc<WebSearchExecutor>,
 ) {
-    serialize_to_value_or_custom_default(
-        p,
-        "web_search tool config serialization failed",
-        |config| {
-            entries.insert(
-                "web_search".to_owned(),
-                ToolEntry {
-                    tool_type: ToolType::WebSearch,
-                    config,
-                    server_label: None,
-                    handler,
-                },
-            );
-        },
-        (),
+    entries.insert(
+        "web_search".to_owned(),
+        ToolEntry::gateway(
+            ToolType::WebSearch,
+            None,
+            Some(GatewayBinding::new(executor, params.clone())),
+        ),
     );
 }
 
@@ -54,6 +53,13 @@ pub(crate) fn web_search_function_tool() -> FunctionTool {
                 "query": {
                     "type": "string",
                     "description": "The natural language web search query."
+                },
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": MAX_WEB_SEARCH_QUERIES,
+                    "description": "Multiple independent search queries to run in parallel, instead of a single query."
                 },
                 "count": {
                     "type": "integer",
@@ -82,37 +88,50 @@ pub(crate) fn web_search_function_tool() -> FunctionTool {
                     "description": "Optional domain blocklist."
                 }
             },
-            "required": ["query"]
+            "anyOf": [
+                {"required": ["query"]},
+                {"required": ["queries"]}
+            ]
         })),
         strict: Some(false),
     }
 }
 
 #[must_use]
-pub(crate) fn output_item(call: &FunctionToolCall, output: &ToolOutput, status: WebSearchCallStatus) -> OutputItem {
+pub(crate) fn output_item(
+    call: &FunctionToolCall,
+    output: &ToolOutput,
+    status: WebSearchCallStatus,
+) -> Option<OutputItem> {
     let parsed_output = serde_json::from_str::<Value>(&output.output).ok();
-    let query = parsed_output
+    let queries = parsed_output
         .as_ref()
-        .and_then(|value| clean_json_str(value.get("query")))
-        .or_else(|| query_from_arguments(&call.arguments))
-        .unwrap_or_default();
+        .and_then(queries_from_value)
+        .or_else(|| queries_from_arguments(&call.arguments))
+        .unwrap_or_else(|| vec![String::new()]);
     let sources = parsed_output.as_ref().map(sources_from_output).unwrap_or_default();
-    OutputItem::WebSearchCall(WebSearchCall::new(call_output_id(call), status, query, sources))
+    WebSearchCall::try_new(call_output_id(call), status, queries, sources)
+        .map(OutputItem::WebSearchCall)
+        .ok()
 }
 
 #[must_use]
-pub(crate) fn started_output_item(call: &FunctionToolCall) -> OutputItem {
-    OutputItem::WebSearchCall(WebSearchCall::new(
+pub(crate) fn started_output_item(call: &FunctionToolCall) -> Option<OutputItem> {
+    WebSearchCall::try_new(
         call_output_id(call),
         WebSearchCallStatus::InProgress,
-        query_from_arguments(&call.arguments).unwrap_or_default(),
+        queries_from_arguments(&call.arguments).unwrap_or_else(|| vec![String::new()]),
         Vec::new(),
-    ))
+    )
+    .map(OutputItem::WebSearchCall)
+    .ok()
 }
 
 #[derive(Debug, Clone)]
 pub struct WebSearchHandler {
-    provider: Arc<dyn WebSearchProvider>,
+    provider: Option<Arc<dyn WebSearchProvider>>,
+    max_concurrent_queries: NonZeroUsize,
+    query_permits: Arc<Semaphore>,
 }
 
 impl WebSearchHandler {
@@ -122,37 +141,105 @@ impl WebSearchHandler {
             client,
             std::env::var(YOU_API_KEY).ok(),
             std::env::var(YOU_API_BASE_URL).ok(),
+            DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS,
         )
     }
 
     #[must_use]
-    pub fn from_values(client: Arc<reqwest::Client>, api_key: Option<String>, base_url: Option<String>) -> Self {
-        Self {
-            provider: Arc::new(YouSearchProvider::from_values(client, api_key, base_url)),
-        }
+    pub fn from_values(
+        client: Arc<reqwest::Client>,
+        api_key: Option<String>,
+        base_url: Option<String>,
+        max_concurrent_queries: NonZeroUsize,
+    ) -> Self {
+        Self::with_provider_and_query_concurrency(
+            Arc::new(YouSearchProvider::from_values(client, api_key, base_url)),
+            max_concurrent_queries,
+        )
     }
 
     #[must_use]
     pub fn with_api_key(client: Arc<reqwest::Client>, api_key: String, base_url: &str) -> Self {
+        Self::with_provider_and_query_concurrency(
+            Arc::new(YouSearchProvider::with_api_key(client, api_key, base_url)),
+            DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS,
+        )
+    }
+
+    /// Builds a handler usable only for shaping placeholder/error output
+    /// (`ToolHandler::normalize`, `GatewayExecutor::started_output`/`public_output`)
+    /// when no real provider is configured — `execute()` always fails.
+    #[must_use]
+    pub fn spec_only() -> Self {
         Self {
-            provider: Arc::new(YouSearchProvider::with_api_key(client, api_key, base_url)),
+            provider: None,
+            max_concurrent_queries: DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS,
+            query_permits: Arc::new(Semaphore::new(DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS.get())),
         }
     }
 
     #[cfg(test)]
     fn with_provider(provider: Arc<dyn WebSearchProvider>) -> Self {
-        Self { provider }
+        Self::with_provider_and_query_concurrency(provider, DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS)
     }
 
-    async fn execute_search(&self, call_id: &str, arguments: &str, config: &Value) -> Result<ToolOutput, ToolError> {
+    fn with_provider_and_query_concurrency(
+        provider: Arc<dyn WebSearchProvider>,
+        max_concurrent_queries: NonZeroUsize,
+    ) -> Self {
+        Self {
+            provider: Some(provider),
+            max_concurrent_queries,
+            query_permits: Arc::new(Semaphore::new(max_concurrent_queries.get())),
+        }
+    }
+
+    async fn execute_search(
+        &self,
+        call_id: &str,
+        arguments: &str,
+        params: &WebSearchToolParam,
+    ) -> Result<ToolOutput, ToolError> {
+        let provider = self
+            .provider
+            .as_ref()
+            .ok_or_else(|| ToolError::Config("web_search spec-only handler cannot execute tools".to_owned()))?;
         let args = WebSearchArguments::from_json(arguments)?;
-        let config = serde_json::from_value::<WebSearchToolParam>(config.clone())
-            .map_err(|e| ToolError::Config(format!("invalid web_search config: {e}")))?;
-        let response = self.provider.search(&args, &config).await?;
+        let queries = args.all_queries();
+        let args_ref = &args;
+        let responses = futures::stream::iter(queries.iter().cloned())
+            .map(|query| {
+                let provider = Arc::clone(provider);
+                let query_permits = Arc::clone(&self.query_permits);
+                async move {
+                    let _permit = query_permits
+                        .acquire_owned()
+                        .await
+                        .map_err(|error| ToolError::Execution(format!("web_search query scheduler closed: {error}")))?;
+                    provider.search(&query, args_ref, params).await
+                }
+            })
+            .buffered(self.max_concurrent_queries.get())
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        let mut web = Vec::new();
+        let mut news = Vec::new();
+        let mut metadata = Vec::new();
+        for response in responses {
+            if let Some(results) = response.results.get("web").and_then(Value::as_array) {
+                web.extend(results.iter().cloned());
+            }
+            if let Some(results) = response.results.get("news").and_then(Value::as_array) {
+                news.extend(results.iter().cloned());
+            }
+            metadata.push(response.metadata);
+        }
         let output = serde_json::to_string(&serde_json::json!({
-            "query": response.query,
-            "results": response.results,
-            "metadata": response.metadata
+            "query": queries[0],
+            "queries": queries,
+            "results": {"web": web, "news": news},
+            "metadata": metadata
         }))
         .map_err(|e| ToolError::Execution(format!("failed to serialize web_search output: {e}")))?;
 
@@ -166,13 +253,13 @@ impl WebSearchHandler {
 trait WebSearchProvider: std::fmt::Debug + Send + Sync {
     fn search<'a>(
         &'a self,
+        query: &'a str,
         args: &'a WebSearchArguments,
         config: &'a WebSearchToolParam,
     ) -> Pin<Box<dyn Future<Output = Result<WebSearchProviderResponse, ToolError>> + Send + 'a>>;
 }
 
 struct WebSearchProviderResponse {
-    query: String,
     results: Value,
     metadata: Value,
 }
@@ -209,6 +296,7 @@ impl YouSearchProvider {
 impl WebSearchProvider for YouSearchProvider {
     fn search<'a>(
         &'a self,
+        query: &'a str,
         args: &'a WebSearchArguments,
         config: &'a WebSearchToolParam,
     ) -> Pin<Box<dyn Future<Output = Result<WebSearchProviderResponse, ToolError>> + Send + 'a>> {
@@ -220,7 +308,7 @@ impl WebSearchProvider for YouSearchProvider {
             let base_url = self.base_url.as_deref().ok_or_else(|| {
                 ToolError::Config(format!("{YOU_API_BASE_URL} must be set to use the web_search tool"))
             })?;
-            let request = YouSearchRequest::from_args_and_config(args, config)?;
+            let request = YouSearchRequest::from_args_and_config(query, args, config)?;
             let resp = self
                 .client
                 .get(format!("{base_url}/v1/search"))
@@ -245,7 +333,6 @@ impl WebSearchProvider for YouSearchProvider {
             let response: Value = serde_json::from_str(&response_text)
                 .map_err(|e| ToolError::Execution(format!("You.com search returned invalid JSON: {e}")))?;
             Ok(WebSearchProviderResponse {
-                query: request.query,
                 results: response
                     .get("results")
                     .cloned()
@@ -257,47 +344,70 @@ impl WebSearchProvider for YouSearchProvider {
 }
 
 impl ToolHandler for WebSearchHandler {
+    type ToolParams = WebSearchToolParam;
+
     fn tool_type(&self) -> ToolType {
         ToolType::WebSearch
     }
 
-    fn validate(&self, param: &Value) -> Result<(), ToolError> {
-        serde_json::from_value::<WebSearchToolParam>(param.clone())
-            .map(|_| ())
-            .map_err(|e| ToolError::Config(format!("invalid web_search config: {e}")))
+    fn validate(&self, _params: &WebSearchToolParam) -> Result<(), ToolError> {
+        Ok(())
     }
 
-    fn normalize(&self, _param: &Value) -> Vec<FunctionTool> {
+    fn normalize(&self, _params: &WebSearchToolParam) -> Vec<FunctionTool> {
         vec![web_search_function_tool()]
     }
 }
 
 impl GatewayExecutor for WebSearchHandler {
+    type ExecutionParams = WebSearchToolParam;
+
     fn execute(
         &self,
         call_id: &str,
         tool_name: &str,
         arguments: &str,
-        config: &Value,
+        params: &WebSearchToolParam,
     ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
         let call_id = call_id.to_owned();
         let tool_name = tool_name.to_owned();
         let arguments = arguments.to_owned();
-        let config = config.clone();
+        let params = params.clone();
         Box::pin(async move {
             if tool_name != "web_search" {
                 return Err(ToolError::Config(format!(
                     "web_search handler cannot execute tool '{tool_name}'"
                 )));
             }
-            self.execute_search(&call_id, &arguments, &config).await
+            self.execute_search(&call_id, &arguments, &params).await
         })
+    }
+
+    fn supports_parallel_execution(&self) -> bool {
+        true
+    }
+
+    fn plan_gateway_events(&self, call: &FunctionToolCall, _params: &WebSearchToolParam) -> GatewayToolEventPlan {
+        GatewayToolEventPlan::new(started_output_item(call))
+    }
+
+    fn public_output(
+        &self,
+        call: &FunctionToolCall,
+        output: &ToolOutput,
+        status: WebSearchCallStatus,
+        _params: &WebSearchToolParam,
+    ) -> Option<OutputItem> {
+        output_item(call, output, status)
     }
 }
 
 #[derive(Debug, Deserialize)]
 struct WebSearchArguments {
-    query: String,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    queries: Option<Vec<String>>,
     count: Option<u16>,
     freshness: Option<String>,
     country: Option<String>,
@@ -315,10 +425,26 @@ impl WebSearchArguments {
     fn from_json(arguments: &str) -> Result<Self, ToolError> {
         let args = serde_json::from_str::<Self>(arguments)
             .map_err(|e| ToolError::Config(format!("web_search arguments must be valid JSON: {e}")))?;
-        if args.query.trim().is_empty() {
-            return Err(ToolError::Config("web_search query must not be empty".to_owned()));
+        let query_count = args.all_queries().len();
+        if query_count == 0 {
+            return Err(ToolError::Config(
+                "web_search requires a non-empty query or queries".to_owned(),
+            ));
+        }
+        if query_count > MAX_WEB_SEARCH_QUERIES {
+            return Err(ToolError::Config(format!(
+                "web_search accepts at most {MAX_WEB_SEARCH_QUERIES} queries per call"
+            )));
         }
         Ok(args)
+    }
+
+    fn all_queries(&self) -> Vec<String> {
+        let queries = clean_vec(self.queries.as_deref()).unwrap_or_default();
+        if !queries.is_empty() {
+            return queries;
+        }
+        clean_string(self.query.as_deref()).into_iter().collect()
     }
 }
 
@@ -388,7 +514,11 @@ impl YouSearchRequest {
         params
     }
 
-    fn from_args_and_config(args: &WebSearchArguments, config: &WebSearchToolParam) -> Result<Self, ToolError> {
+    fn from_args_and_config(
+        query: &str,
+        args: &WebSearchArguments,
+        config: &WebSearchToolParam,
+    ) -> Result<Self, ToolError> {
         let count = args
             .count
             .or_else(|| {
@@ -424,7 +554,7 @@ impl YouSearchRequest {
             .map(|value| value.to_ascii_uppercase());
 
         Ok(Self {
-            query: args.query.trim().to_owned(),
+            query: query.trim().to_owned(),
             count,
             freshness: clean_string(args.freshness.as_deref()),
             country,
@@ -485,9 +615,19 @@ fn call_output_id(call: &FunctionToolCall) -> String {
     crate::utils::uuid7_str("ws_")
 }
 
-fn query_from_arguments(arguments: &str) -> Option<String> {
+fn queries_from_value(value: &Value) -> Option<Vec<String>> {
+    let queries: Vec<String> = value
+        .get("queries")?
+        .as_array()?
+        .iter()
+        .filter_map(|item| clean_json_str(Some(item)))
+        .collect();
+    (!queries.is_empty()).then_some(queries)
+}
+
+fn queries_from_arguments(arguments: &str) -> Option<Vec<String>> {
     let args = serde_json::from_str::<Value>(arguments).ok()?;
-    clean_json_str(args.get("query"))
+    queries_from_value(&args).or_else(|| clean_json_str(args.get("query")).map(|query| vec![query]))
 }
 
 fn sources_from_output(output: &Value) -> Vec<WebSearchSource> {
@@ -523,6 +663,9 @@ fn clean_vec(values: Option<&[String]>) -> Option<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
     use super::*;
 
     #[derive(Debug)]
@@ -531,12 +674,12 @@ mod tests {
     impl WebSearchProvider for MockSearchProvider {
         fn search<'a>(
             &'a self,
-            args: &'a WebSearchArguments,
+            _query: &'a str,
+            _args: &'a WebSearchArguments,
             _config: &'a WebSearchToolParam,
         ) -> Pin<Box<dyn Future<Output = Result<WebSearchProviderResponse, ToolError>> + Send + 'a>> {
             Box::pin(async move {
                 Ok(WebSearchProviderResponse {
-                    query: args.query.trim().to_owned(),
                     results: serde_json::json!({
                         "web": [
                             {
@@ -552,6 +695,38 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default)]
+    struct ConcurrencyTrackingProvider {
+        active: AtomicUsize,
+        max_active: AtomicUsize,
+    }
+
+    impl WebSearchProvider for ConcurrencyTrackingProvider {
+        fn search<'a>(
+            &'a self,
+            _query: &'a str,
+            _args: &'a WebSearchArguments,
+            _config: &'a WebSearchToolParam,
+        ) -> Pin<Box<dyn Future<Output = Result<WebSearchProviderResponse, ToolError>> + Send + 'a>> {
+            Box::pin(async move {
+                let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+                self.max_active.fetch_max(active, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                self.active.fetch_sub(1, Ordering::SeqCst);
+                Ok(WebSearchProviderResponse {
+                    results: serde_json::json!({"web": [], "news": []}),
+                    metadata: serde_json::json!({"provider": "tracking"}),
+                })
+            })
+        }
+    }
+
+    #[test]
+    fn web_search_schema_caps_batched_queries() {
+        let parameters = web_search_function_tool().parameters.expect("web_search parameters");
+        assert_eq!(parameters["properties"]["queries"]["maxItems"], MAX_WEB_SEARCH_QUERIES);
+    }
+
     #[tokio::test]
     async fn web_search_handler_delegates_to_provider() {
         let handler = WebSearchHandler::with_provider(Arc::new(MockSearchProvider));
@@ -560,14 +735,73 @@ mod tests {
                 "call_search",
                 "web_search",
                 r#"{"query":" potato "}"#,
-                &serde_json::json!({"type": "web_search_preview"}),
+                &WebSearchToolParam::default(),
             )
             .await
             .unwrap();
         let body: Value = serde_json::from_str(&output.output).unwrap();
         assert_eq!(output.call_id, "call_search");
         assert_eq!(body["query"], "potato");
-        assert_eq!(body["metadata"]["provider"], "mock");
+        assert_eq!(body["queries"], serde_json::json!(["potato"]));
+        assert_eq!(body["metadata"][0]["provider"], "mock");
         assert_eq!(body["results"]["web"][0]["url"], "https://example.com/potato");
+    }
+
+    #[tokio::test]
+    async fn web_search_handler_fans_out_multiple_queries() {
+        let handler = WebSearchHandler::with_provider(Arc::new(MockSearchProvider));
+        let output = handler
+            .execute(
+                "call_search",
+                "web_search",
+                r#"{"queries":["potato","tomato"]}"#,
+                &WebSearchToolParam::default(),
+            )
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_str(&output.output).unwrap();
+        assert_eq!(body["query"], "potato");
+        assert_eq!(body["queries"], serde_json::json!(["potato", "tomato"]));
+        assert_eq!(body["results"]["web"].as_array().unwrap().len(), 2);
+        assert_eq!(body["metadata"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn web_search_handler_rejects_oversized_query_batches() {
+        let handler = WebSearchHandler::with_provider(Arc::new(MockSearchProvider));
+        let error = handler
+            .execute(
+                "call_search",
+                "web_search",
+                r#"{"queries":["one","two","three","four","five","six"]}"#,
+                &WebSearchToolParam::default(),
+            )
+            .await
+            .expect_err("oversized query batch must fail");
+
+        assert_eq!(
+            error.to_string(),
+            format!("invalid tool config: web_search accepts at most {MAX_WEB_SEARCH_QUERIES} queries per call")
+        );
+    }
+
+    #[tokio::test]
+    async fn web_search_handler_shares_query_concurrency_across_calls() {
+        let provider = Arc::new(ConcurrencyTrackingProvider::default());
+        let handler = WebSearchHandler::with_provider_and_query_concurrency(
+            provider.clone(),
+            NonZeroUsize::new(2).expect("nonzero test limit"),
+        );
+        let params = WebSearchToolParam::default();
+        let arguments = r#"{"queries":["one","two","three","four","five"]}"#;
+
+        let (first, second) = tokio::join!(
+            handler.execute("call_one", "web_search", arguments, &params),
+            handler.execute("call_two", "web_search", arguments, &params),
+        );
+
+        first.expect("first batched call");
+        second.expect("second batched call");
+        assert_eq!(provider.max_active.load(Ordering::SeqCst), 2);
     }
 }

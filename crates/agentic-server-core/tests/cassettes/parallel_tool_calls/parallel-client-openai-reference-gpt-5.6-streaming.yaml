@@ -1,0 +1,927 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Do all three of these right now, in parallel, in this single turn --
+        do not wait for one before starting another: (1) call get_weather for "Tokyo",
+        (2) call get_stock_price for "AAPL", and (3) call set_temperature_unit to
+        set my preferred unit to "fahrenheit" for the rest of this conversation.'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_0fcd5b09312e9e37006a8fda02131487d0b2ed5385c7c33aa8","object":"response","created_at":1787812354,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_0fcd5b09312e9e37006a8fda02131487d0b2ed5385c7c33aa8","object":"response","created_at":1787812354,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"rs_0fcd5b09312e9e37006a8fda029cf487d0a312c6bde200476b","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oCL7GawaCSm1g_EULqvMq2U2JW0g7jMzp8vvw-0qNV_ifMIA6ESKTpkQJyjMOYV5-J5KsyTO_Fyl4ivuF3HvZMbKKXPq0i0ETbjrAngSASd2LbSqZvNI7x7Tg-j6D7L4ibDnORSDlpxn9S5J6mlrJjyxaX2cAvUn7G7gjwfLY99NbMDxPSUjbFjLceNxJhtAnf1KOPVNtS203sIdD-RvAH69-5-h29ukMrd2qzh03KOkD34Zn0fkGeJL1kaypMO8lzoi76hVBuNkKv6pThPrV0vwSJzopmbGZiw3Q5fxcoIEcoQ6ACQqmXcWJ_B92q9gfFmwxuju0Ik1ZBB-H_KbjLtkSXpNAzlIkE5fvFtnRuV2owuh94bzX26ZU3uKI6hrM6acxdvPWmnS1MpW_CmcBNWQi479p5YaI9m6LUneVZKRhG4ZmFiVqyNMBFr3Gky3ZjFPzSluCmj6BntLwp3IvC6q3FXFBVcNwFs45TPGMhIKiPSDyTfSfWCYLqUBQS-aRamlbxYSv7VcqU5y_afVI8PijdcSBc0oTjxiU5ecJnMJp7xH5WyW3Xu_lYIYA1DYWrRuM1Ev3AcT8V6LgtYFgud6qPw7xrEn0RvL75CGxImza3j4HPYJlVWaDEpzqSlcbM6CMmbxD8IIyNvMW9BOiPfcCPyTT9xwDUYReEtUn72WsmA1R0lIMoo3tFtJDh4CD9hTDFPV8p9uFaDjJPXWz7s6aizcBQxI1MsQYzaBLrAlAe2pa5FjRTe4VC2YRf-qrmcA8eR1DSVzjKAdawnkRpnr17hBtk3UvdPWNf96_9pITIg-yxaqg3KxyC5J3cnYd_QC0oP8B5p3imw_kYYHFYSj83jGBQki5D0R8s54U-Prm_57wQ9MZmYJcN0JHI1Cp19X4M7CL9C2t5C9HCXgPwv0kyQehcs4xHdpADC2FdOB0zPI80QpHXL1VQxfcrQLKsOXDfEXO5EcSmS_PVos9zlL9Cx-bQk0BX91aB1cxlrTC1eJvsB7xYujSpkKwMHlq8mub9dqBAwcrqPE4pRcVgF8sds-EW-LQJJ97izmfc7eH-ZY9lfyKLGndAI1sH6YGz-LPzpZI68pCWhDfpdndlHmQ_uOPP5-_o9QGrKsWshLeewIXl5sZltCBI2sDj7UZ9zyxl-ufWhfsTfH-eva7bsA==","summary":[]},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"rs_0fcd5b09312e9e37006a8fda029cf487d0a312c6bde200476b","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oD4zdRMHWUvPg0LNmwzEHBkWuQDuip7kI2L779w3C6ck01q0jk0oVUnkRkHK7P2JsvJmpbxiM8C6GKYrleECo2ScuSOwGKk_NoBaRMkpcN08Gm2t4ucnLnws3d4czBEvp3cBVI5I3nNv5-vWiQMVX14EkxKbdETGzW9_uY1Qz61LOepf8p50yUsIzqPLncga-WhElZZ8-DQG1yg6FKTh6uD1UPEWt2UOc7L3f2uUx_QjSg_oNfL7N_QnWklz5GX_obMjYRKC5R-TYJcyfnF0Hv2wL9ZYsJfvXXxfZDKr5iTgDYHn5Zhr-EYQRpRlFMcdoPJNc6O6VlqpLsC9-MBJdDkzxb8IVzuoGMmz0MgwY1HiEfJsypFKvuRtjANZwiKjf_5FQSLq-tUA3E0G2AKqkCUlCh4DTLF3bnpmN6sUZ1DwDfh_MVSB57AQ2bjczC1OzlTHe6Osjd_0E9Xe6DHm9PqfE0x47aDxgYF6Fl74Yc88C5f9vXaPSGt52Mtm6KgZCu4OWBzhuItFfiUKNACB4sRit8kY5O3HU79GGMTcdDNHzK6hdVpB1l8GYkKWir2CHUqkckRlQxQ6xvpCPYzU7Y_OBWpOJ-C2nrSNKTH1n_Y6Lpi7fKHk5wTEBzAm5I2LFQTFr2Nrpa5xJcBQIzAVyuiLIdeslMSR7qcALnz3YT1YZ8icQDW8DLY2R9TYz5Rr439ncoB-Z-tB9yvx_Kst2hmnTkNG5BqtmZIAdn985CwP1a6tn57tXVu8q6wztOSC8HEiqi-xo82MnVK5zReYqzNhHrj6yLMeubswYs8kpQ7L48nP4ixw-oC4CCbUDmvvD1uCZ0KU-TUqszMrkNhDbtg4yZPlC8mz_l-eNXKM9-lJ0dyfIvOeS_pYmN4ZjbfE_rIRL_615x2LG4ejFbk6h3bKGZMjL4H0jChIfNmFR-VXTezzhby8hS5sEOn7Y4NPd-N4jvumEOiw5PqR3YrAcpQLgaF7aPZH04sIl-Vft53ez4gf5jrAZOGf6yFZytfBma21HQV3hIgJrntQuiphwh9jn79ZG5WOzK_cFtSLhGFOAjt5FDPt0lWx95w0T0QIpPkMzHezZoDj43OYDKu6oqPIYSl2tLV27NmByGf4LaYyV8NQV6EfSJvGUN4QJHWNTbMwDtEGUfvoElgcEfvCdh2A0n-81gTUyLy55E78_DjRR2lAUaEpolzKV3YfJZbyyu8g8KEauulCqq1IQEWBcz0IkiT-_QYirocdGJ5fZCgw6-pS5NVjZ8DE9U--TkEn_nTCzmM9-w0sVME90PHI5r89MmGaIRP-gcOWmGYPP5GfH5sqEvLIdtxhBOIvvuPOOhSwi-iJ6FhN-0tdhV3oObmqyvdN23qmrWq6vpUEnDSMF-e6JmGL7uxRGYnt2ePePUFyJ2tdJm9Il1PO_vuDlasKK4QfFDgY0cYR33RNuSDcl-eDLstXlhFCGbyKqFPS_a","summary":[]},"output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"ctc_0fcd5b09312e9e37006a8fda034f3887d0b84eecf54c422e7e","type":"custom_tool_call","status":"in_progress","call_id":"call_1tuS1yjNz1ux18bU6iZIzm9C","input":"","name":"set_temperature_unit"},"output_index":1,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.custom_tool_call_input.delta
+
+      '
+    - 'data: {"type":"response.custom_tool_call_input.delta","delta":"fahren","item_id":"ctc_0fcd5b09312e9e37006a8fda034f3887d0b84eecf54c422e7e","obfuscation":"5yrQ0vRr4q","output_index":1,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.custom_tool_call_input.delta
+
+      '
+    - 'data: {"type":"response.custom_tool_call_input.delta","delta":"heit","item_id":"ctc_0fcd5b09312e9e37006a8fda034f3887d0b84eecf54c422e7e","obfuscation":"UrG6ViPQoGcz","output_index":1,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.custom_tool_call_input.delta
+
+      '
+    - 'data: {"type":"response.custom_tool_call_input.delta","delta":"\n","item_id":"ctc_0fcd5b09312e9e37006a8fda034f3887d0b84eecf54c422e7e","obfuscation":"fbzBH9SNCGl5az8","output_index":1,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.custom_tool_call_input.done
+
+      '
+    - 'data: {"type":"response.custom_tool_call_input.done","input":"fahrenheit\n","item_id":"ctc_0fcd5b09312e9e37006a8fda034f3887d0b84eecf54c422e7e","output_index":1,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"ctc_0fcd5b09312e9e37006a8fda034f3887d0b84eecf54c422e7e","type":"custom_tool_call","status":"completed","call_id":"call_1tuS1yjNz1ux18bU6iZIzm9C","input":"fahrenheit\n","name":"set_temperature_unit"},"output_index":1,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_0fcd5b09312e9e37006a8fda02131487d0b2ed5385c7c33aa8","object":"response","created_at":1787812354,"status":"completed","background":false,"completed_at":1787812355,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"rs_0fcd5b09312e9e37006a8fda029cf487d0a312c6bde200476b","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oDKXU0yQi62j2eX_O5O5qTN9nhRGFEjDr0BquWqTVPnKbqKNkrsnZE7yGhvezjCJbUw4MPEEWj57qg0ieKdNCY_Pla4xo6LVLNFueE0WJF3HPUEjtsgBIx1hfwr28udmr3lHZ78DRI9CHNMuGQs_9sVB0fk921B3oqlOwDJ5by7A70fn8iOgpxCpRAvueXyTqEVCFI4IY5WdVX8Uo5hDY-HeWmQ2dG8EocGtTyPNfmZKqUCmlC_M1JDwn17dDMLE89f9k9leEaAubUs2la9g4EhJMT_P-WdWxWVtCsZ3z8BUFqC3FryOgzj9LClLNrZihcjzFDw4b-Gt5KzlnzO0m7f1EVPJENaSDp5SiCT_QdtAtZQuWgFTwVKowH01c3yY4HYlHGuY8-R--wt2ClpQ6T157zlSz60uV4FxPMenqpmtKZleI4sk3ubFfS3vO19-si0JotW62lzjaByVKWBupSrdvxRsLfQ_rHKMqerYYCmvd8Cq_sDfzskjZXoWdd5i9X6a59XT0kwFIrTxwuUxoubCqUWLIJh2PIh5qdrBrSBXM81tUYCGQSd5DURv3nkYxFoGXJ61IJexyh2eO-EOCf2r_h8r-HqpUzSTmolJXBg8kABLnidiTzHftfaw4Y-0VN-6nGWjYTe1WUbCJnt5piw76ceIMlHDaczxGTifU2P07DShs3MZGMGMWGhT6IuffieGQ9mgOZ_WzoS5dBygzrdVAZqUg1ahOv6oAQ_nMGla8CNEcjG9YDqF7mzTUuSMk31HcR4f-IytTuRaL26U_AOEvhtK6KtsRXCo6h4_u5a-gDzb1dKfCK1WjfstC5h3AXCayBtQgV-zmRJ-zI9juWIc6mviw2UIx_IF-cLW6v9M4R1v3gTFGut4ghWalER99BqOXXCnIqLqeQ9ExMt3mH9Ntz3gIEyDpzSlSUzhXgHj5ISfIyttCYghPyeU33fq7LNBhZF85yQhXEBvxAHBdO-2-hf6ciTKtGKryewcwX4-714wPnIVa67I5fxBRFi-0-0-RFi-f5e0lQ79cSS5Ja6sppetVIjbaEmM7LUGur4Xfd9vWXbixhEN07-acqAF9qMpMs2VXYFx13lq2PMBSp6FZbsuYOlHoGHIBbupXeJXMsz7XI_e1USpxATupNHdAZbCSZuCDy6V8BERU2_zBsuRw6thpfiKcNWPO7wS6ia0gcIxx_ETvIWIwGeqp_aCImt__DqsJ-w6sFQGpdYS9QW-Sks_JdDZQY6nTKJnuHeyysEY4kCOG5NTzTgwenAw0PXWEOI8fZb4n6263CAqwonXbQgsBMPUYrSgek5o5s2oeEYZQrmp00g-Nbbaw8cl27Dyi08pOywGcnDkm2Roo0nHxzWR13qhGNkofyE516phYjdS68q3OgNAWJLy_D1b-XovpWZQ0kqZuIn6-jwriBKSyCYTNRNJueKwo01jN6nsSwCj04-oqNAQpQCXuWP2a1","summary":[]},{"id":"ctc_0fcd5b09312e9e37006a8fda034f3887d0b84eecf54c422e7e","type":"custom_tool_call","status":"completed","call_id":"call_1tuS1yjNz1ux18bU6iZIzm9C","input":"fahrenheit\n","name":"set_temperature_unit"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":228,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":62,"output_tokens_details":{"reasoning_tokens":45},"total_tokens":290},"user":null,"metadata":{}},"sequence_number":10}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: call_1tuS1yjNz1ux18bU6iZIzm9C
+        output: '{"status": "ok", "unit": "fahrenheit"}'
+        type: custom_tool_call_output
+      - content: What did you find for the weather and the stock price, and what temperature
+          unit did you just set?
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0fcd5b09312e9e37006a8fda02131487d0b2ed5385c7c33aa8
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_0fcd5b09312e9e37006a8fda03f3c087d08750d47f7c4b79bc","object":"response","created_at":1787812356,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0fcd5b09312e9e37006a8fda02131487d0b2ed5385c7c33aa8","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_0fcd5b09312e9e37006a8fda03f3c087d08750d47f7c4b79bc","object":"response","created_at":1787812356,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0fcd5b09312e9e37006a8fda02131487d0b2ed5385c7c33aa8","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"rs_0fcd5b09312e9e37006a8fda04813487d0ad92815c30af1ff7","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oErt0-uvQ40W0f5_DUs17WYCxCCqq26GhWuGz0oWoAIgKRxF2CHXH_oqUCNJmzpD4gi-Mk5wtfXVYFqhaBglFGJzsihTDzrP3swsS_uHtIj6hTTsaL2etn7e57WYBMYRCdjtJECrAEDvISH34-k2FJ-AKwWnUaTFdi2gnKD5EfpRYnorBE8a3IO4DIeZJk8lvrIiAAeFCJ3wcCZmz0Th2gNHVzydUzPt2ZTUmqNQRbE2ZnnlY07wOysxGqP1AUGlqV_ojku9M4IzNqqPRbD3jB50HZWfgDCE1m1_U5vKI8-fFVcYbyxZe51k5_-Ea4vnVGWPNmqdN2A7LNdB1QKkCvvW8Zdn1_XhRfDOBaEWiPkL2fIh_8utAOtAbTDF6rNoZHvIKdMhLj_WKpqkcIMXYXOK6jzef3I-X9xAL7XVp3NXAE5q0CfnU2Urd8I21k8tSQJlv938SaW7maTem7AAW67S02VCBZc1bApiMFg2xbJfMz-tg7BFFJWdX74KJ-W31v08Z8_Fzjelpu5dwoYLapWuYXAz94Vj-TiGdhTLGQAvG-Y0lI88y7lquWq83IjdJsvVwTQ5BxwS2R3uFvT_d79zCFi3nwYfyegJwxDkiidnvMQQZtpRDpxfQg_-tw_bJnYqKtGRMQORMAf0i4ricIrDszYunkGKEX-CKkBC8ylz1XqFpa3kB1Yi3wlcb1sQ3wK3XaEpCqZ0RI6D0uQck7BnhYdS8hSpIjbseQZXqIh-RSQ16-FBrFoZRTr_2YKltZX7TfiU1doG3MHGGRmE20NZ6NNJ_Hmc-a3bFwKJtfL4EEjQUbzWEyWbMbl6kfsflh80yeGxnUSZEYDVVBOMMMW0dANNalrp3d8u7-U9XIhKU92say_tcZsD9CIw_Cs_wOi6t5lvqIBplL0MWTCIGl4VO4liUMWEfcml6Ac8uHbtavtIHx4UNP8pEJTlkWOev0EWBNWO6gf3LGNO3Nm2JH6ADRdfRBdJlgaY20Sny1htTaZmx3TXTUiBEMaKG1Y_gmYNmcyUrNfXJPH02EKKMLJ3l38zryOGW2Fc0aeGI_beaxBR1wfXXPbZ7BxbgdJlsoGxyfmGoiggN_pjBKJxQgYIR2vp-VHcFLoDjKBfemtydaMK_O_5vpENd4nJdGw_RxFdmgmQfwMVAbdD-EYsVF7g==","summary":[]},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"rs_0fcd5b09312e9e37006a8fda04813487d0ad92815c30af1ff7","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oFqqkBN2DUq8jA9tIREaB0ShON8cvOy7w2derIy5tjosr1VGywSO0inIwb3sx--91u8NCqhAieh96P-ZLMrOBNJvvMtVO89vDZ1PKBQDEiqolnO4b4qdudFJfIyWyfsq5cjGgDZIyw8ismWRoLpupvrK7Lzx3Zvqt-Y04WRI8atRYRMi3z8d4Wdr6-d1dpH_i5gsXdevW0yyQChgc7Wutfpevg6ojUQIJf_jhOGMi5PzyrKugXeYlE3KvmSk40HYS8io6mwESYW7pfmGVgMEyXYL1PAg_3GpCNF8TphKnSXbAj69RH2WyGW5WSSSQ-8JSA-dbrIYz6p2cNL3WxXM8nbYeqMF9IKY1OTHJm7L0B3fByEoTGm4u5a45BRmK5GYqfxFfgZIzIEBdRhMoHkP4HY-snRJ4-LlZYHKNI7nl8ksdpcmzEvsam-KvVSl-3ZLAlYdgMMf5r8HwB6LSPp6ym1yVJZvNb6uRd-jDONRiIeNGLCsVeJ6_d-mlVduMDZDwz8w3JEQV_oMRcadjciFDLBwOoitWnUOEgF0hMbbBClfVTLxLW0CorfkOWW55rchKiT3Y8AYlZ_KK3neoa65zRbAWpQn9EducLJsnQBE7W7vU_Km4NH66k6zJgDJ3Q0gZ3IaVfd4HrZwimAUwQ9qMN4tfywpSSUFlvoLdte7i_nnUY8zzri4lUeY1BGq0URGyZq7vdB1nATLPn8CpzPPzXEZekeXNwcD8RVn7qqyYlmp8pN8guKMGNb5otHhfEqQFilgwDJNDztkgyN8CTMOxVYens278KzkEOuPjn-RMNrZ0Rb_McYgugOAHB7kL77QfJCV9KsORy3yblOvfoMqkx3gr_Qn3tCj1wjtmLgPaeNcUZa7kX44WhnwpJAz5fgWmnJck8WiQ19NO0Nh4aOZnI14MdblPvOrHruQR6YxhuBwWgBbJXG03cYKJ3j1DFWVxRm42Zb0SOp_xpNpisJVtOq5tDNMiPC0tCPwZQ7i-QuXmtWCe-4Zd2upkF2pI0xT19sn9uRxyzA9_P5SHtOudo9UeuTi68YL0-uhXom0u8qwFy-sKVShCLgHoEZUBhai04LewxRlCClKQBMPiUa1qKVCT4uCyNYJ0jnuWz4gqBqJnAaxigu1jH4hZ2ZiDtN5Om0pj54tg5JWqBLWDBcjrtA5HNmMU2tUoKogy99pKrCCzNirR_vD51_0oVuWIryffFl7_lPulKkLI3krs6Xn1mY6IU5EztA17l-6E00-sgg8ih3He-1wHYl7JFLW2CMUgEU5Z1AevqMMcdH-lZ1XnZAe8sQt2uG2Ro2FvTsS2E3IA=","summary":[]},"output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_0fcd5b09312e9e37006a8fda051afc87d0bfe48b2215f1990c","type":"function_call","status":"in_progress","arguments":"","call_id":"call_2WDWxp0hVgglxlaPg8g7Zzn4","name":"get_weather"},"output_index":1,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"city\":\"Tokyo\"}","item_id":"fc_0fcd5b09312e9e37006a8fda051afc87d0bfe48b2215f1990c","obfuscation":"","output_index":1,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"Tokyo\"}","item_id":"fc_0fcd5b09312e9e37006a8fda051afc87d0bfe48b2215f1990c","output_index":1,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_0fcd5b09312e9e37006a8fda051afc87d0bfe48b2215f1990c","type":"function_call","status":"completed","arguments":"{\"city\":\"Tokyo\"}","call_id":"call_2WDWxp0hVgglxlaPg8g7Zzn4","name":"get_weather"},"output_index":1,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_0fcd5b09312e9e37006a8fda051b1087d09704e2d0d78cb5c2","type":"function_call","status":"in_progress","arguments":"","call_id":"call_tIkjnGRltluvnalEdSS4A4jS","name":"get_stock_price"},"output_index":2,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"ticker\":\"AAPL\"}","item_id":"fc_0fcd5b09312e9e37006a8fda051b1087d09704e2d0d78cb5c2","obfuscation":"abzsFPKm8YHyC4d","output_index":2,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"ticker\":\"AAPL\"}","item_id":"fc_0fcd5b09312e9e37006a8fda051b1087d09704e2d0d78cb5c2","output_index":2,"sequence_number":10}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_0fcd5b09312e9e37006a8fda051b1087d09704e2d0d78cb5c2","type":"function_call","status":"completed","arguments":"{\"ticker\":\"AAPL\"}","call_id":"call_tIkjnGRltluvnalEdSS4A4jS","name":"get_stock_price"},"output_index":2,"sequence_number":11}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_0fcd5b09312e9e37006a8fda03f3c087d08750d47f7c4b79bc","object":"response","created_at":1787812356,"status":"completed","background":false,"completed_at":1787812357,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"rs_0fcd5b09312e9e37006a8fda04813487d0ad92815c30af1ff7","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oFk8xSh722GtrAe4x48J-e7ePJgqkQYwyK_iEjEXNobYWNH4JN8WcvCbuTvmF_un8gK22x4IO52iez4TlJiNMeBSJzyU2rD773Es5_ZjOtU6D5O3KULiT1YJ9RzSVg46RnrktKho6-2XEwTxpuCdEckdd3s49v7UkhcZ_RKP6ShvF94AHwpmXZRlyQbQLvNu6KNq3ah0BisxwSWKdRZ6P6ITwcazSsi52AEuwJVg6pF6slO28ISsxayfOnCVIWkIepUjgsglkK4-fcVbtN7iWlJR9rN7Sp77T9zLBLUekhaomUS7gWj0qLzTa2j3QVgJo9UBk1NszF4PkqabbvAJ6PnbHSgPPDBjqtjnWLJ823cOMiLfkOkYis82lHoUvCYzD3pxWS2gH7HSBIV0NuJPqof9T0J8Uki5RuX3Povq2R6FxlKcR60MYTj4vyse7vmHCuV864E5aUzWHNUiHY2veMCu9j0ketyCDnw5HGIxkuC-byR79p5RH2xgp2E3DYanhGUwuJEXbhE5ErWJqvk67tXwfTSANCA8N6wUXMVhqBsu6SVymof-G_CT69A_r6krjDMUwHGM3Vfysq1wRSpzpi0NU8Fy3KJ7MwugO8s168XT3yMwzJZ2gPy_NXaWrL1RcCm8xIHhNnP0r6nGpMSz06iazXNnLpHRouKvWvRuUsvDJmjfhFB4c58VZ8LLRhNcGkn70Zq0_uNI1CMMIdlhX5vSVCFObd1Qxu4bTTx1BaNtQTL0b7obEqj18obsux14IfR8a3W5-XUGRQXHON86GBcXsR-OSaNbVqH6wv_3ZICBGqFI2QZUdF8ivrjoBnf4SSslB8cSPlCvoAVFNcZhkDYWiyLY-mocCs_z3pWv0qYquUjHg2P49BXQkf7DLDeupqIT-mnO1-0q3XKPd7JpZPZ3MRT6D0Yv87uRq1FeFO8eLtAbUCg-eS5z0cClrUyDUmK279-ltpreFKzqmWryTSbcPWvNxcoYijLaf-nM0okM8_jokr1CMlAv7S4oObAO1ngpAQSUdXGdq69d6hYDY1a1kBM1tBSOEYJew3fEKsIBSsOdfFMppP1bBz8_JQT9riiUDUtGFf2JDxi4F9gMb6ZNPnvFT1wblP-XqQqKIFeTKZFrY-wrYUd-_hLa-coyliqgv-b-E2TyqXLsZdKpocl21TyiHXZerYNOjXdC9bSkQ6Mn4qxWbc8_JiHNLo2xMiUJtxQvrwOjSLVB1wOqDH2NrS2YZ40y7d_1u7-PTb3McPhKQ_8HSumImjKdSACWymjWYbofJGb8vXsPLdmAWSuNj98es4orkB-SXnJ2ljITI=","summary":[]},{"id":"fc_0fcd5b09312e9e37006a8fda051afc87d0bfe48b2215f1990c","type":"function_call","status":"completed","arguments":"{\"city\":\"Tokyo\"}","call_id":"call_2WDWxp0hVgglxlaPg8g7Zzn4","name":"get_weather"},{"id":"fc_0fcd5b09312e9e37006a8fda051b1087d09704e2d0d78cb5c2","type":"function_call","status":"completed","arguments":"{\"ticker\":\"AAPL\"}","call_id":"call_tIkjnGRltluvnalEdSS4A4jS","name":"get_stock_price"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0fcd5b09312e9e37006a8fda02131487d0b2ed5385c7c33aa8","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":340,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":76,"output_tokens_details":{"reasoning_tokens":24},"total_tokens":416},"user":null,"metadata":{}},"sequence_number":12}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t3
+  request:
+    body:
+      input:
+      - call_id: call_2WDWxp0hVgglxlaPg8g7Zzn4
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - call_id: call_tIkjnGRltluvnalEdSS4A4jS
+        output: '{"ticker": "AAPL", "price": 231.45, "currency": "USD"}'
+        type: function_call_output
+      - content: 'Do both of these right now, in parallel, in this single turn --
+          do not wait for one before starting another: (1) call get_weather for "Tokyo",
+          and (2) call get_weather for "Paris".'
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0fcd5b09312e9e37006a8fda03f3c087d08750d47f7c4b79bc
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_0fcd5b09312e9e37006a8fda05ba4087d08279215cbe8374e6","object":"response","created_at":1787812357,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0fcd5b09312e9e37006a8fda03f3c087d08750d47f7c4b79bc","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_0fcd5b09312e9e37006a8fda05ba4087d08279215cbe8374e6","object":"response","created_at":1787812357,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0fcd5b09312e9e37006a8fda03f3c087d08750d47f7c4b79bc","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"rs_0fcd5b09312e9e37006a8fda0641f487d0bb60693299b3284f","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oGBDPcWmXWy9nqu9ZOMJ7VJ6ePbOnKKt7DrkvP_7lWGl7a5LinS9m_w3by49kaqJ0I2d9eHGVcEsRMt7iuJ6spYY749wig0C2BwhHGClKBQKqtrHvRXHPhEuQG1gqqcI-5zwZExNgW1GQscHLJKhr5wZHAzuSzLsoL7g7Vr0eHWJA_mFy740K_A-qWJ3vVGCOU7rNGnGEiXOSfY4jTI9VzqRMcH-qhTRcy_5LI4K1KUX-t0V1j3oY8F1hjfmXZU0A2M3gTVZT3r7bSStk42VWTzVSU0TaZ6TqtYs1Tx0kEURf8EnK-WvsbRPgQukhIiPrUCVGpN53aFGLLrPAvBtkv7gmtUJMxFpQOe8XAPGcI5CQeVHkV9HV_-ZIrS_mECunRZMjfQwGc8XY2M2b7ADMTGvIeCMem8BI2g3yADQh93shI7sXmSw08UDCvLTZYdjGZNifo6--3dGNzmW0epX89VgB3WLhubuPQ9_egopMYkdd0NshhSfvl6c3qrIC_XMX9sVyOS5P2H7SfjcBSGL_NMkNiPsKGwx3vXu9_-GqPQnX7gKeUV7T9mjgPT3CRXKqwfZpRoqkfkspJ-jL3P-p7xtegdIzFJzUNB-xYhOKaP8wQFs-vCFBG5Xpo-tkd2j_iXg7Bl1TmdzX_dDXcG9NUkYm4iyobGp7VspNrsS7HV0Qy3GhKhXPd1HGqi8j7W1zMSLDJf4NPEe23pPNRtK4N7mw7BWP-NQ5pK2E2SdGpYaq3Mgrhp9QmzUO1ko8QtC_9Cr_YOfmYbkD7nuaCD_nJwJITKtDt9TmQlO7DrL-StdwvSnnnc_6kuF4zC05XGYHpaiOE2PnnSZEFDVhKjnuBlQfrr0qOJB3uCcViFfyCJBGxqX9UYcUNdnvZ0X3R5oE7RUB-tJMag_3GTft5Iif0OE689rBWQPwwwNb0O_LZ8A8_YCu6ALxJ4v-s8bPOdnbKAFiuGUIycSb-r4_ItxLfG_9x87uHR8mMT9sBpCr6nxUz-WAIaYxXu0f0Nr52ksD2Dw-NiF_tatXmOk6qoyzlTPGDXX0yMe2FHpbqd-ujG3qBEvH8UYI7QAUDpT2IhGiKUZX6F85ijUhvqwoSBBkjevVTqs9Ub6SUrMpUo85bfewuiZxeq8PsJ1Wyi6KWmAab9MFvTiWWgTujGIkqC6LGLw==","summary":[]},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"rs_0fcd5b09312e9e37006a8fda0641f487d0bb60693299b3284f","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oGQBMY8PbozhpjffMVzTm9nF5Hat--BiNybhvNTASz99SrzItSvxGn1p1mmfm9k2LMdwVfOEYadZ0i2Kqghf0MZtguHaUn3T4yZew1jr3VIIrCOCfsYfgkIDprwYO-0fw_rQZhKi3Pj2xilqdalyhbrl7P1lJRWk1BDFgCYOOEm3nNemaJjUFVfXmJZ3Vx3jzctXFoUTU_AmIMKg4H6L5HJe78LUBcYup3M0nof05p9I4WMA2BLPCs2KIWpNfL4Ep8VyCCeMZyMlH7yayNdjBJVmJk5h1lgcb-yXkjqKNVmHDUtxYmLzG3j-DYHpJ2K18incFCTgrnVcXeuid0Cb2XU-OOkDP7PjjwMRBXV6eH1_NLSjZHe3B_RfNpTCpBjLhGwGEqyO01FF_c-IwJAbqaU96UJ5FdtKh-Ge0POLXtJLD273nZnn56TbNA8NUyiKrtxe2SO8pNt3KVBo2NxTwEI1xoAbLZ7zTlCL5jBqtdM6MDEGLI8q7yNCKorfilt_CuFPT1q6-2ZBwYmjg06XNYXHxuLEcKq27xTcOsQWyZ_neie5o5UiCI3PZ1MyHWcP-bmzQ8Ro1qLrxswGIBNGlLPgxTwNZO-IiAvagG4WUeFxItDIRWSyh3Y4BCoEbGQzAepSs8VqO2afVLuNkc5QiC1Q9ECskYP2c8DC1rn8ls_885NCK-9Nt4iKuT9weXu91pBTcNHLc6IzhzYd8UfEGlcG59dAn1noYFFging21eDDjhUhxmDsBaqpvESCSLjh6co3Ct3LCGsj6sgfahFaD_ymjBg0XmsGkbGLs3eb3p9Uk5IBrMUWyYNm1UM8SjGnC1J9rlZ9k-o1UjyP2S1jktecWVAIai5Bn7uQ5pRBF9KQF2OoyYWBxP13_NTZl1axsLKMpdZN3ySZJ2YJe4fODlJusNUUgi74EnO9lR0ePo9IxqcIbyHkGQZG3KAoGXOki9ZdYqoGHK_Az1h2d-fkdXljXc6YmXa82lfC1zU5b9ZCarbYSN4ugfVsVfnrKRf87NV95d3qY7ZTAwciupQbJ2xgFa6WUcrm8rzS6GpYrKNfXTrAPJgy3DzG0VDlyuF9BZPE7motNk3rPMso33-7R_EB4ODC_Odd0wM5ThViQxEwu-NiPjHOJpdx0ChTWM8rj-EVx5mdCKpHXjLjc1moR-2uP2miDvVZuBEnMzQC3dWYvS0QsEU0x-FaOd_zitjPqOWMTWJ37oKKud61b8Ivy3ac8GacGqY4hxEONzXKzO3yOfQOZvwsue97eXDDGpWZEw","summary":[]},"output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_0fcd5b09312e9e37006a8fda06cdbc87d093e6529dcafea6ab","type":"function_call","status":"in_progress","arguments":"","call_id":"call_NVl57dhek87FoAMa3wI4DBCz","name":"get_weather"},"output_index":1,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"city\":\"Tokyo\"}","item_id":"fc_0fcd5b09312e9e37006a8fda06cdbc87d093e6529dcafea6ab","obfuscation":"","output_index":1,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"Tokyo\"}","item_id":"fc_0fcd5b09312e9e37006a8fda06cdbc87d093e6529dcafea6ab","output_index":1,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_0fcd5b09312e9e37006a8fda06cdbc87d093e6529dcafea6ab","type":"function_call","status":"completed","arguments":"{\"city\":\"Tokyo\"}","call_id":"call_NVl57dhek87FoAMa3wI4DBCz","name":"get_weather"},"output_index":1,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_0fcd5b09312e9e37006a8fda06cdd087d08742b3885d646bbd","type":"function_call","status":"in_progress","arguments":"","call_id":"call_ctYvBVAg9WygJeYaRu6jv2wn","name":"get_weather"},"output_index":2,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"city\":\"Paris\"}","item_id":"fc_0fcd5b09312e9e37006a8fda06cdd087d08742b3885d646bbd","obfuscation":"","output_index":2,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"Paris\"}","item_id":"fc_0fcd5b09312e9e37006a8fda06cdd087d08742b3885d646bbd","output_index":2,"sequence_number":10}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_0fcd5b09312e9e37006a8fda06cdd087d08742b3885d646bbd","type":"function_call","status":"completed","arguments":"{\"city\":\"Paris\"}","call_id":"call_ctYvBVAg9WygJeYaRu6jv2wn","name":"get_weather"},"output_index":2,"sequence_number":11}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_0fcd5b09312e9e37006a8fda05ba4087d08279215cbe8374e6","object":"response","created_at":1787812357,"status":"completed","background":false,"completed_at":1787812358,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"rs_0fcd5b09312e9e37006a8fda0641f487d0bb60693299b3284f","type":"reasoning","content":[],"encrypted_content":"gAAAAABqj9oGrQZjWohyH3ZzsDL1EYsIPl0FdSi04R8xsnI9120B41N9oDusBl0tystN4MzAadnjpgP81swbqH36Ne340wULIkuAVBQ_ovQtkpcDLfnHtr1cw86HIHVmiG41GWYmFUJui5YgCLJXZT9iuToOry-z4d_vlX91MkX_FzpkUrb3cIPk066F7LJTA5v6QVxYOvahVlxubHV2oN5D2fpKw2VfPAUtwzJ3MxLLTYvLAByoye47iSmzdyBXhxJr3S7fQeFt73asykfhU_gldNLBMbN9wGWuyJlw_yh8lqsZIu7SITaGlA-j6Lp_6U1WeSlYd3uMsMcFq1Ef89xDYPyMOy1iRa06YO79r4PaTBhOTnK2TyaNNrv8V0QuVyii_5Hcsb76otfpLuw2pZwzf_IW2b0oczFtIKbY2GZeXJtz2RKPDu1WOCLBe-gSSvn59rUIGXn_wMmsCEMGCZV8h1MjbYBLi2QqX3lt3gAwKYfo_zCO3oxMkx1-5aDPHYREODOndEzqD2QTD1hE5k6giKwOIDpDE1-HESIFbbVfOnj-gkoY6C9U3O4PaC13ZTdACGqCcRU94PPMqhZTMNnML6bKmzsNS0mlu9or1ECQdUWrEZ8WeBr_yclL7C-j46Sc20bAF5FzLE9i1YJPK0zLvT8D9eSjoEoNMbe3Cp1qtIpC_fXx5eEdC1Xu_ui4wyRW5TnvRHxhQY71_zbEiW3OdbY8eGmNI8dJZeZO4llcUFbXYjzWVI70ZpE8mNt4jxlV7GuayNOLrV1qgfzhZWP_vKHBG77vjjvs9l9R5P95Gd-sjq1gUuTXeI4Kev6kdOh0MGRrfP7f01ULMjzp_JeeGloJDsfQIIt-zM4G0tfS0P1zT3Dm3-_kSyL_9tgdLbZbcVbsheip7wFa5P3103TwFy6CCaEZJ7TpBReywZkgZjmRcnje5iTn7tVxRO1IenS5RVMFZ8qxpMTrHvGhoU2DUJh_D5nuZRLQIBhynfpO9CcoKDbr3ovEAlt4QTYhCjhnKCDM7pKBYV0n6PVwZkSkdgATCwwpLYCQKUKPNoqokIHw0Lqvta2QARlBHkAUj3-7duh6wD61JJK0TMkXNeko5o8fpjiwiH6kRHiv4XjgMjp0hGae2RAZXH-Vdt5PtnJaastbFbMvngvVPzkbVV8EUqiWV_CVpz8O1F6o9HxnoCB2BzY6rXYSu1QZdbbHWOvjwApH4cr_j8n35MFL5nQm1-8Ucq7Ix7gOm8XBZHY1Ysyb5UXyoCRtWiAsr898aeqTB5l5yaWa","summary":[]},{"id":"fc_0fcd5b09312e9e37006a8fda06cdbc87d093e6529dcafea6ab","type":"function_call","status":"completed","arguments":"{\"city\":\"Tokyo\"}","call_id":"call_NVl57dhek87FoAMa3wI4DBCz","name":"get_weather"},{"id":"fc_0fcd5b09312e9e37006a8fda06cdd087d08742b3885d646bbd","type":"function_call","status":"completed","arguments":"{\"city\":\"Paris\"}","call_id":"call_ctYvBVAg9WygJeYaRu6jv2wn","name":"get_weather"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0fcd5b09312e9e37006a8fda03f3c087d08750d47f7c4b79bc","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":526,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":71,"output_tokens_details":{"reasoning_tokens":21},"total_tokens":597},"user":null,"metadata":{}},"sequence_number":12}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t4
+  request:
+    body:
+      input:
+      - call_id: call_NVl57dhek87FoAMa3wI4DBCz
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - call_id: call_ctYvBVAg9WygJeYaRu6jv2wn
+        output: '{"city": "Paris", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - content: What's the weather in each of those two cities?
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_0fcd5b09312e9e37006a8fda05ba4087d08279215cbe8374e6
+      store: true
+      stream: true
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_0fcd5b09312e9e37006a8fda07670887d0b8174fd852ac5ca8","object":"response","created_at":1787812359,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0fcd5b09312e9e37006a8fda05ba4087d08279215cbe8374e6","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_0fcd5b09312e9e37006a8fda07670887d0b8174fd852ac5ca8","object":"response","created_at":1787812359,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0fcd5b09312e9e37006a8fda05ba4087d08279215cbe8374e6","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","type":"message","status":"in_progress","content":[],"phase":"final_answer","role":"assistant"},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.content_part.added
+
+      '
+    - 'data: {"type":"response.content_part.added","content_index":0,"item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","output_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":""},"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"-","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"BACEuBESoPF0kVR","output_index":0,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" **","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"KN8Z0aqy9CCLc","output_index":0,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"Tokyo","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"1jiYyEHiCsr","output_index":0,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":":**","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"2lV16UbOav4Le","output_index":0,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" Clear","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"rkzkD5ms0L","output_index":0,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":",","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"NchPNGpHmYUC5BY","output_index":0,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" **","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"lzcMkT3nGigPr","output_index":0,"sequence_number":10}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"72","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"jkVX5sYjLzDhJd","output_index":0,"sequence_number":11}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"°F","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"3hcu5RzGezIi6J","output_index":0,"sequence_number":12}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"**\n","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"SjTyk4bmB5Azm","output_index":0,"sequence_number":13}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"-","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"tA9ZYsnFO1rdEZB","output_index":0,"sequence_number":14}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" **","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"q7RGc2OKwrYQl","output_index":0,"sequence_number":15}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"Paris","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"L54O7intz4s","output_index":0,"sequence_number":16}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":":**","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"pYDCIWFApA4pA","output_index":0,"sequence_number":17}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" Clear","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"pBd5pPAVgl","output_index":0,"sequence_number":18}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":",","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"uIb82tpEMi3Vy01","output_index":0,"sequence_number":19}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":" **","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"kVddMkb5qa4ZB","output_index":0,"sequence_number":20}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"72","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"0HRhHfn7lD5140","output_index":0,"sequence_number":21}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"°F","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"93zw5OlELEFlFc","output_index":0,"sequence_number":22}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"**","item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"obfuscation":"Gjfax497sHI9Us","output_index":0,"sequence_number":23}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.done
+
+      '
+    - 'data: {"type":"response.output_text.done","content_index":0,"item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","logprobs":[],"output_index":0,"sequence_number":24,"text":"-
+      **Tokyo:** Clear, **72°F**\n- **Paris:** Clear, **72°F**"}
+
+      '
+    - '
+
+      '
+    - 'event: response.content_part.done
+
+      '
+    - 'data: {"type":"response.content_part.done","content_index":0,"item_id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","output_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":"-
+      **Tokyo:** Clear, **72°F**\n- **Paris:** Clear, **72°F**"},"sequence_number":25}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"-
+      **Tokyo:** Clear, **72°F**\n- **Paris:** Clear, **72°F**"}],"phase":"final_answer","role":"assistant"},"output_index":0,"sequence_number":26}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_0fcd5b09312e9e37006a8fda07670887d0b8174fd852ac5ca8","object":"response","created_at":1787812359,"status":"completed","background":false,"completed_at":1787812360,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":2048,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"msg_0fcd5b09312e9e37006a8fda08040c87d0a1bb30889de60a54","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"-
+      **Tokyo:** Clear, **72°F**\n- **Paris:** Clear, **72°F**"}],"phase":"final_answer","role":"assistant"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":"resp_0fcd5b09312e9e37006a8fda05ba4087d08279215cbe8374e6","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a given city.","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City
+      name, e.g. Paris"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","description":"Get
+      the current stock price for a given ticker symbol.","name":"get_stock_price","output_schema":null,"parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Stock
+      ticker symbol, e.g. AAPL"}},"required":["ticker"],"additionalProperties":false},"strict":true},{"type":"custom","description":"Set
+      the user''s preferred temperature unit. This changes how temperatures should
+      be reported for the rest of this conversation. Call with the raw unit as plain
+      text input, e.g. fahrenheit -- not JSON.","format":{"type":"text"},"name":"set_temperature_unit"}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":669,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":24,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":693},"user":null,"metadata":{}},"sequence_number":27}
+
+      '
+    - '
+
+      '
+    status_code: 200

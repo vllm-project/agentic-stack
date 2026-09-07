@@ -1,0 +1,712 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Do all three of these right now, in parallel, in this single turn --
+        do not wait for one before starting another: (1) call get_weather for "Tokyo",
+        (2) call get_stock_price for "AAPL", and (3) call set_temperature_unit to
+        set my preferred unit to "fahrenheit" for the rest of this conversation.'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812422
+      created_at: 1787812420
+      error: null
+      frequency_penalty: 0.0
+      id: resp_03b3a7d518e62f29006a8fda44ad0887d0bc8a407771b366c7
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqj9pGkpFbHzHSvaNXsCwwvtudXw__-TOcEqzeS5I-af-QN3Opgcrd0fkcn_tGTAmnn9ZbfBQui2-24VR8TG0Kk00CaCiH9l0KwGbh4FTBZ7fOqTUzU-EMMuoUy94NYUTcR-HgeqAEOkADbjbi_VNRZB4QpU2HGK-cURCDZrFXulbzpCk4A0GpoM6q9L-8YXwsFiTTRpJmHSijkZxqLdehXVefTHdnc7tmsNi2DbFpiALYiqAYi-gM9U83yUyJ6ED9orI9jDmLIkGcpWztrqfSepnKBWXo7DdjJiMILulxv4O35EjmTXouyAtPwJLMT2Drr_oWLETMDiNJKJi3nygCEe_g3qzZzE7ke2SNOq_jA5VRHBdb8INbRui9LUYA9hRXuYVh8BZzXDNMxfL4As3o4VR_hqC9zxtB6UsCrm9Ho4FttuuwZzHjccgGSaY6k9IAcJWBXfhujNK6dwonLVX-mfNjwfyzr-86920aB0bYIPlfy0G87mdLWED3dsRt7ahzxaDv-J6o-Tw1dglXXOG1MQftHcu6kDDnNByoN4xJlV7IMsEB4AjtIe0ZQYUIIg1uYBIUUO2t6sz-Hz2-8D0giEDW5ULswCNHCuvkgfZa4yvjej-6AhTh3rHIFRAqQb108EFSSZPggB-1t2ynro68OJJSdUgb6X9dv-z7KTTj8r_DsKbirp92MaYoCgA8i0GwwjUbL2YXJglsVNBxDNiRhqEznZqVaNmc0C7x1dzVXhAIVCP9O36TrEpz1xaCrVdSdB9mu2VoEDLyV4moH2dPG539t4zWTTpiipYix6RP7I4w4tU57uf7K-aWhciR6KXBLAX6E-vj6dOeVBxH6LwvMRGB1NS4K2yuCZFHPqKc2OsuaQrb3SyNHJI3a7UWFCQGASyCwp_k1wsCItbho2V_QyGuQ9h4pQrnBqI4OICCl_xrAfSMG_uzqltvLz6SsDRzYSosojrywIwiXCsz8B8vy6KVDYTD8LpnXuI0SRICt8kp9x6RMvV5Mnxo5XilX6Cux1WqLVkyuLzEFmVNhg-fDtfbSOZyttDu79kF51TmPV_K1UfES9cBRN-t9hQB6kHEiDVnnx3wDsdqeXR47AH5R98I9l76TWE5myilcknNDhwIwfcEmwLIG2tCxVkadSQ6FAYTpKsjIESADfn5wY_VKKwCGLLc0H2_PdQOljSQxGCBmZa2uHBm9-TSq9QEPBOnrUI7MdpneYYdYzJDiDFC3zFHKV599F1xL8wl63vxKOMwWZHZQ_ExZhHL9zMS9Ltk4bf8eA7dc824rFAI1NZMuiNW1_lHFJVccAh9V1Z1d0d4Cl1eKvu8-5CNMje4lAqqM2vcYvFx1SyjzeQRL6d5VUfWqD9WC_OQ9uJ7StJHJYB4FUOg8Ph7PZ7kuznwABQ87522cHGKG-4SFuHclyjCkAv_UVOSWGYmEu0HeU1850jLgNpU-NY8nLrnN68uiXzz-CHY0HUMmjDk2fEaIBd4fXSz3PdGmsC_ft8i_Le_XFCHkRb-GBjPkyaIInFbaAcdbIPbJoHNiqiDFsj-8ScDwSS7DXyBU2CEQGq3aP15kAh3usEcimS4iKw13BZ6BzS4X1SkDaxz9x-04kBn3WPSilFvQW9MYL75Z9_IofXg9iSQ3eGqmlHbpdczhBjclkgXXJlY
+        id: rs_03b3a7d518e62f29006a8fda452c7c87d0bf4b7d4d0f0efb5f
+        summary: []
+        type: reasoning
+      - call_id: call_aYFw8deNQVL4tikZDFFDTwql
+        id: ctc_03b3a7d518e62f29006a8fda465c5887d099228530bacd4e88
+        input: fahrenheit
+        name: set_temperature_unit
+        status: completed
+        type: custom_tool_call
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: null
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        format:
+          type: text
+        name: set_temperature_unit
+        type: custom
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 228
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 0
+        output_tokens: 92
+        output_tokens_details:
+          reasoning_tokens: 76
+        total_tokens: 320
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: call_aYFw8deNQVL4tikZDFFDTwql
+        output: '{"status": "ok", "unit": "fahrenheit"}'
+        type: custom_tool_call_output
+      - content: What did you find for the weather and the stock price, and what temperature
+          unit did you just set?
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_03b3a7d518e62f29006a8fda44ad0887d0bc8a407771b366c7
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812424
+      created_at: 1787812423
+      error: null
+      frequency_penalty: 0.0
+      id: resp_03b3a7d518e62f29006a8fda46fb3887d0af4f34927e176083
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqj9pJb9Wh0ZDIE_y8P3E0DhgprwZpP5Q4-BNtFvsTzM1yy3lX8pzMjuxjooW0KgLoKKc5WqmIJpdHHumUcja41CWr8YNSeUcKEb64iJhkK5i6c0SclNfITGnP_s53p71aSUTlQAnrAgqL9oQt31Sytp98hOxjuTWZGt8WLjGX34qUCLUtZ8jHtIBmhmtdtc5p8EtFywtw7n-PKBZHh_cbvpV6-tUWzVYygBXIDA9IO2rejfaLJfKK6djJnOrUvKwJ0lOJTq_WnQj5mfd-J6qmqXjBxtHFMCuqTJ309cC_ep2pXtES816xd6j6bFZtOS5qX_zFb4JyNFfjxJ8D7lguVpQZORtmoIywEqYN6L0yCbovh7qMgIJ8tXSpW2DEGn_Riv6aFNBZqg-0-bHIG-A-WcrNazLpnxoTRr3sG6uRmstAGmpSlqd_Lq7SuP_8CQxtk0ms4CcahDKOSDOPhPrPI3ZNVcctahzk7zzzqzODwv7nQ0pGqHL2FoAmAu6xPWlev8Vb8GlMO9Thz3sJn4RJv2a9H7MGMgzKh2-4aEsKAjecLdifDV1I4gYcpElV_H0jSLKwoxIP_9l5IwdqGuahbO3huYRR4HO_TQ2TvUVM63v9vG9mUC_srSIInv884ratoFKHKi__kZxhyvmQwddvmoDo6iRsGtTLin97g7AX_muNLV8rKAuuHR1LcOwVJB0HnvhXDAjHP3jr3nkfXB1N_72ZF3ryhH8La4DXbC1drxHw5On1E3LQOkPTktaDMPWQJIkO1aCH7UXQjyrQmdCUKVugZcuqeXg0nKlYRqCkm1iFM1uWpMdhHut8UcqghY_dYSay6Wl_OlJ2Xa8y0wwck7RNu0Mh10rCN_RItyX_nNEt76LdVWkg1oWBM2DW00fta_5jz8Ky81vFVUB8lpqjSuC_o-NJrstaKEVHAdDW_METZoT5I_EyNtvTFSyKUHg5TP8tw6tJN7Z3qsf5HXzI_WDIdtFlRY33SmitrI28ww_iQgQKPTqRLK8i0QS0auvF0MZMSlrFlkVpyFS1Zugoj7-R7TOCiLM2V1BfSpbaNbVxya7t0Ph1v0BKuDbA0dYuuI7SR_83owoKyvsKwBHkfxvqDPW2sySmZoNJ79irF7zaqb1NjYnULDRzv4Fp0Yb1I_cOouGGVfxCrM9g2MY8cm-LbghUNuLG6PB-Ot7rgMylKJN5UhSIAgxTqmWASLz-s7pfBll3GiS9HQWXVSO5_OKf7Ms4wT2iPI6hlHjt_ehdSk-mZndMpYyfvTTu7aJjECtQCaq3fcS0hzCZrn9AxUywEw==
+        id: rs_03b3a7d518e62f29006a8fda4841c487d0bbf1b2c8000b4e4f
+        summary: []
+        type: reasoning
+      - arguments: '{"city":"Tokyo"}'
+        call_id: call_eHt3sJIa8qWtlFZTGPK458I2
+        id: fc_03b3a7d518e62f29006a8fda48bd4487d0bcda74e25a9b41c0
+        name: get_weather
+        status: completed
+        type: function_call
+      - arguments: '{"ticker":"AAPL"}'
+        call_id: call_uXK6tWBlWZkbP570sOxb0Gi4
+        id: fc_03b3a7d518e62f29006a8fda48bd5c87d09c32542815434f41
+        name: get_stock_price
+        status: completed
+        type: function_call
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: resp_03b3a7d518e62f29006a8fda44ad0887d0bc8a407771b366c7
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        format:
+          type: text
+        name: set_temperature_unit
+        type: custom
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 370
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 0
+        output_tokens: 75
+        output_tokens_details:
+          reasoning_tokens: 23
+        total_tokens: 445
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t3
+  request:
+    body:
+      input:
+      - call_id: call_eHt3sJIa8qWtlFZTGPK458I2
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - call_id: call_uXK6tWBlWZkbP570sOxb0Gi4
+        output: '{"ticker": "AAPL", "price": 231.45, "currency": "USD"}'
+        type: function_call_output
+      - content: 'Do both of these right now, in parallel, in this single turn --
+          do not wait for one before starting another: (1) call get_weather for "Tokyo",
+          and (2) call get_weather for "Paris".'
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_03b3a7d518e62f29006a8fda46fb3887d0af4f34927e176083
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812426
+      created_at: 1787812425
+      error: null
+      frequency_penalty: 0.0
+      id: resp_03b3a7d518e62f29006a8fda49829487d0a8fcba49f5783cda
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqj9pKvU9K51SQp7Cb__PSXFO5vFVVLyiBfYhf_RduJLMmJXDDO5VjFCahUMtWKfCEOk1RlWooB7mCe5IsbZoJV7hEoAyss34TuyvWC0hK3ZZuW1Hs1Mclro_3BzeJ6ecVcQ3ZDi4Nfv2O9yDRyB8iOWtLEmfNfAwpUVzRjz26KfV_F3PMc4JDecMyJEGOovHAKnvZR8spOnC3jw1f5gkRxu288XaFLpG68iswUlWSHECc0r2-A5CUf8tblXsaNHWTrUzSvT9M1EDf68NrvTSK6HvPJUFdZ8TFojPvGVi1T1tNAaNGRi8zCXdARpFtQF_qQKxk5wkNF6DdgMe7XwlRrt3hp65vOQzlItx6IUc_MQVRwgqH_RXQH7J0BaTawWGyErczR1xNDqiJh9Xx0-_-FwFu71iBhkZQn-9Rk5yYdyZ2vkTjLidl5uEQbOcFec5EeUxd5BIQ49E11GtZWIuloQJX7k7bbP6aX6KBbJ9A31Ap9PCyadRlnWYboNpsYtsyhocG5K7gHhxQU9pI8odJm-CIvYikXi5-uYvgn6snAU4kwRxixzecorxkdnzz6r2PR3SC5N8Gp-gxzNEOAvum052D6tte-jyVkuwYCfZfAeNU2YeblX0e6B0icZqRetA-9Zz9ld6HWw9QPIxGuqBjmkKlS6JiosJaxQNiN3Jg4c6_yskxvlf4ZyhvGe7bZ9z8oeGhuhZmpFE5AYHSTU2XtDiz7PbrrSSG8vPiJdGZWvzcu7laJ_Zbxir-4scvqIbhaJqklrQPvgDocoMheJpDTLhV9ESCuR13TW2i8u72nauW6XzWEDkTBBm2wth-JRvdQ6ZMVgXD0pPQD3e6LSraeLx3XDTmOKOryyzajknQ98SXJlPZ3BcBYsgc41Xm60EWOhw9Ejume84El2z6RuPhLYjzerYHkIP1va9P-UVskU8zBWiIT_wLZAiGU0XmmmlUFz78dGDGU4-32dCvcOLN9S3jaDMOZ0WQP3rmZuFNAQ4nbFC4-dgjti06oX0MnYgTLbSBmsCKLp196XrnORAk9ciTv1gjI-FO2HuT_Bdhay1eNIzuL6CTzbnUHhsysKzjLgnE6kCVx23wjC_ZHyA2xrkn-rAOuDsam8yzIhpANYiFxoEm-hrQ8vbElzbraIt4SiFyslH74zoI8jb7UOTWArR2YukJUE4RJqmyEqQ4Hn6-Pkd9Z2-s7YF_0j2P5ukZ1cf4tLbj4f8GvMoz4rQWxH7YCA==
+        id: rs_03b3a7d518e62f29006a8fda4a248487d0a58ea8aa99798032
+        summary: []
+        type: reasoning
+      - arguments: '{"city":"Tokyo"}'
+        call_id: call_rP63VS4OqpFKmZo2wOTg5d6U
+        id: fc_03b3a7d518e62f29006a8fda4a913487d0b5b509fc44ef551a
+        name: get_weather
+        status: completed
+        type: function_call
+      - arguments: '{"city":"Paris"}'
+        call_id: call_6R4bvcCLMiyBmbrnDCZ9H41e
+        id: fc_03b3a7d518e62f29006a8fda4a914487d0a91f984d86519e54
+        name: get_weather
+        status: completed
+        type: function_call
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: resp_03b3a7d518e62f29006a8fda46fb3887d0af4f34927e176083
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        format:
+          type: text
+        name: set_temperature_unit
+        type: custom
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 555
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 0
+        output_tokens: 62
+        output_tokens_details:
+          reasoning_tokens: 12
+        total_tokens: 617
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t4
+  request:
+    body:
+      input:
+      - call_id: call_rP63VS4OqpFKmZo2wOTg5d6U
+        output: '{"city": "Tokyo", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - call_id: call_6R4bvcCLMiyBmbrnDCZ9H41e
+        output: '{"city": "Paris", "temperature_c": 22, "condition": "Clear"}'
+        type: function_call_output
+      - content: What's the weather in each of those two cities?
+        role: user
+        type: message
+      max_output_tokens: 2048
+      model: gpt-5.6
+      parallel_tool_calls: true
+      previous_response_id: resp_03b3a7d518e62f29006a8fda49829487d0a8fcba49f5783cda
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        name: set_temperature_unit
+        type: custom
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1787812428
+      created_at: 1787812427
+      error: null
+      frequency_penalty: 0.0
+      id: resp_03b3a7d518e62f29006a8fda4b419c87d0a289c88c108f1d5d
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 2048
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqj9pM-5fMzmr_O-KfteHXiJ06f1OR2PBRmMx5q9k958TBlg50geQkq70uj0JPfYjtMsMqn3Uoxam94sENgcpJXIzcqiFD9tJ0gnrqry2SMmkZ-4CgcwI9IiCx-amUv5Rg8zNtMIq10Xpl846NCGQR3OQCLB1Tx-iu_1KC7t_A9TPfoc_MWGWaqLK0b0434KJvdQ2pEb2FMtMVfhO6JA-qQcly0oLKUAlsl8hD-k_Ks9vk8TG9GQIpOcWzpNxeWS3SjH-muWM_IcgpslUUtmnORb_KhjcdJDs9zX07FHYfHjrGN2BCWunRChnfbwGuXHtXYuNYhFUORwbrLtAY5ZsZyVktbO7nYV3N5KDFoulpWs4nxRlSEw0ok1JiENgvoZUo_Cw_gLlF2uS9UjKUMWWP9bKzw9-no2ciMhby2S4MzQJegERrwpLJK7EXtKGCy538hIRnYa_IUJ8qUmEgIlEIzIxD80WgqMkl8AaccFdAiPHFMtq1ifd5OAZz11NxiXtSfeXhzduCaquxoyaJz8sCXkYXZzXT6qVUuTrNaOgBWwBK9nXQKWjcVGSe_E6VkRMVhYsQ79bPKKdaJjj24iJydhM4TJyyGX-T_sPgMJekb38pvj6GNGYapXz9_mTlCo_N-iqsRGR-hQdVHFUlvxB3NeLLqfrB-qH2YFuzDWDaPDcuOJ905V-ItbsLwmKYZUHJDxNjw1HeGLwkBP4b9DdGo1RY1UlW7enhOT8d-7CdWEDVPOIBq3ueRl_8XEY1XVjKSDo4KBnLe5qn2oEi0CFkI5BM-bjfuiPhAafn8nVyo5iHLfLJavh6bxKG0kT2WD3Q40D1_sO5hRdBGRvv88uGNT57e2gRp_L6OvoaioM44tWTE_l4_fUkt03CqYVIDWjJEbzRGyb1jt2tuubH0uQtqvbvvZYtUusEIXVRyspTO-kJrPFBg-MpZTmhGcIP0ZtQWrihMTGAX8BSSgLUUSNzwnwEDSMMuEI43H8CEs5uQTscI6XMkNFvefBuQIOhpTJsmQr7-2ZMJHvP-XiSeV7QV_TsEuDtoLtFaujyZzHu8CxchHbqZ-Dd_YuZadjxdme76b4uaTDkUWZWNP6_GMjkIRXR0frBeI6XjvK-UvVBVSOkT3tMcsblJefFzj2XEuPBODt0zrigRNAapcuU_36_M4QVVON29_Nn-fH6OfZy4PI-XyX-7LiMIZgXxtTQF2TS2eYqrLD9laTNej2-r29Qczm4NjnapTUkH9ApC7so6acsXN0=
+        id: rs_03b3a7d518e62f29006a8fda4be71087d08ce7e5f041a59034
+        summary: []
+        type: reasoning
+      - content:
+        - annotations: []
+          logprobs: []
+          text: '- **Tokyo:** Clear, **71.6°F**
+
+            - **Paris:** Clear, **71.6°F**'
+          type: output_text
+        id: msg_03b3a7d518e62f29006a8fda4c278c87d0a60ee6f670b2f63c
+        phase: final_answer
+        role: assistant
+        status: completed
+        type: message
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: resp_03b3a7d518e62f29006a8fda49829487d0a8fcba49f5783cda
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - description: Get the current weather for a given city.
+        name: get_weather
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              description: City name, e.g. Paris
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Get the current stock price for a given ticker symbol.
+        name: get_stock_price
+        output_schema: null
+        parameters:
+          additionalProperties: false
+          properties:
+            ticker:
+              description: Stock ticker symbol, e.g. AAPL
+              type: string
+          required:
+          - ticker
+          type: object
+        strict: true
+        type: function
+      - description: Set the user's preferred temperature unit. This changes how temperatures
+          should be reported for the rest of this conversation. Call with the raw
+          unit as plain text input, e.g. fahrenheit -- not JSON.
+        format:
+          type: text
+        name: set_temperature_unit
+        type: custom
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 689
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 0
+        output_tokens: 53
+        output_tokens_details:
+          reasoning_tokens: 23
+        total_tokens: 742
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200

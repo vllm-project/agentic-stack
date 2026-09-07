@@ -1,27 +1,41 @@
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use futures::StreamExt;
-use futures::stream as futures_stream;
+use futures::future::join_all;
+use tokio::sync::Semaphore;
 
+use crate::config::DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS;
 use crate::events::SSEEventType;
 use crate::executor::error::{ExecutorError, ExecutorResult};
 use crate::executor::gateway_accumulator::{GatewayStreamAccumulator, StreamEvent, emit_sse_frame, synthetic_event};
 use crate::executor::request::RequestContext;
-use crate::tool::{GatewayDispatchResult, ToolError, ToolOutput, ToolRegistry, ToolType};
+use crate::tool::{GatewayBinding, ToolError, ToolOutput, ToolOwnership, ToolRegistry};
 use crate::types::io::output::{FunctionToolCall, GatewayCallStatus, McpCallStatus};
 use crate::types::io::{InputItem, OutputItem, ResponsesInput};
 use crate::types::request_response::ResponsePayload;
 use crate::utils::common::{serialize_to_string, serialize_to_value};
 
-/// Max gateway tool calls executing at once within a round. A sliding window:
-/// as one call finishes, the next is admitted, so a round with N calls never
-/// runs more than this many concurrently but still drains all N. Bounds
-/// outbound fan-out without a hard per-round count cap.
+/// Request-independent execution policy owned by one [`ExecutionContext`].
 ///
-/// The call count is bounded upstream by the model's output size — there is no
-/// unbounded in-memory materialisation from the model emitting arbitrarily many
-/// tool calls. The window + per-call timeout bound outbound HTTP and latency.
-const MAX_CONCURRENT_GATEWAY_CALLS: usize = 5;
+/// The nonzero type makes `.buffered(0)` unrepresentable. Distinct execution
+/// contexts retain their own limits instead of sharing process-global state.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GatewaySchedulerPolicy {
+    max_concurrent_calls: NonZeroUsize,
+}
+
+impl GatewaySchedulerPolicy {
+    #[must_use]
+    pub(crate) const fn new(max_concurrent_calls: NonZeroUsize) -> Self {
+        Self { max_concurrent_calls }
+    }
+}
+
+impl Default for GatewaySchedulerPolicy {
+    fn default() -> Self {
+        Self::new(DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS)
+    }
+}
 
 /// Per-call wall-clock budget. A tool exceeding this yields an error output fed
 /// back to the model (never a whole-request failure). `Duration::ZERO` disables
@@ -32,56 +46,9 @@ const MAX_CONCURRENT_GATEWAY_CALLS: usize = 5;
 /// would be the place to cap total time end-to-end.
 const GATEWAY_TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Outcome of inspecting one inference turn's output, deciding whether the
-/// gateway tool loop should run another round, stop, or surface a partial result.
-///
-/// `#[non_exhaustive]` so downstream variants can be added without breaking
-/// existing match arms.
-#[derive(Debug)]
-#[non_exhaustive]
-pub(super) enum LoopDecision {
-    /// Gateway tools were dispatched this round; loop again with their outputs
-    /// appended to the conversation.
-    Continue,
-    /// No gateway work remains — the turn is final and the loop terminates.
-    Done,
-    /// One or more calls are client-owned (plain `function` or Codex
-    /// `namespace` tools); hand the turn back to the caller to execute.
-    RequiresClientAction,
-    /// The round cap was hit before the model stopped requesting tools. The
-    /// response is returned with `status: "incomplete"` rather than as an error.
-    Incomplete(String),
-}
-
-/// Classify one turn's output into a [`LoopDecision`].
-///
-/// Order matters: client-owned calls take precedence (they must be handed back
-/// even when gateway calls are also present in the same turn), then a
-/// no-gateway-work turn is `Done`. Otherwise gateway tools ran — the loop would
-/// continue, unless this was the last permitted round, in which case the budget
-/// is exhausted and the turn is `Incomplete`.
-///
-/// `round` is zero-based; `max_rounds` is the total budget.
-pub(super) fn classify_round(
-    has_client_owned_calls: bool,
-    gateway_results: &[GatewayCallResult],
-    round: usize,
-    max_rounds: usize,
-) -> LoopDecision {
-    if has_client_owned_calls {
-        LoopDecision::RequiresClientAction
-    } else if gateway_results.is_empty() {
-        LoopDecision::Done
-    } else if round + 1 >= max_rounds {
-        LoopDecision::Incomplete(format!("gateway tool execution exceeded {max_rounds} rounds"))
-    } else {
-        LoopDecision::Continue
-    }
-}
-
 #[derive(Clone)]
 pub(super) struct GatewayCallResult {
-    pub(super) call: FunctionToolCall,
+    pub(super) item_index: usize,
     pub(super) input_item: InputItem,
     pub(super) public_output: Option<OutputItem>,
 }
@@ -111,26 +78,219 @@ pub(super) struct GatewayEventPlan {
     arguments: Option<String>,
 }
 
-fn function_calls(output_items: &[OutputItem]) -> Vec<FunctionToolCall> {
-    output_items
-        .iter()
-        .filter_map(|item| match item {
-            OutputItem::FunctionCall(call) => Some(call.clone()),
-            _ => None,
+#[derive(Clone)]
+enum GatewayExecutionPlan {
+    Bound(GatewayBinding),
+    MissingHandler,
+}
+
+/// One gateway-owned call planned from the model output.
+///
+/// Execution and lifecycle data live in the same slot so their positional
+/// relationship cannot diverge.
+#[derive(Clone)]
+struct GatewayCallPlan {
+    item_index: usize,
+    call: FunctionToolCall,
+    execution: GatewayExecutionPlan,
+    events: GatewayEventPlan,
+}
+
+/// Plans and executes one model-output round of gateway-owned calls.
+///
+/// The scheduler is the single source of gateway-call membership, original
+/// item indexes, public output indexes, execution bindings, and lifecycle
+/// plans. Tool handlers provide typed lifecycle projections; the scheduler
+/// assigns protocol positions and emits the resulting events.
+pub(super) struct GatewayScheduler {
+    calls: Vec<GatewayCallPlan>,
+    policy: GatewaySchedulerPolicy,
+    timeout: Duration,
+}
+
+impl GatewayScheduler {
+    pub(super) fn plan(
+        output_items: &[OutputItem],
+        registry: &ToolRegistry,
+        output_offset: usize,
+        policy: GatewaySchedulerPolicy,
+    ) -> Self {
+        Self::plan_with_timeout(output_items, registry, output_offset, policy, GATEWAY_TOOL_TIMEOUT)
+    }
+
+    fn plan_with_timeout(
+        output_items: &[OutputItem],
+        registry: &ToolRegistry,
+        output_offset: usize,
+        policy: GatewaySchedulerPolicy,
+        timeout: Duration,
+    ) -> Self {
+        let calls = output_items
+            .iter()
+            .enumerate()
+            .filter_map(|(item_index, item)| {
+                let OutputItem::FunctionCall(call) = item else {
+                    return None;
+                };
+                let entry = registry.lookup(&call.name)?;
+                let ToolOwnership::Gateway(binding) = &entry.ownership else {
+                    return None;
+                };
+
+                let started_output = binding
+                    .as_ref()
+                    .and_then(|binding| binding.plan_gateway_events(call).into_started_output());
+                let execution = binding
+                    .as_ref()
+                    .map_or(GatewayExecutionPlan::MissingHandler, |binding| {
+                        GatewayExecutionPlan::Bound(binding.clone())
+                    });
+                Some(GatewayCallPlan {
+                    item_index,
+                    call: call.clone(),
+                    execution,
+                    events: GatewayEventPlan {
+                        output_index: u32::try_from(output_offset.saturating_add(item_index)).unwrap_or(u32::MAX),
+                        started_output,
+                        completed_output: None,
+                        arguments: Some(call.arguments.clone()),
+                    },
+                })
+            })
+            .collect();
+        Self { calls, policy, timeout }
+    }
+
+    #[cfg(test)]
+    fn plan_with_test_timeout(
+        output_items: &[OutputItem],
+        registry: &ToolRegistry,
+        output_offset: usize,
+        timeout: Duration,
+    ) -> Self {
+        Self::plan_with_timeout(
+            output_items,
+            registry,
+            output_offset,
+            GatewaySchedulerPolicy::default(),
+            timeout,
+        )
+    }
+
+    pub(super) fn event_plans(&self) -> impl Iterator<Item = &GatewayEventPlan> {
+        self.calls.iter().map(|call| &call.events)
+    }
+
+    pub(super) fn event_plan(&self, call_index: usize) -> Option<&GatewayEventPlan> {
+        self.calls.get(call_index).map(|call| &call.events)
+    }
+
+    pub(super) fn call_index_for_item(&self, item_index: usize) -> Option<usize> {
+        self.calls
+            .binary_search_by_key(&item_index, |call| call.item_index)
+            .ok()
+    }
+
+    /// Number of leading scheduled calls whose start lifecycle may be emitted
+    /// before execution without overtaking an earlier client-owned call.
+    pub(super) fn initial_event_run_len(&self, output_items: &[OutputItem], registry: &ToolRegistry) -> usize {
+        let Some(first) = self.calls.first().map(|call| call.item_index) else {
+            return 0;
+        };
+        if output_items[..first]
+            .iter()
+            .any(|item| matches!(item, OutputItem::FunctionCall(call) if registry.is_client_custom_name(&call.name)))
+        {
+            return 0;
+        }
+        self.calls
+            .iter()
+            .enumerate()
+            .take_while(|(offset, call)| call.item_index == first.saturating_add(*offset))
+            .count()
+    }
+
+    /// Executes planned calls under the bounded-concurrency policy and records
+    /// each tool's completed public lifecycle on the same slot.
+    pub(super) async fn execute(&mut self) -> ExecutorResult<Vec<GatewayCallResult>> {
+        let execution_slots = Semaphore::new(self.policy.max_concurrent_calls.get());
+        let results = join_all(
+            self.calls
+                .iter()
+                .cloned()
+                .map(|call| self.run_one(call, &execution_slots)),
+        )
+        .await
+        .into_iter()
+        .collect::<ExecutorResult<Vec<_>>>()?;
+
+        debug_assert_eq!(self.calls.len(), results.len());
+        for (planned, result) in self.calls.iter_mut().zip(&results) {
+            debug_assert_eq!(planned.item_index, result.item_index);
+            planned.events.completed_output.clone_from(&result.public_output);
+        }
+        Ok(results)
+    }
+
+    async fn run_one(&self, plan: GatewayCallPlan, execution_slots: &Semaphore) -> ExecutorResult<GatewayCallResult> {
+        let GatewayCallPlan {
+            item_index,
+            call,
+            execution,
+            ..
+        } = plan;
+        let GatewayExecutionPlan::Bound(binding) = execution else {
+            let output = execution_error_output(
+                &call,
+                &format!("gateway tool '{}' has no registered handler", call.name),
+            )?;
+            return Ok(GatewayCallResult {
+                item_index,
+                input_item: InputItem::FunctionCallOutput(output.into()),
+                public_output: None,
+            });
+        };
+
+        let _permit = match &binding.self_exclusion {
+            Some(semaphore) => Some(semaphore.acquire().await.expect("semaphore is never closed")),
+            None => None,
+        };
+        let _execution_slot = execution_slots.acquire().await.expect("semaphore is never closed");
+
+        let dispatched = if self.timeout.is_zero() {
+            binding.execute(&call.call_id, &call.name, &call.arguments).await
+        } else {
+            match tokio::time::timeout(
+                self.timeout,
+                binding.execute(&call.call_id, &call.name, &call.arguments),
+            )
+            .await
+            {
+                Ok(output) => output,
+                Err(_elapsed) => Err(ToolError::Execution(format!(
+                    "gateway tool '{}' timed out after {:?}",
+                    call.name, self.timeout
+                ))),
+            }
+        };
+        let (output, status) = match dispatched {
+            Ok(output) => (output, GatewayCallStatus::Completed),
+            Err(ToolError::Execution(message) | ToolError::Config(message)) => {
+                (execution_error_output(&call, &message)?, GatewayCallStatus::Failed)
+            }
+            Err(
+                error @ (ToolError::MissingOutput { .. }
+                | ToolError::InvalidUpstreamToolSearch
+                | ToolError::UpstreamWithheldFunctionCall),
+            ) => return Err(ExecutorError::from(error)),
+        };
+        let public_output = binding.public_output(&call, &output, status);
+        Ok(GatewayCallResult {
+            item_index,
+            input_item: InputItem::FunctionCallOutput(output.into()),
+            public_output,
         })
-        .collect()
-}
-
-pub(super) fn is_gateway_owned_call(call: &FunctionToolCall, registry: &ToolRegistry) -> bool {
-    registry
-        .lookup(&call.name)
-        .is_some_and(|entry| entry.tool_type.is_gateway_owned())
-}
-
-pub(super) fn is_client_custom_call(call: &FunctionToolCall, registry: &ToolRegistry) -> bool {
-    registry
-        .lookup(&call.name)
-        .is_some_and(|entry| entry.tool_type == ToolType::Custom)
+    }
 }
 
 pub(super) fn has_client_owned_calls(output_items: &[OutputItem], registry: &ToolRegistry) -> bool {
@@ -145,116 +305,6 @@ fn execution_error_output(call: &FunctionToolCall, message: &str) -> ExecutorRes
     })
 }
 
-async fn execute_gateway_call(call: FunctionToolCall, registry: &ToolRegistry) -> ExecutorResult<GatewayCallResult> {
-    execute_gateway_call_with_timeout(call, registry, GATEWAY_TOOL_TIMEOUT).await
-}
-
-async fn execute_gateway_call_with_timeout(
-    call: FunctionToolCall,
-    registry: &ToolRegistry,
-    timeout: Duration,
-) -> ExecutorResult<GatewayCallResult> {
-    // Resolve the tool type up front so a timeout (which yields no dispatch
-    // result) can still shape the correct public output.
-    let Some(tool_type) = registry.lookup(&call.name).map(|entry| entry.tool_type) else {
-        return Err(ExecutorError::InvalidRequest(format!(
-            "gateway tool '{}' was not dispatchable",
-            call.name
-        )));
-    };
-
-    // Per-call timeout: a hung tool becomes an error output fed back to the
-    // model, never a whole-request failure. `Duration::ZERO` opts out.
-    let dispatched = if timeout.is_zero() {
-        registry.dispatch(&call).await
-    } else {
-        match tokio::time::timeout(timeout, registry.dispatch(&call)).await {
-            Ok(dispatched) => dispatched,
-            Err(_elapsed) => Some(GatewayDispatchResult {
-                tool_type,
-                output: Err(ToolError::Execution(format!(
-                    "gateway tool '{}' timed out after {timeout:?}",
-                    call.name
-                ))),
-            }),
-        }
-    };
-
-    // An entry exists (the call was filtered to gateway-owned) but carries no
-    // handler — this server was built without that tool's executor. Treat it
-    // like the timeout path: surface an error output fed back to the model
-    // rather than failing the whole request, keeping the "never a
-    // whole-request failure" contract total.
-    let dispatch = dispatched.unwrap_or_else(|| GatewayDispatchResult {
-        tool_type,
-        output: Err(ToolError::Execution(format!(
-            "gateway tool '{}' has no registered handler",
-            call.name
-        ))),
-    });
-    let (output, status) = match dispatch.output {
-        Ok(output) => (output, GatewayCallStatus::Completed),
-        Err(ToolError::Execution(message) | ToolError::Config(message)) => {
-            (execution_error_output(&call, &message)?, GatewayCallStatus::Failed)
-        }
-        Err(error @ (ToolError::InvalidUpstreamToolSearch | ToolError::UpstreamWithheldFunctionCall)) => (
-            execution_error_output(&call, &error.to_string())?,
-            GatewayCallStatus::Failed,
-        ),
-    };
-    let public_output = gateway_public_output(dispatch.tool_type, &call, &output, status, registry);
-    Ok(GatewayCallResult {
-        call,
-        input_item: InputItem::FunctionCallOutput(output.into()),
-        public_output,
-    })
-}
-
-fn gateway_public_output(
-    tool_type: ToolType,
-    call: &FunctionToolCall,
-    output: &ToolOutput,
-    status: GatewayCallStatus,
-    registry: &ToolRegistry,
-) -> Option<OutputItem> {
-    match tool_type {
-        ToolType::WebSearch => Some(crate::tool::web_search::output_item(call, output, status)),
-        ToolType::Mcp => registry
-            .mcp_tool_ref(&call.name)
-            .map(|tool_ref| crate::tool::mcp::handler::output_item(call, output, status, tool_ref)),
-        ToolType::Function
-        | ToolType::ToolSearch
-        | ToolType::Custom
-        | ToolType::CodexNamespace
-        | ToolType::FileSearch
-        | ToolType::CodeInterpreter => None,
-    }
-}
-
-pub(super) async fn execute_output_calls(
-    output_items: &[OutputItem],
-    registry: &ToolRegistry,
-) -> ExecutorResult<Vec<GatewayCallResult>> {
-    let calls = function_calls(output_items);
-    let gateway_calls = registry.gateway_owned(&calls);
-
-    // Execute all gateway calls concurrently with a sliding window of
-    // `MAX_CONCURRENT_GATEWAY_CALLS`: `buffered` admits the next call as soon as
-    // one finishes, so arbitrary fan-out drains safely without a hard count cap.
-    // Each call is individually timeout-bounded in `execute_gateway_call`.
-    futures_stream::iter(
-        gateway_calls
-            .into_iter()
-            .cloned()
-            .map(|call| execute_gateway_call(call, registry)),
-    )
-    .buffered(MAX_CONCURRENT_GATEWAY_CALLS)
-    .collect::<Vec<_>>()
-    .await
-    .into_iter()
-    .collect()
-}
-
 pub(super) fn public_output_items(
     output_items: &[OutputItem],
     registry: &ToolRegistry,
@@ -262,57 +312,19 @@ pub(super) fn public_output_items(
 ) -> Vec<OutputItem> {
     output_items
         .iter()
-        .map(|item| match item {
-            OutputItem::FunctionCall(call)
-                if registry
-                    .lookup(&call.name)
-                    .is_some_and(|entry| entry.tool_type == ToolType::Custom) =>
-            {
+        .enumerate()
+        .map(|(item_index, item)| match item {
+            OutputItem::FunctionCall(call) if registry.is_client_custom_name(&call.name) => {
                 crate::tool::CustomHandler::output_item(call)
             }
-            OutputItem::FunctionCall(call) if is_gateway_owned_call(call, registry) => gateway_results
+            OutputItem::FunctionCall(call) if registry.is_gateway_owned_name(&call.name) => gateway_results
                 .iter()
-                .find(|result| result.call.call_id == call.call_id)
+                .find(|result| result.item_index == item_index)
                 .and_then(|result| result.public_output.clone())
                 .unwrap_or_else(|| OutputItem::FunctionCall(call.clone())),
             other => other.clone(),
         })
         .collect()
-}
-
-pub(super) fn gateway_event_plans(
-    output_items: &[OutputItem],
-    registry: &ToolRegistry,
-    output_offset: usize,
-) -> Vec<GatewayEventPlan> {
-    let mut output_index = output_offset;
-    let mut plans = Vec::new();
-    for item in output_items {
-        if let OutputItem::FunctionCall(call) = item
-            && let Some(entry) = registry.lookup(&call.name)
-            && entry.tool_type.is_gateway_owned()
-        {
-            plans.push(GatewayEventPlan {
-                output_index: u32::try_from(output_index).unwrap_or(u32::MAX),
-                arguments: (entry.tool_type == ToolType::Mcp).then(|| call.arguments.clone()),
-                started_output: match entry.tool_type {
-                    ToolType::WebSearch => Some(crate::tool::web_search::started_output_item(call)),
-                    ToolType::Mcp => registry
-                        .mcp_tool_ref(&call.name)
-                        .map(|tool_ref| crate::tool::mcp::handler::started_output_item(call, tool_ref)),
-                    ToolType::Function
-                    | ToolType::ToolSearch
-                    | ToolType::Custom
-                    | ToolType::CodexNamespace
-                    | ToolType::FileSearch
-                    | ToolType::CodeInterpreter => None,
-                },
-                completed_output: None,
-            });
-        }
-        output_index = output_index.saturating_add(1);
-    }
-    plans
 }
 
 pub(super) fn mcp_list_tools_event_plans(
@@ -374,17 +386,15 @@ pub(super) fn emit_response_start_events(
     Ok(())
 }
 
-pub(super) fn complete_gateway_event_plans<T: GatewayPublicOutputSource>(
-    plans: &mut [GatewayEventPlan],
-    completed: &[T],
-) {
+#[cfg(test)]
+fn complete_gateway_event_plans<T: GatewayPublicOutputSource>(plans: &mut [GatewayEventPlan], completed: &[T]) {
     for (plan, source) in plans.iter_mut().zip(completed) {
         plan.completed_output = source.public_output().cloned();
     }
 }
 
-pub(super) fn emit_gateway_start_events(
-    plans: &[GatewayEventPlan],
+pub(super) fn emit_gateway_start_events<'a>(
+    plans: impl IntoIterator<Item = &'a GatewayEventPlan>,
     stream_accumulator: &mut GatewayStreamAccumulator,
     stream_sender: &tokio::sync::mpsc::UnboundedSender<StreamEvent>,
 ) -> ExecutorResult<()> {
@@ -471,13 +481,13 @@ pub(super) fn emit_gateway_start_events(
     Ok(())
 }
 
-pub(super) fn emit_gateway_completed_events<T: GatewayPublicOutputSource>(
+pub(super) fn emit_gateway_completed_events<'a, T: GatewayPublicOutputSource>(
     results: &[T],
-    plans: &[GatewayEventPlan],
+    plans: impl IntoIterator<Item = &'a GatewayEventPlan>,
     stream_accumulator: &mut GatewayStreamAccumulator,
     stream_sender: &tokio::sync::mpsc::UnboundedSender<StreamEvent>,
 ) -> ExecutorResult<()> {
-    for (index, plan) in plans.iter().enumerate() {
+    for (index, plan) in plans.into_iter().enumerate() {
         let Some(public_output) = plan
             .completed_output
             .as_ref()
@@ -542,19 +552,24 @@ pub(super) async fn execute_and_emit_output_calls(
     output_items: &[OutputItem],
     registry: &ToolRegistry,
     output_offset: usize,
+    policy: GatewaySchedulerPolicy,
     mut stream: Option<(
         &mut GatewayStreamAccumulator,
         &tokio::sync::mpsc::UnboundedSender<StreamEvent>,
     )>,
 ) -> ExecutorResult<Vec<GatewayCallResult>> {
-    let mut event_plans = gateway_event_plans(output_items, registry, output_offset);
+    let mut scheduler = GatewayScheduler::plan(output_items, registry, output_offset, policy);
     if let Some((stream_accumulator, stream_sender)) = stream.as_mut() {
-        emit_gateway_start_events(&event_plans, stream_accumulator, stream_sender)?;
+        emit_gateway_start_events(scheduler.event_plans(), stream_accumulator, stream_sender)?;
     }
-    let gateway_results = execute_output_calls(output_items, registry).await?;
-    complete_gateway_event_plans(&mut event_plans, &gateway_results);
+    let gateway_results = scheduler.execute().await?;
     if let Some((stream_accumulator, stream_sender)) = stream.as_mut() {
-        emit_gateway_completed_events(&gateway_results, &event_plans, stream_accumulator, stream_sender)?;
+        emit_gateway_completed_events(
+            &gateway_results,
+            scheduler.event_plans(),
+            stream_accumulator,
+            stream_sender,
+        )?;
     }
     Ok(gateway_results)
 }
@@ -604,19 +619,19 @@ pub(super) fn append_gateway_calls_to_new_input(
         let OutputItem::FunctionCall(call) = item else {
             return None;
         };
-        is_gateway_owned_call(call, registry).then(|| InputItem::FunctionCall(call.clone().into()))
+        registry
+            .is_gateway_owned_name(&call.name)
+            .then(|| InputItem::FunctionCall(call.clone().into()))
     }));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{GatewayCallResult, LoopDecision, classify_round};
+    use super::GatewayCallResult;
     use crate::executor::accumulator::ResponseAccumulator;
     use crate::types::io::output::{FunctionToolCall, McpListTool, McpListTools};
     use crate::types::io::{CompactionItem, InputItem, McpCallStatus};
-    use tokio::sync::mpsc;
-
-    const MAX: usize = 10;
+    use tokio::sync::{Notify, mpsc};
 
     fn parse_named_sse_event(content: &str) -> Value {
         let body = content.strip_suffix("\n\n").expect("SSE event terminator");
@@ -628,100 +643,49 @@ mod tests {
         event
     }
 
-    fn dummy_result() -> GatewayCallResult {
-        let call = FunctionToolCall {
-            id: "id".to_owned(),
-            call_id: "call".to_owned(),
-            name: "web_search".to_owned(),
-            arguments: "{}".to_owned(),
-            status: crate::types::event::MessageStatus::Completed,
-            namespace: None,
-        };
-        GatewayCallResult {
-            call,
-            input_item: InputItem::FunctionCallOutput(
-                crate::tool::ToolOutput {
-                    call_id: "call".to_owned(),
-                    output: "{}".to_owned(),
-                }
-                .into(),
-            ),
-            public_output: None,
-        }
-    }
-
-    #[test]
-    fn client_owned_calls_take_precedence_over_gateway_results() {
-        // Even with gateway results present in the same turn, a client-owned call
-        // must hand control back to the caller.
-        let decision = classify_round(true, &[dummy_result()], 0, MAX);
-        assert!(matches!(decision, LoopDecision::RequiresClientAction));
-    }
-
-    #[test]
-    fn no_gateway_work_is_done() {
-        let decision = classify_round(false, &[], 0, MAX);
-        assert!(matches!(decision, LoopDecision::Done));
-    }
-
-    #[test]
-    fn gateway_results_with_budget_remaining_continue() {
-        let decision = classify_round(false, &[dummy_result()], 0, MAX);
-        assert!(matches!(decision, LoopDecision::Continue));
-    }
-
-    #[test]
-    fn gateway_results_on_final_round_are_incomplete() {
-        // round is zero-based: round 9 is the 10th and last permitted round.
-        let decision = classify_round(false, &[dummy_result()], MAX - 1, MAX);
-        match decision {
-            LoopDecision::Incomplete(reason) => assert!(reason.contains("exceeded 10 rounds")),
-            other => panic!("expected Incomplete, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn incomplete_only_fires_when_gateway_work_remains() {
-        // On the final round with no gateway work, the turn is still Done — the
-        // cap only matters when the model is still requesting tools.
-        let decision = classify_round(false, &[], MAX - 1, MAX);
-        assert!(matches!(decision, LoopDecision::Done));
-    }
-
+    use std::num::NonZeroUsize;
     use std::pin::Pin;
     use std::sync::Arc;
 
     use serde_json::Value;
 
-    use super::execute_gateway_call_with_timeout;
-    use crate::tool::{GatewayExecutor, GatewayExecutors, ToolError, ToolHandler, ToolOutput, ToolRegistry, ToolType};
+    use super::{GatewayCallPlan, GatewayEventPlan, GatewayExecutionPlan, GatewayScheduler, GatewaySchedulerPolicy};
+    use crate::tool::{
+        GatewayBinding, GatewayExecutor, GatewayExecutors, GatewayToolEventPlan, ToolError, ToolHandler, ToolOutput,
+        ToolRegistry, ToolType,
+    };
     use crate::types::io::OutputItem;
+    use crate::types::io::output::GatewayCallStatus;
     use crate::types::io::tools::FunctionTool;
-    use crate::types::tools::ResponsesTool;
+    use crate::types::tools::{ResponsesTool, WebSearchToolParam};
 
     /// A gateway executor that sleeps ~50ms — comfortably longer than the tiny
     /// timeout the test injects, forcing the timeout path without a paused clock.
     struct SlowExecutor;
 
     impl ToolHandler for SlowExecutor {
+        type ToolParams = WebSearchToolParam;
+
         fn tool_type(&self) -> ToolType {
             ToolType::WebSearch
         }
-        fn validate(&self, _param: &Value) -> Result<(), ToolError> {
+        fn validate(&self, _params: &WebSearchToolParam) -> Result<(), ToolError> {
             Ok(())
         }
-        fn normalize(&self, _param: &Value) -> Vec<FunctionTool> {
+        fn normalize(&self, _params: &WebSearchToolParam) -> Vec<FunctionTool> {
             Vec::new()
         }
     }
 
     impl GatewayExecutor for SlowExecutor {
+        type ExecutionParams = WebSearchToolParam;
+
         fn execute(
             &self,
             call_id: &str,
             _tool_name: &str,
             _arguments: &str,
-            _config: &Value,
+            _params: &WebSearchToolParam,
         ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
             let call_id = call_id.to_owned();
             Box::pin(async move {
@@ -731,6 +695,24 @@ mod tests {
                     output: "unreachable".to_owned(),
                 })
             })
+        }
+
+        fn supports_parallel_execution(&self) -> bool {
+            true
+        }
+
+        fn plan_gateway_events(&self, call: &FunctionToolCall, _params: &WebSearchToolParam) -> GatewayToolEventPlan {
+            GatewayToolEventPlan::new(crate::tool::web_search::started_output_item(call))
+        }
+
+        fn public_output(
+            &self,
+            call: &FunctionToolCall,
+            output: &ToolOutput,
+            status: GatewayCallStatus,
+            _params: &WebSearchToolParam,
+        ) -> Option<OutputItem> {
+            crate::tool::web_search::output_item(call, output, status)
         }
     }
 
@@ -758,15 +740,16 @@ mod tests {
 
         // 1ms budget vs a 50ms tool → the timeout fires. Must return (not hang):
         // the stuck call becomes an error output the loop can feed back.
-        let result = execute_gateway_call_with_timeout(
-            web_search_call("call_hang"),
-            &registry,
-            std::time::Duration::from_millis(1),
-        )
-        .await
-        .expect("timeout is isolated as an error output, not a dispatch failure");
+        let output_items = [OutputItem::FunctionCall(web_search_call("call_hang"))];
+        let mut scheduler =
+            GatewayScheduler::plan_with_test_timeout(&output_items, &registry, 0, std::time::Duration::from_millis(1));
+        let result = scheduler
+            .execute()
+            .await
+            .expect("timeout is isolated as an error output, not a dispatch failure")
+            .remove(0);
 
-        assert_eq!(result.call.call_id, "call_hang");
+        assert_eq!(result.item_index, 0);
         // A failed web_search still yields a public web_search_call item.
         assert!(matches!(result.public_output, Some(OutputItem::WebSearchCall(_))));
         // The fed-back tool output is an error JSON mentioning the timeout.
@@ -781,11 +764,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn gateway_call_without_registered_handler_becomes_error_output() {
-        // Declare web_search but build the registry with NO executor for it —
-        // the entry exists and is gateway-owned, so the call is not filtered
-        // out, but `dispatch` yields `None`. This must surface an error output,
-        // not fail the whole request.
+    async fn gateway_call_without_configured_provider_becomes_error_output() {
+        // Declare web_search but build the registry with NO provider for it —
+        // `web_search_handler()` falls back to `WebSearchHandler::spec_only()`,
+        // so the entry still has a real handler (public_output/started_output
+        // work normally) but `execute()` fails. This must surface an error
+        // output, not fail the whole request.
         let web_search: ResponsesTool =
             serde_json::from_value(serde_json::json!({"type": "web_search_preview"})).expect("web_search tool param");
         let mut tools = [web_search];
@@ -794,20 +778,387 @@ mod tests {
             .await
             .expect("registry builds");
 
-        let result =
-            execute_gateway_call_with_timeout(web_search_call("call_no_handler"), &registry, std::time::Duration::ZERO)
-                .await
-                .expect("a missing handler is isolated as an error output, not a dispatch failure");
+        let output_items = [OutputItem::FunctionCall(web_search_call("call_no_handler"))];
+        let mut scheduler =
+            GatewayScheduler::plan_with_test_timeout(&output_items, &registry, 0, std::time::Duration::ZERO);
+        let result = scheduler
+            .execute()
+            .await
+            .expect("a missing provider is isolated as an error output, not a dispatch failure")
+            .remove(0);
 
-        assert_eq!(result.call.call_id, "call_no_handler");
+        assert_eq!(result.item_index, 0);
         assert!(matches!(result.public_output, Some(OutputItem::WebSearchCall(_))));
         let InputItem::FunctionCallOutput(msg) = &result.input_item else {
             panic!("expected a function_call_output");
         };
         let body = serde_json::to_string(msg).expect("serialize output");
         assert!(
-            body.contains("no registered handler"),
-            "error output should mention the missing handler: {body}"
+            body.contains("spec-only handler cannot execute tools"),
+            "error output should mention the missing provider: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn scheduler_retains_event_slot_for_gateway_tool_without_handler() {
+        let file_search: ResponsesTool = serde_json::from_value(serde_json::json!({
+            "type": "file_search",
+            "vector_store_ids": ["vs_test"]
+        }))
+        .expect("file_search tool param");
+        let web_search: ResponsesTool =
+            serde_json::from_value(serde_json::json!({"type": "web_search_preview"})).expect("web_search tool param");
+        let mut tools = [file_search, web_search];
+        let mut executors = GatewayExecutors::default();
+        let registry = ToolRegistry::build_with_handlers(&mut tools, &mut executors)
+            .await
+            .expect("registry builds");
+
+        let mut file_search_call = web_search_call("call_file");
+        file_search_call.name = "file_search".to_owned();
+        let mut search_call = web_search_call("call_web");
+        search_call.arguments = r#"{"query":"weather"}"#.to_owned();
+        let output_items = [
+            OutputItem::FunctionCall(file_search_call),
+            OutputItem::FunctionCall(search_call),
+        ];
+        let mut scheduler = GatewayScheduler::plan(&output_items, &registry, 7, GatewaySchedulerPolicy::default());
+
+        {
+            let plans = scheduler.event_plans().collect::<Vec<_>>();
+            assert_eq!(plans.len(), 2, "every gateway-owned call needs one scheduled slot");
+            assert_eq!(plans[0].output_index, 7);
+            assert!(plans[0].started_output.is_none());
+            assert_eq!(plans[1].output_index, 8);
+            assert!(matches!(plans[1].started_output, Some(OutputItem::WebSearchCall(_))));
+        }
+
+        let results = scheduler.execute().await.expect("all scheduled slots complete");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].item_index, 0);
+        assert!(results[0].public_output.is_none());
+        assert_eq!(results[1].item_index, 1);
+        assert!(matches!(results[1].public_output, Some(OutputItem::WebSearchCall(_))));
+
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let mut stream_accumulator = crate::executor::gateway_accumulator::GatewayStreamAccumulator::new();
+        super::emit_gateway_start_events(scheduler.event_plans(), &mut stream_accumulator, &sender)
+            .expect("start events");
+        super::emit_gateway_completed_events(&results, scheduler.event_plans(), &mut stream_accumulator, &sender)
+            .expect("completed events");
+
+        let events = std::iter::from_fn(|| receiver.try_recv().ok())
+            .map(|event| parse_named_sse_event(&event.content))
+            .collect::<Vec<_>>();
+        assert!(!events.is_empty());
+        assert!(events.iter().all(|event| event["output_index"] == 8));
+        assert!(events.iter().all(|event| {
+            event["item"]["type"]
+                .as_str()
+                .is_none_or(|type_| type_ == "web_search_call")
+        }));
+    }
+
+    /// Proves that a handler which opts into same-tool parallel execution really
+    /// overlaps calls under the global window. Four 50ms calls sequentially would
+    /// take ~200ms; with the default window of five they should finish near one slot.
+    #[tokio::test]
+    async fn gateway_scheduler_overlaps_parallel_safe_same_tool_calls() {
+        let web_search: ResponsesTool =
+            serde_json::from_value(serde_json::json!({"type": "web_search_preview"})).expect("web_search tool param");
+        let mut executors = GatewayExecutors::default();
+        executors.insert(Arc::new(SlowExecutor));
+        let mut tools = [web_search];
+        let registry = ToolRegistry::build_with_handlers(&mut tools, &mut executors)
+            .await
+            .expect("registry builds");
+
+        let output_items: Vec<OutputItem> = ["call_a", "call_b", "call_c", "call_d"]
+            .into_iter()
+            .map(|call_id| OutputItem::FunctionCall(web_search_call(call_id)))
+            .collect();
+
+        let started = std::time::Instant::now();
+        let mut scheduler = GatewayScheduler::plan(&output_items, &registry, 0, GatewaySchedulerPolicy::default());
+        let results = scheduler.execute().await.expect("all calls execute");
+        let elapsed = started.elapsed();
+
+        assert_eq!(results.len(), 4);
+        // Well under the ~200ms four sequential 50ms calls would take, and close to
+        // one 50ms slot -- proves the calls actually overlapped in wall-clock time.
+        assert!(
+            elapsed < std::time::Duration::from_millis(150),
+            "four concurrent 50ms calls took {elapsed:?}, expected well under 150ms"
+        );
+        // The scheduler restores original item order regardless of completion order.
+        assert_eq!(
+            results.iter().map(|result| result.item_index).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+    }
+
+    #[tokio::test]
+    async fn gateway_scheduler_policy_bounds_parallel_safe_calls() {
+        let web_search: ResponsesTool =
+            serde_json::from_value(serde_json::json!({"type": "web_search_preview"})).expect("web_search tool param");
+        let mut executors = GatewayExecutors::default();
+        executors.insert(Arc::new(SlowExecutor));
+        let mut tools = [web_search];
+        let registry = ToolRegistry::build_with_handlers(&mut tools, &mut executors)
+            .await
+            .expect("registry builds");
+        let output_items = ["call_a", "call_b", "call_c", "call_d"]
+            .into_iter()
+            .map(|call_id| OutputItem::FunctionCall(web_search_call(call_id)))
+            .collect::<Vec<_>>();
+        let policy = GatewaySchedulerPolicy::new(NonZeroUsize::MIN);
+
+        let started = std::time::Instant::now();
+        let mut scheduler = GatewayScheduler::plan(&output_items, &registry, 0, policy);
+        let results = scheduler.execute().await.expect("all calls execute");
+        let elapsed = started.elapsed();
+
+        assert_eq!(results.len(), 4);
+        assert!(
+            elapsed >= std::time::Duration::from_millis(180),
+            "a one-call scheduler window completed four 50ms calls in {elapsed:?}"
+        );
+    }
+
+    /// A handler that inherits the conservative `false` default serializes calls
+    /// to its own tool name. This does not prevent different tool names from
+    /// overlapping elsewhere in the same round.
+    struct ExclusiveSlowExecutor;
+
+    impl ToolHandler for ExclusiveSlowExecutor {
+        type ToolParams = WebSearchToolParam;
+
+        fn tool_type(&self) -> ToolType {
+            ToolType::WebSearch
+        }
+        fn validate(&self, _params: &WebSearchToolParam) -> Result<(), ToolError> {
+            Ok(())
+        }
+        fn normalize(&self, _params: &WebSearchToolParam) -> Vec<FunctionTool> {
+            Vec::new()
+        }
+    }
+
+    impl GatewayExecutor for ExclusiveSlowExecutor {
+        type ExecutionParams = WebSearchToolParam;
+
+        fn execute(
+            &self,
+            call_id: &str,
+            _tool_name: &str,
+            _arguments: &str,
+            _params: &WebSearchToolParam,
+        ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
+            let call_id = call_id.to_owned();
+            Box::pin(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                Ok(ToolOutput {
+                    call_id,
+                    output: "unreachable".to_owned(),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn gateway_scheduler_serializes_non_parallel_safe_same_tool_calls() {
+        let web_search: ResponsesTool =
+            serde_json::from_value(serde_json::json!({"type": "web_search_preview"})).expect("web_search tool param");
+        let mut executors = GatewayExecutors::default();
+        executors.insert(Arc::new(ExclusiveSlowExecutor));
+        let mut tools = [web_search];
+        let registry = ToolRegistry::build_with_handlers(&mut tools, &mut executors)
+            .await
+            .expect("registry builds");
+
+        let output_items: Vec<OutputItem> = ["call_a", "call_b", "call_c", "call_d"]
+            .into_iter()
+            .map(|call_id| OutputItem::FunctionCall(web_search_call(call_id)))
+            .collect();
+
+        let started = std::time::Instant::now();
+        let mut scheduler = GatewayScheduler::plan(&output_items, &registry, 0, GatewaySchedulerPolicy::default());
+        let results = scheduler.execute().await.expect("all calls execute");
+        let elapsed = started.elapsed();
+
+        assert_eq!(results.len(), 4);
+        // Four 50ms calls run sequentially (one at a time) should take close to
+        // 200ms -- well above what four *concurrent* 50ms calls would take.
+        assert!(
+            elapsed >= std::time::Duration::from_millis(180),
+            "four exclusive 50ms calls took {elapsed:?}, expected close to 200ms"
+        );
+    }
+
+    struct SchedulingProbeExecutor {
+        blocked_call_id: &'static str,
+        observed_call_id: &'static str,
+        blocked_started: Arc<Notify>,
+        observed_started: Arc<Notify>,
+        release_blocked: Arc<Notify>,
+        supports_parallel_execution: bool,
+    }
+
+    impl ToolHandler for SchedulingProbeExecutor {
+        type ToolParams = WebSearchToolParam;
+
+        fn tool_type(&self) -> ToolType {
+            ToolType::WebSearch
+        }
+
+        fn validate(&self, _params: &WebSearchToolParam) -> Result<(), ToolError> {
+            Ok(())
+        }
+
+        fn normalize(&self, _params: &WebSearchToolParam) -> Vec<FunctionTool> {
+            Vec::new()
+        }
+    }
+
+    impl GatewayExecutor for SchedulingProbeExecutor {
+        type ExecutionParams = WebSearchToolParam;
+
+        fn execute(
+            &self,
+            call_id: &str,
+            _tool_name: &str,
+            _arguments: &str,
+            _params: &WebSearchToolParam,
+        ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
+            let call_id = call_id.to_owned();
+            let blocked_started = Arc::clone(&self.blocked_started);
+            let observed_started = Arc::clone(&self.observed_started);
+            let release_blocked = Arc::clone(&self.release_blocked);
+            Box::pin(async move {
+                if call_id == self.blocked_call_id {
+                    blocked_started.notify_one();
+                    release_blocked.notified().await;
+                } else if call_id == self.observed_call_id {
+                    observed_started.notify_one();
+                }
+                Ok(ToolOutput {
+                    call_id,
+                    output: "completed".to_owned(),
+                })
+            })
+        }
+
+        fn supports_parallel_execution(&self) -> bool {
+            self.supports_parallel_execution
+        }
+    }
+
+    fn scheduler_test_params() -> WebSearchToolParam {
+        serde_json::from_value(serde_json::json!({"type": "web_search_preview"})).expect("web_search tool param")
+    }
+
+    fn gateway_call_plan(item_index: usize, call_id: &str, name: &str, binding: GatewayBinding) -> GatewayCallPlan {
+        let mut call = web_search_call(call_id);
+        call.name = name.to_owned();
+        GatewayCallPlan {
+            item_index,
+            events: GatewayEventPlan {
+                output_index: u32::try_from(item_index).expect("test item index fits in u32"),
+                started_output: None,
+                completed_output: None,
+                arguments: Some(call.arguments.clone()),
+            },
+            call,
+            execution: GatewayExecutionPlan::Bound(binding),
+        }
+    }
+
+    #[tokio::test]
+    async fn gateway_scheduler_keeps_same_tool_waiter_outside_global_execution_window() {
+        let blocked_started = Arc::new(Notify::new());
+        let unrelated_started = Arc::new(Notify::new());
+        let release_blocked = Arc::new(Notify::new());
+        let executor = Arc::new(SchedulingProbeExecutor {
+            blocked_call_id: "call_a1",
+            observed_call_id: "call_b",
+            blocked_started: Arc::clone(&blocked_started),
+            observed_started: Arc::clone(&unrelated_started),
+            release_blocked: Arc::clone(&release_blocked),
+            supports_parallel_execution: false,
+        });
+        let binding_a = GatewayBinding::new(Arc::clone(&executor), scheduler_test_params());
+        let binding_b = GatewayBinding::new(executor, scheduler_test_params());
+        let calls = vec![
+            gateway_call_plan(0, "call_a1", "tool_a", binding_a.clone()),
+            gateway_call_plan(1, "call_a2", "tool_a", binding_a),
+            gateway_call_plan(2, "call_b", "tool_b", binding_b),
+        ];
+        let mut scheduler = GatewayScheduler {
+            calls,
+            policy: GatewaySchedulerPolicy::new(NonZeroUsize::new(2).expect("nonzero test limit")),
+            timeout: std::time::Duration::ZERO,
+        };
+
+        let execution = tokio::spawn(async move { scheduler.execute().await });
+        tokio::time::timeout(std::time::Duration::from_secs(1), blocked_started.notified())
+            .await
+            .expect("first same-tool call starts");
+        tokio::time::timeout(std::time::Duration::from_secs(1), unrelated_started.notified())
+            .await
+            .expect("unrelated call starts while the same-tool waiter remains queued");
+        release_blocked.notify_one();
+
+        let results = execution
+            .await
+            .expect("scheduler task joins")
+            .expect("scheduler succeeds");
+        assert_eq!(
+            results.iter().map(|result| result.item_index).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[tokio::test]
+    async fn gateway_scheduler_refills_execution_window_before_earlier_call_finishes() {
+        let blocked_started = Arc::new(Notify::new());
+        let refilled_call_started = Arc::new(Notify::new());
+        let release_blocked = Arc::new(Notify::new());
+        let executor = Arc::new(SchedulingProbeExecutor {
+            blocked_call_id: "call_a",
+            observed_call_id: "call_c",
+            blocked_started: Arc::clone(&blocked_started),
+            observed_started: Arc::clone(&refilled_call_started),
+            release_blocked: Arc::clone(&release_blocked),
+            supports_parallel_execution: true,
+        });
+        let binding = GatewayBinding::new(executor, scheduler_test_params());
+        let calls = vec![
+            gateway_call_plan(0, "call_a", "tool", binding.clone()),
+            gateway_call_plan(1, "call_b", "tool", binding.clone()),
+            gateway_call_plan(2, "call_c", "tool", binding),
+        ];
+        let mut scheduler = GatewayScheduler {
+            calls,
+            policy: GatewaySchedulerPolicy::new(NonZeroUsize::new(2).expect("nonzero test limit")),
+            timeout: std::time::Duration::ZERO,
+        };
+
+        let execution = tokio::spawn(async move { scheduler.execute().await });
+        tokio::time::timeout(std::time::Duration::from_secs(1), blocked_started.notified())
+            .await
+            .expect("first call starts");
+        tokio::time::timeout(std::time::Duration::from_secs(1), refilled_call_started.notified())
+            .await
+            .expect("third call refills the slot released by the completed second call");
+        release_blocked.notify_one();
+
+        let results = execution
+            .await
+            .expect("scheduler task joins")
+            .expect("scheduler succeeds");
+        assert_eq!(
+            results.iter().map(|result| result.item_index).collect::<Vec<_>>(),
+            vec![0, 1, 2]
         );
     }
 
@@ -972,7 +1323,7 @@ mod tests {
             None,
         ));
         let results = vec![GatewayCallResult {
-            call,
+            item_index: 0,
             input_item: InputItem::FunctionCallOutput(
                 ToolOutput {
                     call_id: "call_1".to_owned(),
@@ -1026,7 +1377,7 @@ mod tests {
             arguments: Some(call.arguments.clone()),
         }];
         let results = vec![GatewayCallResult {
-            call,
+            item_index: 0,
             input_item: InputItem::FunctionCallOutput(
                 ToolOutput {
                     call_id: "call_1".to_owned(),

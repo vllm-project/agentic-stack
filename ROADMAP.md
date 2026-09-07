@@ -71,15 +71,14 @@ the tool type. vLLM Agentic API should only execute tools that resolve to a
 configured gateway-owned handler. Unknown, unsupported, or ambiguous tool shapes
 are preserved and returned or passed through; they are never executed by default.
 
-Core work:
-
-- Support true parallel tool calling for gateway-owned built-in tools: a single
-  turn should be able to invoke the same built-in tool more than once (for
-  example, two simultaneous web searches) and have every invocation execute
-  concurrently, with all results appended before continuing the agentic loop.
-  The executor's dispatch path already bounds concurrent execution internally,
-  but requests cannot yet exercise it this way end to end. Not yet implemented;
-  tracked by [#181](https://github.com/vllm-project/agentic-api/issues/181).
+Requests may opt into parallel tool calling for gateway-owned built-in tools: a
+single turn can invoke the same built-in tool more than once (for example, two
+web searches). Agentic API forwards that model-generation preference upstream,
+then executes emitted gateway calls through a bounded, configurable window.
+Calls to different tool names can overlap; calls to the same name overlap only
+when that handler declares it safe. Results retain model call order and are all
+appended before continuing the agentic loop
+([#181](https://github.com/vllm-project/agentic-api/issues/181)).
 
 Initial and expected tool areas include:
 

@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 
-use serde_json::Value;
-
 use crate::types::io::FunctionTool;
 use crate::types::tools::FunctionToolParam;
-use crate::utils::common::serialize_to_value_or_custom_default;
 
 use super::handler::{ToolError, ToolHandler};
 use super::registry::{ToolEntry, ToolType};
@@ -31,53 +28,32 @@ impl From<&FunctionToolParam> for FunctionTool {
 pub struct FunctionHandler;
 
 impl ToolHandler for FunctionHandler {
+    type ToolParams = FunctionToolParam;
+
     fn tool_type(&self) -> ToolType {
         ToolType::Function
     }
 
-    fn validate(&self, param: &Value) -> Result<(), ToolError> {
-        match param.get("name").and_then(Value::as_str) {
-            Some(name) if !name.is_empty() => Ok(()),
-            _ => Err(ToolError::Config("function tool must have a non-empty name".into())),
+    fn validate(&self, params: &FunctionToolParam) -> Result<(), ToolError> {
+        if params.name.as_str().is_empty() {
+            Err(ToolError::Config("function tool must have a non-empty name".into()))
+        } else {
+            Ok(())
         }
     }
 
-    fn normalize(&self, param: &Value) -> Vec<FunctionTool> {
-        // Deserialize into the typed struct so From<&FunctionToolParam> is the single
-        // conversion path. name is NonEmptyToolName so serde rejects empty names;
-        // any remaining deserialize error means validate() was not called first.
-        match serde_json::from_value::<FunctionToolParam>(param.clone()) {
-            Ok(p) => vec![FunctionTool::from(&p)],
-            Err(e) => {
-                tracing::warn!("normalize() called with invalid param: {e} — validate() must be called first");
-                vec![]
-            }
-        }
+    fn normalize(&self, params: &FunctionToolParam) -> Vec<FunctionTool> {
+        vec![FunctionTool::from(params)]
     }
 }
 
 pub(crate) fn insert_function_entry(entries: &mut HashMap<String, ToolEntry>, p: &FunctionToolParam) {
     // p.name is NonEmptyToolName — empty names are impossible here
     // (serde rejects them at deserialization time).
-    serialize_to_value_or_custom_default(
-        p,
-        "function tool config serialization failed",
-        |config| {
-            if entries
-                .insert(
-                    p.name.as_str().to_owned(),
-                    ToolEntry {
-                        tool_type: ToolType::Function,
-                        config,
-                        server_label: None,
-                        handler: None,
-                    },
-                )
-                .is_some()
-            {
-                tracing::warn!(name = %p.name, "duplicate tool name — previous definition overwritten");
-            }
-        },
-        (),
-    );
+    if entries
+        .insert(p.name.as_str().to_owned(), ToolEntry::client(ToolType::Function, None))
+        .is_some()
+    {
+        tracing::warn!(name = %p.name, "duplicate tool name — previous definition overwritten");
+    }
 }

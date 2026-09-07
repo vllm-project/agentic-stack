@@ -36,7 +36,7 @@ The current integration supports the typed executor path:
 - `ToolRegistry` builds a request-scoped namespace map once and uses it for final payload and streaming event
   restoration.
 - `GatewayExecutors` provides the shared web-search handler and builds request-scoped MCP handlers. The gateway executes
-  those tools while namespace and custom calls remain client-owned.
+  those tools while namespace and custom calls remain client-executed.
 - Stateful continuation stores effective tools, tool choice, instructions, and response/conversation linkage for later
   `previous_response_id` or `conversation_id` turns.
 - WebSocket Responses execution uses the same typed executor path and restores namespace tool-call events before sending
@@ -44,7 +44,7 @@ The current integration supports the typed executor path:
 
 Stateless `store=false` requests containing only ordinary `function` declarations remain byte-transparent raw proxy
 requests. Requests with continuation IDs or any non-function tool use the typed executor, where namespace and
-gateway-owned tool normalization occurs.
+gateway-executed built-in tool normalization occurs.
 
 ---
 
@@ -133,11 +133,11 @@ Responses tool shapes and execution semantics, so it can be always on.
 
 | Shape | Behavior |
 |-------|----------|
-| `function` | Client-owned by default. Preserve declaration and return matching calls to the client unless configured as gateway-owned. |
-| `namespace` | Client-owned Codex grouping for function tools. Flatten members only for upstream requests, then restore returned calls. |
-| `custom` | Client-owned freeform tool. Preserve its opaque format and forward it natively. |
-| `web_search_preview` | Gateway-owned when configured; normalized to the gateway web-search function tool. |
-| `mcp` | Gateway-owned. Normalize MCP declarations to model-visible function tools, execute calls with request-scoped MCP handlers, and expose public `mcp_call` items. Streaming emits `response.output_item.added`, `response.mcp_call.in_progress`, `response.mcp_call_arguments.delta`/`.done`, `response.mcp_call.completed` or `.failed`, and `response.output_item.done`. |
+| `function` | Client-executed function tool. Preserve the declaration and return matching calls to the client. |
+| `namespace` | Client-executed Codex grouping for function tools. Flatten members only for upstream requests, then restore returned calls. |
+| `custom` | Client-executed custom tool. Preserve its opaque format and forward it natively. |
+| `web_search_preview` | Gateway-executed built-in tool normalized to the web-search function tool. Without a usable provider, execution produces a failed tool result instead of returning the call for client execution. |
+| `mcp` | Gateway-executed built-in tool. Normalize discovered MCP tools to model-visible function tools, execute calls with request-scoped MCP bindings, and expose public `mcp_call` items. Streaming emits `response.output_item.added`, `response.mcp_call.in_progress`, `response.mcp_call_arguments.delta`/`.done`, `response.mcp_call.completed` or `.failed`, and `response.output_item.done`. |
 | `file_search`, `code_interpreter` | Accepted by the typed request parser but skipped during upstream normalization because no gateway handler is registered yet. |
 | Unknown tool | Recognized and skipped on the typed path; opaque fields are not preserved or executed. Eligible raw-proxy requests remain byte-transparent. |
 
@@ -147,15 +147,15 @@ For response items:
 |---------------|----------|
 | `function_call` | Preserve optional `namespace`; restore flat namespace calls before returning to Codex. |
 | `custom_tool_call` | Preserve raw `input`; return it to Codex for local execution. |
-| `web_search_call` | Gateway-owned result from the web-search executor. |
-| `mcp_call` | Gateway-owned MCP execution result with `server_label`, discovered tool `name`, JSON-string `arguments`, and `status`; successful calls contain `output`, while failures contain a structured `mcp_tool_execution_error`. |
+| `web_search_call` | Result from the gateway-executed web-search tool. |
+| `mcp_call` | Result from a gateway-executed MCP tool with `server_label`, discovered tool `name`, JSON-string `arguments`, and `status`; successful calls contain `output`, while failures contain a structured `mcp_tool_execution_error`. |
 | Unknown output item | Recognized as an unknown unit variant on the typed path; opaque fields are not preserved or executed. |
 
 ---
 
 ## Continuation
 
-Codex-owned tool calls must survive response-store continuation.
+Codex tool calls returned for client execution must survive response-store continuation.
 
 Expected rehydration shape:
 
@@ -163,9 +163,15 @@ Expected rehydration shape:
 prior context + assistant tool call + Codex tool output + new input
 ```
 
-On a turn that returns client-owned tool calls, storage keeps the assistant call item. On the next turn, Codex submits
+On a turn that returns client-executed tool calls, storage keeps the assistant call item. On the next turn, Codex submits
 the matching tool output item, and `previous_response_id` rebuilds the full sequence while preserving effective tool
 metadata from the previous response unless the client explicitly overrides it.
+
+Public output items for gateway-executed web search and MCP tools are not reconstructed as model input during continuation. Their
+internal `function_call` and matching `function_call_output` records are persisted as the canonical model-visible pair.
+MCP list-tools output is different: it rehydrates as an internal `InputItem::McpListTools` record so the request-scoped
+registry can avoid repeating that server label's public discovery lifecycle. `ResponsesInput::model_input()` removes
+the record before the request is sent to vLLM.
 
 ---
 

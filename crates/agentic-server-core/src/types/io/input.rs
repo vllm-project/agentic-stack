@@ -7,7 +7,7 @@ use crate::types::event::MessageStatus;
 use crate::types::tools::{ResponsesTool, ToolSearchExecution, ToolSearchStatus};
 use crate::utils::common::deserialize_from_value;
 
-use super::output::{CustomToolCall, FunctionToolCall, ReasoningOutput, ToolSearchCall};
+use super::output::{CustomToolCall, FunctionToolCall, McpListTools, ReasoningOutput, ToolSearchCall};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputTextContent {
@@ -270,6 +270,10 @@ pub enum InputItem {
     CustomToolCallOutput(CustomToolCallOutputMessage),
     #[serde(rename = "reasoning")]
     Reasoning(ReasoningOutput),
+    /// Internal history record used by gateway orchestration to remember that
+    /// an MCP server's tools were already listed. It is never sent to the model.
+    #[serde(rename = "mcp_list_tools")]
+    McpListTools(McpListTools),
     #[serde(rename = "compaction")]
     Compaction(CompactionItem),
     /// Codex CLI's remote-compaction V2 marker. Signals the server to run its
@@ -296,6 +300,7 @@ impl<'de> Deserialize<'de> for InputItem {
             Some("custom_tool_call") => deserialize_from_value(value).map(Self::CustomToolCall),
             Some("custom_tool_call_output") => deserialize_from_value(value).map(Self::CustomToolCallOutput),
             Some("reasoning") => deserialize_from_value(value).map(Self::Reasoning),
+            Some("mcp_list_tools") => deserialize_from_value(value).map(Self::McpListTools),
             Some("compaction") => deserialize_from_value(value).map(Self::Compaction),
             Some("compaction_trigger") => Ok(Self::CompactionTrigger),
             Some(_) => return Ok(Self::Unknown),
@@ -313,6 +318,11 @@ impl InputItem {
     #[must_use]
     pub(crate) fn is_compaction_trigger(&self) -> bool {
         matches!(self, Self::CompactionTrigger)
+    }
+
+    #[must_use]
+    pub(crate) fn is_model_visible(&self) -> bool {
+        !matches!(self, Self::McpListTools(_) | Self::CompactionTrigger)
     }
 }
 
@@ -385,7 +395,8 @@ impl ResponsesInput {
     /// vLLM does not understand public `compaction` items, so the latest item
     /// becomes an assistant message containing the locally generated summary.
     /// Items before that checkpoint are superseded and are omitted.
-    /// `compaction_trigger` markers are stripped and never reach the model.
+    /// Internal MCP-list records and `compaction_trigger` markers are stripped
+    /// and never reach the model.
     #[must_use]
     pub fn model_input(&self) -> Cow<'_, Self> {
         let Self::Items(items) = self else {
@@ -393,12 +404,8 @@ impl ResponsesInput {
         };
 
         let Some(window) = latest_compaction_window(items) else {
-            if items.iter().any(InputItem::is_compaction_trigger) {
-                let stripped = items
-                    .iter()
-                    .filter(|item| !item.is_compaction_trigger())
-                    .cloned()
-                    .collect();
+            if items.iter().any(|item| !item.is_model_visible()) {
+                let stripped = items.iter().filter(|item| item.is_model_visible()).cloned().collect();
                 return Cow::Owned(Self::Items(stripped));
             }
             return Cow::Borrowed(self);
@@ -407,7 +414,7 @@ impl ResponsesInput {
         let model_items = window
             .retained_user_items(items)
             .chain(items[window.latest_index()..].iter())
-            .filter(|item| !item.is_compaction_trigger())
+            .filter(|item| item.is_model_visible())
             .map(|item| match item {
                 InputItem::Compaction(compaction) => InputItem::Message(InputMessage {
                     id: None,
@@ -668,6 +675,28 @@ mod tests {
         assert_eq!(serialized.as_array().map(Vec::len), Some(1));
         assert_eq!(serialized[0]["type"], "message");
         assert_eq!(serialized[0]["content"], "history");
+    }
+
+    #[test]
+    fn model_input_strips_internal_mcp_list_tools() {
+        let input = ResponsesInput::Items(vec![
+            InputItem::McpListTools(McpListTools::new("mcpl_1", "counter", Vec::new())),
+            InputItem::Message(InputMessage {
+                id: None,
+                role: "user".to_owned(),
+                status: None,
+                content: InputMessageContent::Text("continue".to_owned()),
+            }),
+        ]);
+
+        let serialized = serde_json::to_value(input.model_input()).expect("model input serializes");
+        assert_eq!(serialized.as_array().map(Vec::len), Some(1));
+        assert_eq!(serialized[0]["content"], "continue");
+        assert!(
+            serialized
+                .as_array()
+                .is_some_and(|items| { items.iter().all(|item| item["type"] != "mcp_list_tools") })
+        );
     }
 
     #[test]

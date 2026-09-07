@@ -1,5 +1,5 @@
 use agentic_core::executor::accumulator::ResponseAccumulator;
-use agentic_core::tool::{GatewayExecutors, ToolRegistry, ToolType};
+use agentic_core::tool::{GatewayExecutors, ToolOwnership, ToolRegistry, ToolType};
 use agentic_core::types::io::output::McpListTools;
 use agentic_core::types::io::{McpCall, OutputItem};
 use agentic_core::types::tools::ResponsesTool;
@@ -92,7 +92,7 @@ async fn read_mcp_resource_function_is_client_owned() {
     let entry = registry.lookup("read_mcp_resource").expect("function registry entry");
 
     assert_eq!(entry.tool_type, ToolType::Function);
-    assert!(entry.handler.is_none());
+    assert!(matches!(entry.ownership, ToolOwnership::Client));
 }
 
 fn assert_matching_native_mcp_requests(

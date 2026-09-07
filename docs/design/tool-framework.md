@@ -6,8 +6,8 @@
 > **As-built note.** This document began as a proposal and now reflects what
 > shipped. The framework landed across several PRs and diverged from the
 > original sketch in a few deliberate ways — most notably the `ToolHandler`
-> trait split, a two-layer dispatch model, a trimmed `LoopDecision`, and a new
-> `CodexNamespace` tool type. Those changes are called out inline and mapped to
+> trait split, explicit ownership plus round execution, a trimmed `LoopDecision`,
+> and a new `CodexNamespace` tool type. Those changes are called out inline and mapped to
 > their PRs in [Implementation Status](#implementation-status). Sections that
 > capture rationale (Principles, Alternatives Considered, Design Decisions) are
 > preserved as-designed; the type/trait definitions below match the shipped code.
@@ -16,18 +16,18 @@
 
 ## Problem
 
-Clients send heterogeneous tool types (`function`, `namespace`, `mcp`, `web_search`, `file_search`, `code_interpreter`). vLLM only speaks function calling — it produces `function_call` output items regardless of tool origin. The gateway must bridge both directions: normalize inbound tools for inference, and route outbound calls to their correct executors.
+Clients send heterogeneous tool types (`function`, `custom`, `namespace`, `mcp`, `web_search`, `file_search`, `code_interpreter`). vLLM only speaks function calling — it produces `function_call` output items regardless of tool origin. The gateway must bridge both directions: normalize supported inbound tools for inference, and route outbound calls to their correct owners.
 
-Today `ResponsesTool = FunctionTool`. This design replaces that with a type-aware framework that handles the full tool lifecycle for any tool type through a single pipeline.
+The original implementation used `ResponsesTool = FunctionTool`. The shipped type-aware framework handles the lifecycle through one pipeline while retaining public tool identity outside the model-facing representation.
 
 ---
 
 ## Principles
 
 1. **One pipeline, many types.** The tool lifecycle is the same for all types. What varies is the behavior at each stage.
-2. **vLLM is function-only.** Every tool type normalizes to `type: "function"` before inference. Permanent constraint.
+2. **vLLM is function-only.** Model-visible declarations normalize to `type: "function"` before inference. Types without a model-facing implementation are omitted; public tool identity is restored after inference.
 3. **Routing by registry, not heuristics.** After inference, `function_call` items are looked up in a request-scoped registry that maps names back to origin type and config.
-4. **Ownership decides execution.** Each `ToolType` is gateway-owned or client-owned (`ToolType::is_gateway_owned()`). Client-owned types (`function`, `codex namespace`) are never gateway-executed — the response returns `status: "requires_action"` and the client resolves them. Gateway-owned types (`web_search`, `mcp`, `file_search`, `code_interpreter`) are executed server-side *when a handler is registered*; today only `web_search` ships a handler (see [Implementation Status](#implementation-status)). A gateway-owned type with no handler is preserved, not executed.
+4. **Ownership decides execution.** Each registry entry has explicit `ToolOwnership`; `ToolType::is_gateway_owned()` supplies the declaration-level default. Client-owned types (`function`, `custom`, `codex namespace`) are never gateway-executed — their calls are returned for the client to resolve. Gateway-owned types (`web_search`, `mcp`, `file_search`, `code_interpreter`) are handled by the gateway. Web search and MCP ship executable bindings; a gateway-owned entry without an implementation produces an error tool result for the next inference round rather than silently dropping the call.
 5. **Additive.** New tool types implement a trait and register. The executor loop doesn't change.
 
 ---
@@ -40,8 +40,8 @@ graph TD
         REQ["Client Request<br>tools: mixed types"]
         PARSE["Parse + Validate<br>per-type schemas"]
         DISC["Discover<br>MCP: tools/list"]
-        NORM["Normalize<br>all → type: function"]
-        REG["Build Registry<br>name → type + config"]
+        NORM["Normalize supported tools<br>→ type: function"]
+        REG["Build Registry<br>name → ownership + binding"]
     end
 
     subgraph "Inference"
@@ -49,9 +49,9 @@ graph TD
     end
 
     subgraph "Execution Phase (per iteration)"
-        ROUTE["Route — classify_round<br>registry lookup per call"]
-        EXEC_GW["Gateway Execute — registry.dispatch<br>mcp / web / file / code"]
-        PASS["Passthrough → requires_action<br>function / codex namespace"]
+        ROUTE["Route by ToolOwnership<br>registry lookup per call"]
+        EXEC_GW["GatewayScheduler<br>planned bounded execution"]
+        PASS["Return unresolved call<br>function / custom / namespace"]
         LOOP["Inject Results<br>re-enter inference"]
     end
 
@@ -84,11 +84,11 @@ Every request with tools passes through 7 stages. Stages 1–4 run once at reque
 |---|-------|---------------------|-------------------------|
 | 1 | **Parse** | Deserialize `tools[]`, classify by `type` | Validate required fields per type |
 | 2 | **Discover** | Iterate handlers, collect discovered tools | MCP: `tools/list`. Others: no-op |
-| 3 | **Normalize** | Flatten all into `Vec<FunctionTool>` for vLLM | MCP: schema → parameters. WebSearch: synthetic def |
-| 4 | **Register** | Build `HashMap<name, ToolEntry>` | Each handler declares ownership of its tool names |
+| 3 | **Normalize** | Convert supported model-visible declarations into `Vec<FunctionTool>` for vLLM | MCP: schema → parameters. Web search: synthetic definition. Unsupported types: omit |
+| 4 | **Register** | Build `HashMap<name, ToolEntry>` | Store explicit ownership and an optional `GatewayBinding` |
 | 5 | **Route** | Lookup `function_call.name` in registry | Determine: gateway-execute or client-passthrough |
-| 6 | **Execute** | Parallel execution with timeout + error isolation | MCP: JSON-RPC. WebSearch: HTTP API. Function: skip |
-| 7 | **Emit** | Forward type-specific SSE events to client | MCP: 7 events. WebSearch: 2 events. Function: 0 |
+| 6 | **Execute** | Bounded concurrency, per-call timeout, same-tool safety, error isolation | MCP: JSON-RPC. WebSearch: HTTP API. Client-owned: skip |
+| 7 | **Emit** | Project internal calls into type-specific output items and SSE lifecycles | MCP and web search use gateway-generated events; client tools retain their public call shape |
 
 Stages 1–4 produce two artifacts:
 - **Normalized tools** — `Vec<FunctionTool>` forwarded to vLLM
@@ -104,6 +104,7 @@ Stages 1–4 produce two artifacts:
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolType {
     Function,
+    Custom,
     CodexNamespace,   // added by codex integration (#84): a namespaced group of
                       // client-owned function tools (e.g. `mcp__shell.run`).
     Mcp,
@@ -114,8 +115,8 @@ pub enum ToolType {
 }
 
 impl ToolType {
-    /// Gateway-owned types are executed server-side; everything else
-    /// (`Function`, `CodexNamespace`) is client-owned and handed back.
+    /// Gateway-owned types are handled server-side; everything else
+    /// (`Function`, `Custom`, `CodexNamespace`) is client-owned and handed back.
     pub const fn is_gateway_owned(self) -> bool { /* ... */ }
 }
 ```
@@ -123,8 +124,8 @@ impl ToolType {
 > **Drift from proposal:** `CodexNamespace` did not exist in the original
 > sketch. Codex declares tools grouped under a namespace whose members are
 > client-owned; they flatten to model-visible names for inference and restore
-> to `{namespace, name}` on the way out. `is_gateway_owned()` is the single
-> predicate the dispatch layer uses to split gateway vs. client calls.
+> to `{namespace, name}` on the way out. `is_gateway_owned()` initializes entry
+> ownership; routing uses the explicit `ToolOwnership` stored on that entry.
 
 ### Request-Side Tool Param
 
@@ -159,8 +160,12 @@ pub enum ResponsesTool {
     #[serde(rename = "namespace")]
     Namespace(CodexNamespaceToolParam),
 
-    // Forward-compat catch-all: unrecognized `type` deserializes here rather
-    // than erroring, so a new upstream tool type is preserved, not rejected.
+    // Client-owned freeform tool; normalized internally and restored on output.
+    #[serde(rename = "custom")]
+    Custom(CustomToolParam),
+
+    // Forward-compat catch-all: the typed path recognizes and skips unknown
+    // declarations rather than attempting to execute them.
     #[serde(rename = "unknown", other)]
     Unknown,
 }
@@ -168,22 +173,22 @@ pub enum ResponsesTool {
 
 `#[serde(tag = "type")]` makes this wire-compatible with existing
 `{"type":"function",...}` requests. `#[non_exhaustive]` + the `Unknown` catch-all
-means an unrecognized tool type is preserved rather than failing the request
-(consistent with the roadmap's "unknown shapes are preserved, never executed").
-The `web_search` aliases accept the dated OpenAI variants.
+means an unrecognized tool type does not fail typed deserialization and is never
+executed. Eligible raw-proxy requests remain byte-transparent; the typed path omits
+unknown declarations. The `web_search` aliases accept the dated OpenAI variants.
 
 ### Tool Registry
 
 ```rust
 pub struct ToolEntry {
     pub tool_type: ToolType,
-    pub config: Value,                            // serialised server-level tool param
-    pub server_label: Option<String>,             // MCP: which server this tool belongs to
-    pub handler: Option<Arc<dyn GatewayExecutor>>, // the executor for gateway-owned tools
+    pub server_label: Option<String>,  // MCP: which server this tool belongs to
+    pub ownership: ToolOwnership,
 }
 
 pub struct ToolRegistry {
     entries: HashMap<String, ToolEntry>,
+    mcp_list_tools_items: HashMap<String, Vec<McpListTools>>,
 }
 
 impl ToolRegistry {
@@ -191,18 +196,21 @@ impl ToolRegistry {
     pub fn gateway_owned<'a>(&self, calls: &'a [FunctionToolCall]) -> Vec<&'a FunctionToolCall>;
     pub fn client_owned<'a>(&self, calls: &'a [FunctionToolCall]) -> Vec<&'a FunctionToolCall>;
 
-    /// Per-call dispatch: resolve the handler for one call and execute it.
-    /// Returns `None` when the tool has no registered handler.
+    /// Per-call dispatch retained for the Messages executor.
     pub async fn dispatch(&self, call: &FunctionToolCall) -> Option<GatewayDispatchResult>;
+
+    pub(crate) fn mcp_list_tool_items(&self) -> impl Iterator<Item = &McpListTools>;
 }
 ```
 
-> **Drift from proposal:** the executor now lives on the `ToolEntry` as
-> `handler: Option<Arc<dyn GatewayExecutor>>`, and per-call routing is a method
-> on the registry — `dispatch()` — rather than free-standing `dispatch_tools`
-> logic. The registry owns "resolve one call to its executor and run it"; the
-> multi-turn loop (below) owns "how many rounds." See
-> [Dispatch: two layers](#dispatch-two-layers).
+> **Drift from proposal:** ownership is explicit on every entry. A gateway entry
+> contains `Gateway(Option<GatewayBinding>)`; the binding combines its executor,
+> statically matched execution parameters, and same-tool concurrency policy. The
+> typed pair is erased only after binding so the heterogeneous registry needs no
+> `serde_json::Value` config or downcast. `None` represents a gateway-owned type
+> without an implementation. Responses resolves bindings inside `GatewayScheduler`;
+> `ToolRegistry::dispatch` remains the per-call path used by Messages. The registry
+> also caches MCP list-tools history for lifecycle suppression.
 
 ### Loop Decision
 
@@ -210,14 +218,14 @@ impl ToolRegistry {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum LoopDecision {
-    /// Gateway tools were dispatched this round; loop again with their outputs
-    /// appended to the conversation.
+    /// Gateway-owned calls were resolved this round; loop again with their
+    /// outputs appended to the conversation.
     Continue,
 
     /// No gateway work remains — the turn is final and the loop terminates.
     Done,
 
-    /// One or more calls are client-owned (plain `function` or Codex
+    /// One or more calls are client-owned (`function`, `custom`, or Codex
     /// `namespace` tools); hand the turn back to the caller to execute.
     RequiresClientAction,
 
@@ -245,39 +253,49 @@ fn classify_round(
 > output lives on the payload, not the decision. `RequiresAction` was renamed
 > `RequiresClientAction` to name *who* acts.
 
-### Dispatch: two layers
+### Routing and orchestration layers
 
-The original sketch had a single `dispatch_tools`. As built, dispatch is two
-composable layers with a clean seam:
+The original sketch had a single `dispatch_tools`. As built, registry ownership,
+round execution, and loop control have separate responsibilities:
 
 ```mermaid
 graph LR
-    subgraph L2["Layer 2 — multi-turn orchestration (executor/gateway.rs, #83)"]
+    subgraph L2["Multi-round orchestration (executor/engine.rs, #83)"]
         CR["classify_round → LoopDecision"]
         LOOP["run_until_gateway_tools_complete<br/>loops until Done / RequiresClientAction / Incomplete"]
     end
-    subgraph L1["Layer 1 — per-call dispatch (tool/registry.rs, #82)"]
-        DISP["ToolRegistry::dispatch(call)<br/>resolve handler → execute → GatewayDispatchResult"]
+    subgraph ROUND["Responses round execution (executor/gateway.rs, #181)"]
+        EXEC["GatewayScheduler<br/>one plan per call + ordered results"]
     end
+    subgraph L1["Request-scoped routing (tool/registry.rs + tool/ownership.rs)"]
+        DISP["ToolEntry::ownership<br/>Client or Gateway(binding)"]
+    end
+    LOOP --> EXEC --> DISP
     LOOP --> CR
-    LOOP -->|"for each gateway-owned call this round"| DISP
 
     style L2 fill:#2a4a8a,color:#e0e0e0
+    style ROUND fill:#2a4a8a,color:#e0e0e0
     style L1 fill:#1a5c2a,color:#e0e0e0
     style CR fill:#2a4a8a,color:#e0e0e0
     style LOOP fill:#2a4a8a,color:#e0e0e0
+    style EXEC fill:#2a4a8a,color:#e0e0e0
     style DISP fill:#1a5c2a,color:#e0e0e0
 ```
 
-- **Layer 1 — per-call (`ToolRegistry::dispatch`, #82):** resolves one
-  `function_call` to its `handler` and runs it. Knows nothing about rounds.
-- **Layer 2 — multi-turn (`classify_round` + the loop, #83):** decides whether
+- **Routing (`ToolRegistry` + `ToolOwnership`):** maps each model-visible name
+  to client ownership or an optional gateway binding. It also retains effective
+  declaration metadata and MCP list-tools history for the request.
+- **Round execution (`GatewayScheduler`):** plans one slot per gateway-owned call,
+  keeping the item index, typed binding, and lifecycle projection together; it then
+  executes those slots through the configured sliding window and per-binding
+  same-tool policy and collects results in model call order.
+- **Multi-round orchestration (`classify_round` + the loop):** decides whether
   the turn continues, is done, hands back to the client, or exhausts the round
-  budget. Calls Layer 1 for each gateway-owned call, then re-infers.
+  budget, then re-infers when gateway results require another round.
 
-This split is what lets Codex's client-owned path and gateway execution share
-one loop vocabulary instead of forking. It is the subject of a proposed
-layering ADR (see [Future Work](#future-work)).
+`ToolRegistry::dispatch` is still used by the Messages path; Responses resolves
+the same binding directly so `GatewayScheduler` can apply concurrency, timeout, and
+public-lifecycle hooks together.
 
 ---
 
@@ -285,59 +303,80 @@ layering ADR (see [Future Work](#future-work)).
 
 The proposal had one fat `ToolHandler` trait carrying `execute()`. As built the
 trait is **split in two**, because `execute()` only applies to gateway-owned
-tools — a `function` or `codex namespace` handler has no server-side execution,
-so putting `execute()` on the shared trait would be a lie for those types.
+tools — a `function`, `custom`, or Codex namespace handler has no server-side
+execution, so putting `execute()` on the shared trait would be a lie for those
+types.
 
 ```rust
 // Every tool type implements this — parse/validate/normalize only.
 pub trait ToolHandler: Send + Sync {
+    type ToolParams: Send + Sync;
+
     fn tool_type(&self) -> ToolType;
-    fn validate(&self, param: &Value) -> Result<(), ToolError>;
-    fn normalize(&self, param: &Value) -> Vec<FunctionTool>;
+    fn validate(&self, params: &Self::ToolParams) -> Result<(), ToolError>;
+    fn normalize(&self, params: &Self::ToolParams) -> Vec<FunctionTool>;
 }
 
 // Only gateway-executed tool types implement this — it *requires* ToolHandler.
-// Handlers are stored as `Arc<dyn GatewayExecutor>`, so the async method is
-// written as `Pin<Box<dyn Future>>` (dyn-compatible) rather than `async fn`.
+// A concrete executor is paired with its ExecutionParams first. An internal
+// object-safe adapter then erases that valid pair for heterogeneous storage.
 pub trait GatewayExecutor: ToolHandler + 'static {
+    type ExecutionParams: Clone + Send + Sync + 'static;
+
     fn execute(
         &self,
         call_id: &str,
         tool_name: &str,
         arguments: &str,
-        config: &Value,
+        params: &Self::ExecutionParams,
     ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, ToolError>> + Send + '_>>;
+
+    fn supports_parallel_execution(&self) -> bool { false }
+    fn plan_gateway_events(
+        &self,
+        call: &FunctionToolCall,
+        params: &Self::ExecutionParams,
+    ) -> GatewayToolEventPlan;
+    fn public_output(
+        &self,
+        call: &FunctionToolCall,
+        output: &ToolOutput,
+        status: GatewayCallStatus,
+        params: &Self::ExecutionParams,
+    ) -> Option<OutputItem> { None }
 }
 ```
 
 Adding a gateway tool type = implement both traits + register. A client-owned
-type (like `CodexNamespace`) implements only `ToolHandler`. No changes to the
-executor loop, accumulator, or streaming path.
+type (like `CodexNamespace`) implements only `ToolHandler`. Registration wraps a
+gateway executor in `GatewayBinding`, including a same-tool semaphore when the
+handler does not opt into parallel execution. Lifecycle shaping remains handler-owned
+through `started_output` and `public_output`.
 
 > **Drift from proposal:** (1) trait split `ToolHandler` / `GatewayExecutor`;
 > (2) `Pin<Box<dyn Future>>` instead of `#[async_trait]`, for `dyn`
 > compatibility behind `Arc`; (3) `discover()` and the `event_prefix()` /
-> `output_item_type()` convenience hooks did not ship on the trait — SSE
-> emission is handled in the gateway layer keyed on `tool_type`, and MCP
+> `output_item_type()` convenience hooks did not ship on the trait. SSE MCP
 > discovery lives in the MCP handler rather than a generic trait method.
+> Lifecycle sequencing is handled by the gateway layer, while the handler shapes
+> its started and completed public output items.
 
 ---
 
 ## Per-Type Behavior
 
-| Stage | `function` | `codex namespace` | `mcp` | `web_search` | `file_search` | `code_interpreter` |
-|-------|-----------|-------------------|-------|-------------|--------------|-------------------|
-| Validate | name required | member names required | server_url required | (none) | vector_store_ids required | (none) |
-| Discover | no-op | no-op | `tools/list` on server | no-op | no-op | no-op |
-| Normalize | passthrough | flatten members → `FunctionTool` (`ns__member`) | McpToolDef → FunctionTool | synthetic `web_search(query)` | synthetic `file_search(query)` | synthetic `code_interpreter(code)` |
-| Route | → client | → client (restore `{ns, name}`) | → gateway | → gateway | → gateway | → gateway |
-| Execute | N/A | N/A | JSON-RPC `tools/call` | HTTP search API | vector store query | sandboxed container |
-| SSE events | `function_call_arguments.*` | `function_call_arguments.*` | `mcp_call.*` | `web_search_call.*` (2) | `file_search_call.*` | `code_interpreter_call.*` |
-| Response status | `requires_action` | `requires_action` | `completed` | `completed` | `completed` | `completed` |
+| Stage | `function` | `custom` | `codex namespace` | `mcp` | `web_search` | `file_search` | `code_interpreter` |
+|-------|------------|----------|-------------------|-------|--------------|---------------|--------------------|
+| Validate | name required | name and supported format | member names required | server identity, policy, and allowed tools | typed configuration | vector_store_ids required | typed configuration |
+| Discover | no-op | no-op | no-op | `tools/list` on server | no-op | no-op | no-op |
+| Normalize | passthrough | freeform input → function parameter | flatten members → `FunctionTool` | discovered schema → `FunctionTool` | synthetic `web_search(query)` | omitted (not implemented) | omitted (not implemented) |
+| Route | → client | → client (restore custom shape) | → client (restore `{namespace, name}`) | → gateway binding | → gateway binding | → gateway without binding | → gateway without binding |
+| Execute | N/A | N/A | N/A | JSON-RPC `tools/call` | HTTP search API | error tool result if called | error tool result if called |
+| SSE events | upstream function-call lifecycle | restored custom-call lifecycle | restored namespace call lifecycle | gateway-generated `mcp_call.*` | gateway-generated `web_search_call.*` | none | none |
+| Call handling | returned to client | returned to client | returned to client | gateway executes | gateway executes | error tool result (no handler yet) | error tool result (no handler yet) |
 
-`codex namespace` and `web_search` are the two ends actually shipping today
-(`#84` and `#85`); `mcp` is in review (`#89`); `file_search` / `code_interpreter`
-are declared `ToolType`s without handlers yet.
+`codex namespace`, `web_search`, and `mcp` ship today; `file_search` /
+`code_interpreter` are declared gateway-owned `ToolType`s without executors yet.
 
 ---
 
@@ -364,55 +403,54 @@ Request:
 
 **Iteration 2:** Model calls `query_papers("topic=RLHF")` → gateway executes via JSON-RPC → loop back
 
-**Iteration 3:** Model calls `run_shell("python import.py")` → registry lookup → `Function` → **client-owned** → response returns `status: "requires_action"`
+**Iteration 3:** Model calls `run_shell("python import.py")` → registry lookup → `Function` → **client-owned** → response returns the unresolved function call
 
 Client executes locally, submits `function_call_output`, inference continues.
 
 > Note: a mixed turn (a gateway *and* a client call in the same model output)
 > does not need an extra iteration. The gateway call executes and its output is
-> recorded, and because a client-owned call is present the turn still returns
-> `requires_action` in that same round — see the `classify_round` precedence
+> recorded, and because a client-owned call is present the turn returns that
+> unresolved call in the same round — see the `classify_round` precedence
 > under [Loop Decision](#loop-decision).
 
 ---
 
 ## Implementation Status
 
-The proposal's PR plan (A–E) shipped, reorganized around the merged registry
-and the two-layer dispatch model. Actual PRs:
+The proposal's PR plan (A–E) shipped, reorganized around the merged registry,
+explicit ownership, Responses round execution, and loop control. Actual PRs:
 
 | Area | PR(s) | Status |
 |------|-------|--------|
 | Tool types + registry + `ToolHandler` trait + `FunctionHandler` + normalize | **#80** | ✅ merged |
-| Handler-in-`ToolEntry` + per-call `ToolRegistry::dispatch()` (MCP gateway design) | **#82** | ✅ merged |
+| Explicit `ToolOwnership`/`GatewayBinding` in `ToolEntry` + registry routing | **#82**, current gateway-round work | ✅ merged |
 | `web_search` gateway tool (first `GatewayExecutor`) | **#85** | ✅ merged |
 | Codex integration → `CodexNamespace` client-owned type + flatten/restore | **#84** | ✅ merged |
 | Codex namespace invariant tightening (collision reject) | **#91** | ✅ merged |
-| Multi-turn loop: `classify_round` + `LoopDecision` (Layer 2) | **#83** | 🔄 in review |
-| Remote MCP gateway (`read_resource`, `tools/call`) | **#89** | 🔄 in review |
+| Bounded parallel Responses gateway rounds + per-handler same-tool safety | **#181** | ✅ implemented |
+| Multi-turn loop: `classify_round` + `LoopDecision` | **#83** | ✅ implemented |
+| Remote MCP gateway (`read_resource`, `tools/call`) | **#89** | ✅ implemented |
 | `file_search`, `code_interpreter` handlers | — | declared `ToolType`, no handler yet |
 
-The trait split, `Pin<Box>` async, `CodexNamespace`, the two-layer dispatch, and
-the four-variant `LoopDecision` are the substantive divergences from this doc's
-original sketch — each is annotated inline above.
+The trait split, `Pin<Box>` async, `CodexNamespace`, explicit ownership and round
+execution, and the four-variant `LoopDecision` are the substantive divergences
+from this doc's original sketch — each is annotated inline above.
 
 ## Future Work
 
-- **Layering ADR.** Promote the two-layer dispatch (per-call `registry.dispatch`
-  + multi-turn `LoopDecision`) from an implementation detail to a recorded
-  decision, so later APIs (Messages, Interactions) reuse the same loop instead
-  of forking. Gated on #83 landing so the ADR describes shipped code.
+- **Layering ADR.** Record the relationship between request-scoped ownership,
+  Responses `GatewayScheduler`, the Messages per-call dispatch path, and multi-round
+  `LoopDecision`, so later APIs reuse the same primitives instead of forking.
 - **`GatewayAccumulator` (streaming).** Today the "hide gateway-owned calls,
   emit the synthetic public frame" logic exists twice — once for blocking
   (`public_output_items`) and once for streaming (`emit_gateway_*_events`). A
   `GatewayAccumulator` stage (Raw → Gateway → Public, mirroring
   `ResponseAccumulator`) would classify once and let both paths consume it.
-  Concrete once #89 lands the second gateway frame type.
-- **Per-tool-type execution config.** `GATEWAY_TOOL_TIMEOUT` and the concurrency
-  window are file-private consts today. When tool types with materially
-  different latency profiles land (an MCP resource fetch vs. a web search), the
-  existing `execute_gateway_call_with_timeout(timeout)` seam makes promoting
-  them to per-type config additive.
+- **Per-tool-type execution config.** The `ExecutionContext`-owned concurrency
+  window is configurable through `tools.max_concurrent_gateway_calls`, while
+  `GATEWAY_TOOL_TIMEOUT` remains a shared 60-second per-call constant. Tool types
+  with materially different latency profiles may eventually need individual
+  timeout policies.
 - **`file_search` / `code_interpreter` handlers.** Both are declared `ToolType`s
   awaiting `GatewayExecutor` impls.
 
@@ -425,26 +463,27 @@ original sketch — each is annotated inline above.
 | D1 | Registry-based routing | Name prefixes leak implementation into the model's tool namespace. Registry is invisible to inference. |
 | D2 | Request-scoped registry | Different requests may target different MCP servers. Global state would require sync and conflict resolution. |
 | D3 | `function` never gateway-executed | Matches OpenAI spec. Enables agent clients (Codex, etc.) that own their tool implementations. "No client delegation" means the gateway doesn't punt *its* work — not that function tools can't exist. |
-| D4 | Mixed turns resolved by `classify_round` precedence, not a `ContinuePartial` variant | The proposal added `ContinuePartial` for turns with both gateway and client calls. As built, `classify_round` gives client-owned calls precedence: the gateway calls still execute and their outputs are recorded, and the turn returns `RequiresClientAction` in one round. Fewer variants, no payloads on the decision, same behavior. |
-| D5 | MCP transport | The proposal called for a stateless client (fresh connection per request). #89 introduces a connection pool keyed on `server_url`; see that PR for the current stance. |
+| D4 | Mixed turns resolved by `classify_round` precedence, not a `ContinuePartial` variant | The proposal added `ContinuePartial` for turns with both gateway and client calls. As built, `classify_round` gives client-owned calls precedence: gateway calls still execute and their outputs are recorded, and the internal decision returns `RequiresClientAction` in one round. Fewer variants, no payloads on the decision, same behavior. |
+| D5 | MCP transport | The proposal called for a stateless client (fresh connection per request). The shipped MCP integration pools clients and discovered handlers for configured servers rather than reconnecting on every call. |
 | D6 | `ResponsesTool` uses `#[serde(tag = "type")]` | Wire-compatible with existing `{"type":"function",...}` — no client migration needed. |
-| D7 | `ToolHandler` split into `ToolHandler` + `GatewayExecutor` | `execute()` only applies to gateway-owned types; keeping it on the shared trait would force `function`/`codex namespace` handlers to implement a method they can never honor. The `GatewayExecutor: ToolHandler` supertrait keeps the contract honest and is `dyn`-stored as `Arc<dyn GatewayExecutor>`. |
+| D7 | `ToolHandler` split into `ToolHandler` + `GatewayExecutor` with associated parameter types | `execute()` only applies to gateway-owned types. `ToolParams` types declaration validation/normalization; `ExecutionParams` types one executable registry entry. `GatewayBinding` pairs executor and parameters generically, then erases the checked pair for heterogeneous storage. |
+| D8 | Parallelism is bounded globally and constrained per tool name | `GatewayScheduler` uses a configurable sliding window. A handler's conservative default serializes calls to that same model-visible name, while different tools can still overlap; handlers such as MCP and web search explicitly opt into same-tool overlap. |
 
 ---
 
 ## Alternatives Considered for `function` Tool Handling
 
-Decision D3 (`function` is never gateway-executed, returns `requires_action`) is the most debatable choice. Here are the alternatives we evaluated:
+Decision D3 (`function` is never gateway-executed and is returned for client execution) is the most debatable choice. Here are the alternatives we evaluated:
 
 | # | Alternative | Behavior | Why rejected |
 |---|-------------|----------|--------------|
 | A | **Reject function tools entirely** | Validate at parse time — if `type: "function"` is present, return 400. Force clients to back all tools with MCP servers. | Breaks OpenAI spec compatibility. Prevents agent clients (Codex, Claude Code) from using their natural pattern. Unnecessarily opinionated. |
 | B | **Ignore + warn** | Accept `function` tools, normalize to vLLM, but if model calls one: drop the call silently, log a warning, and continue inference without it. | Silent data loss. Model asked for a tool result and gets nothing — produces hallucinated or degraded responses. Violates least-surprise. |
-| C | **Search MCP servers for matching name** | When model calls a `function` tool, check if any registered MCP server happens to expose a tool with that name. If found, execute via MCP. If not, fall back to `requires_action`. | Spooky action at a distance. Client declares `type: "function"` expecting to own execution, but gateway silently intercepts it if an MCP server has a name collision. Also adds latency (extra `tools/list` queries). |
-| D | **Gateway-execute all (require registered executor)** | Every `function` tool must have a backing executor configured in gateway config. No `requires_action` at all. | Requires operators to pre-configure every tool. Impossible for dynamic agent clients that generate tool definitions at runtime. Breaks the most common agentic pattern. |
+| C | **Search MCP servers for matching name** | When model calls a `function` tool, check if any registered MCP server happens to expose a tool with that name. If found, execute via MCP. If not, return it for client execution. | Spooky action at a distance. Client declares `type: "function"` expecting to own execution, but gateway silently intercepts it if an MCP server has a name collision. Also adds latency (extra `tools/list` queries). |
+| D | **Gateway-execute all (require registered executor)** | Every `function` tool must have a backing executor configured in gateway config. No client handoff at all. | Requires operators to pre-configure every tool. Impossible for dynamic agent clients that generate tool definitions at runtime. Breaks the most common agentic pattern. |
 | E | **Configurable per-request** | Add a field like `function_execution: "client" \| "gateway"` to let the client choose. | Over-engineering for MVP. Adds complexity to every code path. If a real use case emerges, we can add it later without breaking the default. |
 
-**Chosen: passthrough with `requires_action`** — matches OpenAI spec exactly, zero surprise for clients, and cleanly separates "tools the gateway owns" from "tools the client owns" based solely on the `type` field the client already provides.
+**Chosen: return client-owned calls unchanged** — preserves OpenAI-compatible function-call behavior, avoids surprise for clients, and cleanly separates tools the gateway owns from tools the client owns based on the declared type and registry ownership.
 
 ---
 
@@ -455,7 +494,7 @@ Several of these were resolved as the framework shipped; resolutions noted.
 | # | Question | Resolution |
 |---|----------|-----------|
 | Q1 | What if a discovered/namespaced tool name collides with another declared tool? | **Partially resolved (#91):** a Codex-namespace member that would flatten onto an already-declared name is a hard `ToolError` at registry-build time (`resolve_namespace_members`). Plain duplicate `function` names (and duplicate namespace *members*) remain last-write-wins with a `warn!` log — not a hard error. Tightening the plain-duplicate case is open. |
-| Q2 | How does a mixed gateway+client turn look to the streaming client? | **Resolved (#83):** gateway tool events stream in real time during the round; the turn then ends `requires_action` in that same round (client-owned precedence in `classify_round`). No `ContinuePartial`. |
+| Q2 | How does a mixed gateway+client turn look to the streaming client? | **Resolved (#83):** gateway tool events stream in output order during the round; the response returns the unresolved client-owned calls in that same round (`RequiresClientAction` precedence in `classify_round`). No `ContinuePartial`. |
 | Q3 | Should `tool_choice: {function: {name: "x"}}` work for discovered/namespaced tools? | **Resolved (#84/#91):** yes. vLLM sees all normalized functions; a forced namespaced name resolves through the namespace map. `tool_choice` names are validated as non-empty. |
 | Q4 | Should `prepare_tools` be a Praxis filter or part of `execute_loop`? | **As built:** part of the core loop (`run_until_gateway_tools_complete`), not a per-stage Praxis filter. Praxis wraps the whole loop (ADR-03). |
-| Q5 | Should the two-layer dispatch model be recorded as an ADR? | **Open** — proposed, gated on #83. See [Future Work](#future-work). |
+| Q5 | Should the routing, round-execution, and loop-control layers be recorded as an ADR? | **Open.** The implementation has shipped; the standalone architecture decision is still worth recording. See [Future Work](#future-work). |

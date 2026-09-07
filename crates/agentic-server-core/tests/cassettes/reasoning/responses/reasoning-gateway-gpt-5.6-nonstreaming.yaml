@@ -1,0 +1,69 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'Determine whether 47 is the unique two-digit positive integer whose
+        digits sum to 11 and whose reversal is 27 larger. Analyze the constraints,
+        then reply with exactly one word: VALID or INVALID.'
+      max_output_tokens: 2048
+      model: gpt-5.6
+      reasoning:
+        effort: high
+        summary: detailed
+      store: true
+      stream: false
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788233732
+      error: null
+      id: resp_01a05b09-454e-7110-afc5-8d6d90c90c2d
+      incomplete_details: null
+      instructions: null
+      model: gpt-5.6
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqlkgE9_uH9lHgSl9RO8LgROqmAnX3KoBV4xyxBl6RQwwPI272Xqua6nOcCIY7BsJ7wbQLAGu3sPFiXUF0Jautjx_OxVZuueVDRqdDnbp8NaSSiumb7uUWVDa3PLVPGBqC6FthXUPaGn7A9sPFNqgpvG8TBZAX7NBM9wjC47j70L_YizvFLCX_gmCcJu0hDaieDI4gEVKS6LcPY4OY6c1MArI3nfegpwQaWnuV5BzFYcTYpejIzjwVTePYnXRHu-Cxby1LvGejKuKGQWz3NMeVa70E8AqjUOXaMI11EiRfcVm0Qjxt3xIgoVQV9-O-VCQsKaX0LXzZC5oGNrN-yvb7sSW_Ha7iay2SCo3U06juTAySLdlgQZgLgWw8SwaCS1GjQ8s0QBlb-jBhuZviAP1tK_OjFP5AcpfFpK8YyWyQq6K1vpM9OG045gQjVngHNvimvOtTLOulG5DPgE6Pi_f0eQst2MZTUCUopozTLDI-_7MkwZd4-UY-wNgcbaYY3e0a6mxDejZQyOMKxGY3CfnqZcM4bb5MhP4bYGVtJIOPgx0FqLcSepnCyaKIsgnDo9qRiH0ANwJVygP-o6CuJ_Z4ApgknPyt881_eoGymfD3_U2mtTFUNFe5yJzZ8H9WBXSnPKm6GmmHPVxltxPJGs9yOjqMIS_yisO16qahmQfTYofxI1Z9rBlTm-AG_nK_SsjqDiFq71dvhhM4aIbTsLbwYfGIIR_PGpiKBehlzInzvtYKSDQoV98H7bThrqr7kE-k3MOZtnjdO7hO1aEwRZY2uGL0Nc6h2vPKMVWnFDfbHI9kmB8F8z2xhlvqPlyMbnRw1hKpDPrmDjsSwADebnAKR6xc5LtT7JKtCiBDyRsqplnnoKae89gN8IUR71_k8TVcXzu4Lc_8aoDj185J-X6ablejv00enoXUkXamcivKHK1na-Z3v-_4MCPWRjKr7129OX5eGH3KBcYNjOSuCp-VLGCCZN4f6ijpTVC2Rn9PrBtTgNb6ePViP4zMAqyyXvdjjBzckhRBape3KEhbhi2_daqQ3NB7iqUTsOteArpjHWt4avfFzWUcCT-MrcsKRSVIpznlCoRfPCzbXd7BSjktRakp2Kk0aahshPep9AtEDdLQUNoEdwCUvyPObFMfizB0kjjhm_6K6aLms--UmWiZUu-Rxo39MpMjUcYEgrS1fepZSscGKwReJjsk6NPA_2HqbS7V6YVpm3Qndny5T5FgAi3T-0pmQ_PJfw1bgp1r1MDkeuB0KrFcc6NVGZtoDqFDn26Xin6Ulue9bFmN862wC26N8GbA8IgexqeI9YE74cbhrPD5kD-VtQQT9yXqHSwXU31JE33WKFxUSoeYxS-tBhja4Nhu3Cjpgm07YNbUQCxLStY=
+        id: rs_07c629dd4fdf1933006a964802ba4c87d2b46819f32237a6ee
+        status: null
+        summary:
+        - text: '**Solving a math problem**
+
+
+            I need to work through this math problem involving two digits. Let’s define
+            the number as 10a + b, where a + b = 11. If I reverse the digits, it becomes
+            10b + a, which is 27 more than the original. So, I set up the equation:
+            10b + a = 10a + b + 27. From there, I simplify and find that b - a = 3.
+            Adding the two original digits gives me 2b = 14, so b equals 7 and a equals
+            4. It''s unique, and I’ll respond with exactly “VALID.”'
+          type: summary_text
+        type: reasoning
+      - content:
+        - annotations: []
+          text: VALID
+          type: output_text
+        id: msg_07c629dd4fdf1933006a964804b69087d2b21afe11a7cbe4a4
+        role: assistant
+        status: completed
+        type: message
+      previous_response_id: null
+      status: completed
+      usage:
+        input_tokens: 46
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 78
+        output_tokens_details:
+          reasoning_tokens: 71
+        total_tokens: 124
+    headers:
+      content-type: application/json
+    status_code: 200

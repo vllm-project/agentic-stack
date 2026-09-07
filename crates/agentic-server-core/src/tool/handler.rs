@@ -1,14 +1,34 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use serde_json::Value;
-
 use crate::types::io::FunctionTool;
+use crate::types::io::output::{FunctionToolCall, GatewayCallStatus, OutputItem};
 
 #[derive(Debug, Clone)]
 pub struct ToolOutput {
     pub call_id: String,
     pub output: String,
+}
+
+/// Tool-owned public lifecycle projection for one scheduled gateway call.
+///
+/// Handlers provide typed Responses output items while the gateway scheduler
+/// remains responsible for output indexes, SSE framing, and event ordering.
+#[derive(Debug, Clone, Default)]
+pub struct GatewayToolEventPlan {
+    started_output: Option<OutputItem>,
+}
+
+impl GatewayToolEventPlan {
+    #[must_use]
+    pub const fn new(started_output: Option<OutputItem>) -> Self {
+        Self { started_output }
+    }
+
+    #[must_use]
+    pub(crate) fn into_started_output(self) -> Option<OutputItem> {
+        self.started_output
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -21,51 +41,59 @@ pub enum ToolError {
     InvalidUpstreamToolSearch,
     #[error("upstream returned a call for a function that has not been loaded")]
     UpstreamWithheldFunctionCall,
+    /// A continuation request omitted the output for a pending function call
+    /// from the prior turn.
+    #[error("No tool output found for function call {call_id}.")]
+    MissingOutput { call_id: String },
 }
 
 /// Trait implemented by every tool type — client-owned and gateway-owned alike.
 ///
-/// Covers validation and normalization: the steps that apply to all tools
-/// regardless of who executes them.
-///
-/// Implementations must be `Send + Sync` so they can be stored behind `Arc<dyn
-/// ToolHandler>` and used across async task boundaries.
+/// Covers typed validation and normalization: the steps that apply to all
+/// tools regardless of who executes them.
 pub trait ToolHandler: Send + Sync {
+    /// The public declaration parameters handled by this implementation.
+    type ToolParams: Send + Sync;
+
     #[must_use]
     fn tool_type(&self) -> super::registry::ToolType;
 
-    /// Validate the tool param JSON.
+    /// Validate the typed tool declaration parameters.
     ///
     /// # Errors
     ///
     /// Returns [`ToolError::Config`] for obviously invalid configurations.
-    fn validate(&self, param: &Value) -> Result<(), ToolError>;
+    fn validate(&self, params: &Self::ToolParams) -> Result<(), ToolError>;
 
     /// Normalise this tool declaration into vLLM-compatible `FunctionTool` entries.
     #[must_use]
-    fn normalize(&self, param: &Value) -> Vec<FunctionTool>;
+    fn normalize(&self, params: &Self::ToolParams) -> Vec<FunctionTool>;
 }
 
 /// Extension of [`ToolHandler`] for tool types that are executed by the gateway.
 ///
-/// Only gateway-owned tools (`Mcp`, `WebSearch`, `FileSearch`, `CodeInterpreter`)
-/// implement this trait. Client-owned tools (`Function`, `ToolSearch`, `Custom`,
-/// `CodexNamespace`) do not — the type system makes it impossible to call
-/// `execute()` on them.
+/// Only executable gateway handlers implement this trait. MCP and web search
+/// implement it today. File search and code interpreter are gateway-owned in
+/// the registry but do not yet have executors. Client-owned tools (`Function`,
+/// `ToolSearch`, `Custom`, `CodexNamespace`) do not implement it, so they cannot
+/// be dispatched through this interface.
 ///
 /// ## Note on `async fn` in traits
 ///
-/// Native `async fn` in traits (Rust 1.75+) is not yet `dyn`-compatible. Since
-/// PR B will store handlers as `Arc<dyn GatewayExecutor>`, we use explicit
-/// `Pin<Box<dyn Future>>` return types.
+/// Native `async fn` in traits (Rust 1.75+) is not yet `dyn`-compatible, so this
+/// trait uses explicit `Pin<Box<dyn Future>>` return types. Concrete executors
+/// are paired with their typed parameters before the pair is erased for storage
+/// in the heterogeneous tool registry.
 pub trait GatewayExecutor: ToolHandler + 'static {
+    /// Request-scoped parameters for one model-visible executable tool.
+    ///
+    /// These may differ from [`ToolHandler::ToolParams`]. MCP, for example,
+    /// normalizes an [`McpToolParam`](crate::types::tools::McpToolParam) server
+    /// declaration but executes one
+    /// [`McpDiscoveredToolParam`](crate::types::tools::McpDiscoveredToolParam).
+    type ExecutionParams: Clone + Send + Sync + 'static;
+
     /// Execute a tool call and return the result.
-    ///
-    /// ## `config` parameter
-    ///
-    /// `config` is the serialised **server-level** tool param (i.e. the `*ToolParam`
-    /// struct stored in [`super::registry::ToolEntry::config`]). It is **not** the
-    /// per-tool parameter schema.
     ///
     /// # Errors
     ///
@@ -75,8 +103,51 @@ pub trait GatewayExecutor: ToolHandler + 'static {
         call_id: &str,
         tool_name: &str,
         arguments: &str,
-        config: &Value,
+        params: &Self::ExecutionParams,
     ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, ToolError>> + Send + '_>>;
+
+    /// Whether multiple calls to this same model-visible tool name may overlap.
+    /// Defaults to `false`, which serializes only same-name calls; calls to
+    /// different tools may still execute concurrently in the same round.
+    #[must_use]
+    fn supports_parallel_execution(&self) -> bool {
+        false
+    }
+
+    /// Plans the typed public lifecycle for one gateway call.
+    ///
+    /// The returned plan must not assign protocol indexes or construct SSE
+    /// frames. Defaults to an empty lifecycle for tools that have no public
+    /// gateway-specific call item.
+    #[must_use]
+    fn plan_gateway_events(&self, call: &FunctionToolCall, params: &Self::ExecutionParams) -> GatewayToolEventPlan {
+        GatewayToolEventPlan::new(self.started_output(call, params))
+    }
+
+    /// The placeholder output item shown while this call is in progress.
+    ///
+    /// Kept as the compatibility hook for existing gateway executors;
+    /// implementations that need richer planning should override
+    /// [`Self::plan_gateway_events`] instead.
+    #[must_use]
+    fn started_output(&self, call: &FunctionToolCall, params: &Self::ExecutionParams) -> Option<OutputItem> {
+        let _ = (call, params);
+        None
+    }
+
+    /// The public output item for a completed or failed call.
+    /// Defaults to `None` (no gateway-specific shape).
+    #[must_use]
+    fn public_output(
+        &self,
+        call: &FunctionToolCall,
+        output: &ToolOutput,
+        status: GatewayCallStatus,
+        params: &Self::ExecutionParams,
+    ) -> Option<OutputItem> {
+        let _ = (call, output, status, params);
+        None
+    }
 }
 
 #[cfg(test)]
@@ -85,7 +156,7 @@ mod tests {
 
     use super::*;
 
-    // Compile-time check: Arc<dyn GatewayExecutor> must be constructable.
-    // This fails to compile if GatewayExecutor ever becomes dyn-incompatible.
-    fn _assert_gateway_executor_dyn_compatible(_: Arc<dyn GatewayExecutor>) {}
+    // Compile-time check: a GatewayExecutor with fixed associated parameter
+    // types remains dyn-compatible for typed executor slots.
+    fn _assert_gateway_executor_dyn_compatible(_: Arc<dyn GatewayExecutor<ToolParams = (), ExecutionParams = ()>>) {}
 }

@@ -3,6 +3,25 @@
 version = 4
 
 [[package]]
+name = "agentic-llm-d"
+version = "0.5.0"
+dependencies = [
+ "agentic-server-core",
+ "axum",
+ "clap",
+ "jsonwebtoken",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "agentic-praxis"
 version = "0.5.0"
 dependencies = [

@@ -4,6 +4,28 @@ All notable changes to Agentic API are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Forwarded `parallel_tool_calls` as the model-generation preference for typed
+  Responses requests, including built-in-only and mixed tool declarations (#181).
+- Added bounded, configurable parallel execution for Responses gateway rounds,
+  preserving model call order and applying per-handler same-tool safety.
+- Preserved MCP list-tools records in continuation history for registry lifecycle
+  decisions while excluding them from model input, preventing repeated public
+  list-tools emission on later turns.
+- Clarified Codex tool execution roles by replacing ambiguous ownership language
+  with the preferred client-executed and gateway-executed terminology.
+
+### Fixed
+
+- Hardened split execution with atomic duplicate persistence, strict relayed-response validation, independent secret
+  validation, bounded hydrate and persist payloads, stable error envelopes, and graceful shutdown error propagation.
+- Forwarded Responses `text` generation settings, including structured output
+  formats and verbosity, through typed HTTP, WebSocket, and gateway-tool paths.
+- Replaced `WebSearchActionSearch::new` and `WebSearchCall::new` with fallible
+  `try_new(...)` constructors; callers now handle `WebSearchActionError` for
+  empty query lists instead of risking a panic.
+
 ### Added
 
 - Documented running Agentic API in front of NVIDIA Dynamo and recorded Dynamo cassettes for stateful and

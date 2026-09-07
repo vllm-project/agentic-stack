@@ -17,6 +17,7 @@ use agentic_core::tool::{
 };
 use agentic_core::types::io::{FunctionTool, OutputItem};
 use agentic_core::types::request_response::{RequestPayload, ResponsePayload};
+use agentic_core::types::tools::WebSearchToolParam;
 use axum::Router;
 use axum::body::Bytes;
 use axum::response::IntoResponse;
@@ -33,26 +34,30 @@ struct CountingWebSearch {
 }
 
 impl ToolHandler for CountingWebSearch {
+    type ToolParams = WebSearchToolParam;
+
     fn tool_type(&self) -> ToolType {
         ToolType::WebSearch
     }
 
-    fn validate(&self, _param: &Value) -> Result<(), ToolError> {
+    fn validate(&self, _param: &WebSearchToolParam) -> Result<(), ToolError> {
         Ok(())
     }
 
-    fn normalize(&self, _param: &Value) -> Vec<FunctionTool> {
+    fn normalize(&self, _param: &WebSearchToolParam) -> Vec<FunctionTool> {
         Vec::new()
     }
 }
 
 impl GatewayExecutor for CountingWebSearch {
+    type ExecutionParams = WebSearchToolParam;
+
     fn execute(
         &self,
         call_id: &str,
         _tool_name: &str,
         _arguments: &str,
-        _config: &Value,
+        _config: &WebSearchToolParam,
     ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Box::pin(std::future::ready(Ok(ToolOutput {
