@@ -472,18 +472,14 @@ pub enum McpCallError {
 #[cfg(feature = "openapi")]
 impl utoipa::PartialSchema for McpCallError {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
-        utoipa::openapi::schema::OneOfBuilder::new()
+        utoipa::openapi::schema::AnyOfBuilder::new()
             .item(
                 utoipa::openapi::ObjectBuilder::new().schema_type(utoipa::openapi::schema::SchemaType::new(
                     utoipa::openapi::schema::Type::String,
                 )),
             )
             .item(utoipa::openapi::Ref::from_schema_name("McpToolExecutionError"))
-            .item(
-                utoipa::openapi::ObjectBuilder::new().schema_type(utoipa::openapi::schema::SchemaType::new(
-                    utoipa::openapi::schema::Type::Object,
-                )),
-            )
+            .item(utoipa::openapi::ObjectBuilder::new().schema_type(utoipa::openapi::schema::SchemaType::AnyValue))
             .into()
     }
 }

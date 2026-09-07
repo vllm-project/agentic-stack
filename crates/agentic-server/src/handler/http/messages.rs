@@ -130,7 +130,7 @@ async fn execute_messages(
     responses(
         (status = 200, description = "JSON when stream=false, SSE when stream=true",
             content(
-                (() = "application/json"),
+                (crate::openapi::MessagesResponse = "application/json"),
                 (() = "text/event-stream"),
             )),
         (status = 400, description = "Invalid request", body = crate::openapi::AnthropicErrorResponse),
@@ -167,8 +167,9 @@ pub async fn messages(State(state): State<AppState>, request: Request) -> Respon
 #[cfg_attr(feature = "openapi", utoipa::path(
     post,
     path = "/v1/messages/count_tokens",
+    request_body = agentic_core::types::messages::MessagesRequest,
     responses(
-        (status = 200, description = "Token count result"),
+        (status = 200, description = "Token count result", body = crate::openapi::CountTokensResponse),
         (status = 400, description = "Invalid request", body = crate::openapi::AnthropicErrorResponse),
         (status = 502, description = "Upstream error", body = crate::openapi::AnthropicErrorResponse),
     ),

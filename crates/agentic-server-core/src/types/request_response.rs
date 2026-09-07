@@ -125,40 +125,49 @@ impl utoipa::ToSchema for ResponseTextFormat {
 #[cfg(feature = "openapi")]
 impl utoipa::PartialSchema for RequestPayload {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
-        use utoipa::openapi::schema::{ArrayBuilder, ObjectBuilder, SchemaType, Type};
+        use utoipa::openapi::schema::{ArrayBuilder, ObjectBuilder, OneOfBuilder, SchemaType, Type};
         use utoipa::openapi::{Ref, RefOr};
         let str_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::String));
         let bool_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::Boolean));
-        let num_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::Number));
-        let int_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::Integer));
+        let null_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::Null));
+        let nullable_str = || ObjectBuilder::new().schema_type(SchemaType::from_iter([Type::String, Type::Null]));
+        let nullable_num = || ObjectBuilder::new().schema_type(SchemaType::from_iter([Type::Number, Type::Null]));
+        let nullable_int = || ObjectBuilder::new().schema_type(SchemaType::from_iter([Type::Integer, Type::Null]));
+        let nullable_bool = || ObjectBuilder::new().schema_type(SchemaType::from_iter([Type::Boolean, Type::Null]));
+        let nullable_ref = |name: &str| OneOfBuilder::new().item(Ref::from_schema_name(name)).item(null_type());
+        let nullable_array = |item: RefOr<utoipa::openapi::schema::Schema>| {
+            OneOfBuilder::new()
+                .item(ArrayBuilder::new().items(item))
+                .item(null_type())
+        };
         let schema: RefOr<_> = ObjectBuilder::new()
             .property("model", str_type())
             .required("model")
             .property("input", Ref::from_schema_name("ResponsesInput"))
             .required("input")
-            .property("instructions", str_type())
-            .property("previous_response_id", str_type())
-            .property("conversation_id", str_type())
-            .property(
-                "tools",
-                ArrayBuilder::new().items(Ref::from_schema_name("ResponsesTool")),
-            )
-            .property("tool_choice", Ref::from_schema_name("ToolChoice"))
+            .property("instructions", nullable_str())
+            .property("previous_response_id", nullable_str())
+            .property("conversation_id", nullable_str())
+            .property("tools", nullable_array(Ref::from_schema_name("ResponsesTool").into()))
+            .property("tool_choice", nullable_ref("ToolChoice"))
             .property("stream", bool_type())
             .property("store", bool_type())
-            .property("include", ArrayBuilder::new().items(str_type()))
-            .property("reasoning", Ref::from_schema_name("ReasoningConfig"))
-            .property("text", Ref::from_schema_name("ResponseTextConfig"))
-            .property("temperature", num_type())
-            .property("top_p", num_type())
-            .property("max_output_tokens", int_type())
-            .property("truncation", str_type())
-            .property("metadata", ObjectBuilder::new())
-            .property("parallel_tool_calls", bool_type())
-            .property("cache_salt", str_type())
+            .property("include", nullable_array(str_type().into()))
+            .property("reasoning", nullable_ref("ReasoningConfig"))
+            .property("text", nullable_ref("ResponseTextConfig"))
+            .property("temperature", nullable_num())
+            .property("top_p", nullable_num())
+            .property("max_output_tokens", nullable_int())
+            .property("truncation", nullable_str())
+            .property(
+                "metadata",
+                ObjectBuilder::new().schema_type(SchemaType::from_iter([Type::Object, Type::Null])),
+            )
+            .property("parallel_tool_calls", nullable_bool())
+            .property("cache_salt", nullable_str())
             .property(
                 "context_management",
-                ArrayBuilder::new().items(Ref::from_schema_name("ContextManagement")),
+                nullable_array(Ref::from_schema_name("ContextManagement").into()),
             )
             .into();
         schema

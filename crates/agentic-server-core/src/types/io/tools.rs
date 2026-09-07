@@ -59,13 +59,15 @@ impl utoipa::PartialSchema for ToolChoice {
 
         let str_type = || ObjectBuilder::new().schema_type(SchemaType::new(Type::String));
 
+        let name_ref = || Ref::from_schema_name("NonEmptyToolName");
+
         OneOfBuilder::new()
             .item(str_type().enum_values(Some(["auto", "none", "required"])))
             .item(
                 ObjectBuilder::new()
                     .property("type", str_type().enum_values(Some(["function"])))
                     .required("type")
-                    .property("name", str_type())
+                    .property("name", name_ref())
                     .required("name")
                     .property("namespace", str_type()),
             )
@@ -73,7 +75,7 @@ impl utoipa::PartialSchema for ToolChoice {
                 ObjectBuilder::new()
                     .property("type", str_type().enum_values(Some(["custom"])))
                     .required("type")
-                    .property("name", str_type())
+                    .property("name", name_ref())
                     .required("name"),
             )
             .item(
@@ -84,6 +86,17 @@ impl utoipa::PartialSchema for ToolChoice {
                     .required("mode")
                     .property("tools", ArrayBuilder::new().items(Ref::from_schema_name("AllowedTool")))
                     .required("tools"),
+            )
+            .item(
+                ObjectBuilder::new()
+                    .property(
+                        "function",
+                        ObjectBuilder::new()
+                            .property("name", name_ref())
+                            .required("name")
+                            .property("namespace", str_type()),
+                    )
+                    .required("function"),
             )
             .into()
     }

@@ -231,9 +231,21 @@ mod openapi_schemas {
 
     impl utoipa::PartialSchema for InputItem {
         fn schema() -> RefOr<Schema> {
+            use utoipa::openapi::schema::AllOfBuilder;
+            let message_branch: RefOr<Schema> = AllOfBuilder::new()
+                .item(
+                    ObjectBuilder::new().property(
+                        "type",
+                        ObjectBuilder::new()
+                            .schema_type(SchemaType::new(Type::String))
+                            .enum_values(Some(["message"])),
+                    ),
+                )
+                .item(Ref::from_schema_name("InputMessage"))
+                .into();
             OneOfBuilder::new()
                 .discriminator(Some(utoipa::openapi::schema::Discriminator::new("type")))
-                .item(tagged_ref("message", "InputMessage"))
+                .item(message_branch)
                 .item(tagged_ref("function_call", "InputFunctionToolCall"))
                 .item(tagged_ref("function_call_output", "FunctionToolResultMessage"))
                 .item(tagged_ref("custom_tool_call", "CustomToolCall"))

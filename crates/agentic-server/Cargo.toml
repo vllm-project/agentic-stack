@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = []
+default = ["openapi"]
 openapi = ["agentic-core/openapi", "dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui"]
 
 [dependencies]

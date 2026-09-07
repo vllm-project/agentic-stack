@@ -103,6 +103,10 @@ use utoipa::OpenApi;
         ApiError,
         AnthropicErrorResponse,
         AnthropicError,
+        MessagesResponse,
+        CountTokensResponse,
+        ModelsResponse,
+        ModelObject,
         CreateConversationRequest,
         ConversationResponse,
     )),
@@ -143,7 +147,7 @@ pub struct ApiError {
     pub message: String,
     #[serde(rename = "type")]
     pub error_type: String,
-    pub code: String,
+    pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub param: Option<String>,
 }
@@ -163,10 +167,50 @@ pub struct AnthropicError {
     pub message: String,
 }
 
+/// Anthropic Messages API response (proxied from upstream).
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct MessagesResponse {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub response_type: String,
+    pub role: String,
+    pub model: String,
+    pub content: Vec<serde_json::Value>,
+    pub stop_reason: Option<String>,
+    pub usage: serde_json::Value,
+}
+
+/// Response from Anthropic's `count_tokens` endpoint (proxied from upstream).
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct CountTokensResponse {
+    pub input_tokens: u64,
+}
+
+/// OpenAI-compatible model list returned by the upstream LLM service.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct ModelsResponse {
+    pub object: String,
+    pub data: Vec<ModelObject>,
+}
+
+/// Single model entry in the models list.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct ModelObject {
+    pub id: String,
+    pub object: String,
+    pub owned_by: Option<String>,
+}
+
 /// Request body for POST /v1/conversations.
 #[derive(serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateConversationRequest {
+    #[serde(default = "default_true")]
+    #[schema(default = true)]
     pub store: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Response from POST /v1/conversations.
@@ -306,6 +350,7 @@ mod tests {
     /// pass the hand-written `OpenAPI` schema. Catches schema drift that
     /// structural tests (ref resolution, meta-schema) cannot.
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn serialized_fixtures_validate_against_component_schemas() {
         let spec = ApiDoc::openapi();
         let spec_json = serde_json::to_value(&spec).expect("spec must serialize");
@@ -332,8 +377,46 @@ mod tests {
             );
         };
 
+        // -- RequestPayload: serde accepts explicit nulls for Option fields --
+        let minimal = serde_json::json!({"model": "m", "input": "hi"});
+        validate("RequestPayload", &minimal);
+        let with_nulls = serde_json::json!({
+            "model": "m",
+            "input": "hi",
+            "instructions": null,
+            "previous_response_id": null,
+            "conversation_id": null,
+            "tools": null,
+            "tool_choice": null,
+            "include": null,
+            "reasoning": null,
+            "text": null,
+            "temperature": null,
+            "top_p": null,
+            "max_output_tokens": null,
+            "truncation": null,
+            "metadata": null,
+            "parallel_tool_calls": null,
+            "cache_salt": null,
+            "context_management": null,
+        });
+        validate("RequestPayload", &with_nulls);
+        let _: agentic_core::types::request_response::RequestPayload =
+            serde_json::from_value(with_nulls).expect("serde must accept explicit nulls");
+
+        // -- ApiErrorResponse: code may be a string or null --
+        validate(
+            "ApiErrorResponse",
+            &serde_json::json!({"error": {"message": "bad", "type": "invalid_request_error", "code": "missing_field"}}),
+        );
+        validate(
+            "ApiErrorResponse",
+            &serde_json::json!({"error": {"message": "bad", "type": "invalid_request_error", "code": null}}),
+        );
+
         // -- InputItem: every variant the deserializer accepts --
         let input_items = vec![
+            serde_json::json!({"role": "user", "content": "history"}),
             serde_json::json!({"type": "message", "role": "user", "content": "hello"}),
             serde_json::json!({"type": "function_call", "call_id": "c1", "name": "f", "arguments": "{}"}),
             serde_json::json!({"type": "function_call_output", "call_id": "c1", "output": "ok"}),
@@ -363,6 +446,21 @@ mod tests {
             validate("OutputItem", fixture);
         }
 
+        // -- McpCallError: typed, string, and arbitrary forms --
+        let mcp_errors = vec![
+            serde_json::json!("plain error string"),
+            serde_json::json!({"type": "tool_execution_error", "content": [{"type": "text", "text": "err"}]}),
+            serde_json::json!({"unexpected_key": "arbitrary object"}),
+            serde_json::json!(42),
+            serde_json::json!([1, 2, 3]),
+            serde_json::json!(null),
+        ];
+        for fixture in &mcp_errors {
+            validate("McpCallError", fixture);
+            let _: agentic_core::types::io::McpCallError =
+                serde_json::from_value(fixture.clone()).expect("serde must accept McpCallError form");
+        }
+
         // -- ResponsesTool: every variant --
         let tools = vec![
             serde_json::json!({"type": "function", "name": "f"}),
@@ -376,6 +474,38 @@ mod tests {
         for fixture in &tools {
             validate("ResponsesTool", fixture);
         }
+
+        // -- ToolChoice: all accepted forms including legacy --
+        let tool_choices = vec![
+            serde_json::json!("auto"),
+            serde_json::json!("none"),
+            serde_json::json!("required"),
+            serde_json::json!({"type": "function", "name": "get_weather"}),
+            serde_json::json!({"type": "function", "name": "f", "namespace": "ns"}),
+            serde_json::json!({"type": "custom", "name": "apply_patch"}),
+            serde_json::json!({"type": "allowed_tools", "mode": "required", "tools": [{"type": "function", "name": "f"}]}),
+            serde_json::json!({"function": {"name": "legacy_fn"}}),
+        ];
+        for fixture in &tool_choices {
+            validate("ToolChoice", fixture);
+            let _: agentic_core::types::io::ToolChoice =
+                serde_json::from_value(fixture.clone()).expect("serde must accept ToolChoice form");
+        }
+        // Negative: empty name must be rejected by both schema and serde.
+        let empty_name = serde_json::json!({"type": "function", "name": ""});
+        assert!(
+            serde_json::from_value::<agentic_core::types::io::ToolChoice>(empty_name.clone()).is_err(),
+            "serde must reject empty tool name"
+        );
+        let wrapper = serde_json::json!({
+            "components": { "schemas": schemas },
+            "$ref": "#/components/schemas/ToolChoice"
+        });
+        let validator = jsonschema::validator_for(&wrapper).unwrap();
+        assert!(
+            validator.iter_errors(&empty_name).next().is_some(),
+            "schema must reject empty tool name"
+        );
 
         // Serde aliases for WebSearch must validate against the schema AND round-trip.
         for alias in ["web_search", "web_search_preview_2025_03_11", "web_search_2025_08_26"] {
