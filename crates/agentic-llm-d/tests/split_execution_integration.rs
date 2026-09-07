@@ -270,7 +270,7 @@ async fn a_function_call_stream_passes_strict_validation() {
         r#"data: {"type":"response.in_progress","response":{"id":"resp_upstream","status":"in_progress"}}"#,
         r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"","status":"in_progress"}}"#,
         r#"data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"{\"q\":"}"#,
-        r#"data: {"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","name":"lookup","arguments":"{\"q\":\"rust\"}"}"#,
+        r#"data: {"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","arguments":"{\"q\":\"rust\"}"}"#,
         r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"rust\"}","status":"completed"}}"#,
         r#"data: {"type":"response.completed","response":{"id":"resp_upstream","status":"completed","output":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"rust\"}","status":"completed"}]}}"#,
     ]

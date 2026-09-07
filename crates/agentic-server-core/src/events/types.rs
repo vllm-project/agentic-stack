@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::types::io::ResponseUsage;
+use crate::types::io::{OutputItem, ResponseUsage};
 
 /// The type of an output item received during streaming.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,15 +34,42 @@ impl SSEItemType {
 
 impl From<&str> for SSEItemType {
     fn from(s: &str) -> Self {
-        match s {
-            "reasoning" => Self::Reasoning,
-            "function_call" => Self::FunctionCall,
-            "custom_tool_call" => Self::CustomToolCall,
-            "web_search_call" => Self::WebSearchCall,
-            "mcp_call" => Self::McpCall,
-            "mcp_list_tools" => Self::McpListTools,
-            "compaction" => Self::Compaction,
-            _ => Self::Message,
+        s.parse().unwrap_or(Self::Message)
+    }
+}
+
+impl std::str::FromStr for SSEItemType {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "reasoning" => Ok(Self::Reasoning),
+            "function_call" => Ok(Self::FunctionCall),
+            "custom_tool_call" => Ok(Self::CustomToolCall),
+            "web_search_call" => Ok(Self::WebSearchCall),
+            "mcp_call" => Ok(Self::McpCall),
+            "mcp_list_tools" => Ok(Self::McpListTools),
+            "compaction" => Ok(Self::Compaction),
+            "message" => Ok(Self::Message),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<&OutputItem> for SSEItemType {
+    type Error = ();
+
+    fn try_from(item: &OutputItem) -> Result<Self, Self::Error> {
+        match item {
+            OutputItem::Message(_) => Ok(Self::Message),
+            OutputItem::FunctionCall(_) => Ok(Self::FunctionCall),
+            OutputItem::CustomToolCall(_) => Ok(Self::CustomToolCall),
+            OutputItem::WebSearchCall(_) => Ok(Self::WebSearchCall),
+            OutputItem::McpCall(_) => Ok(Self::McpCall),
+            OutputItem::McpListTools(_) => Ok(Self::McpListTools),
+            OutputItem::Reasoning(_) => Ok(Self::Reasoning),
+            OutputItem::Compaction(_) => Ok(Self::Compaction),
+            OutputItem::Unknown => Err(()),
         }
     }
 }
@@ -381,7 +408,30 @@ impl EventFrame {
 
 #[cfg(test)]
 mod tests {
-    use super::SSEEventType;
+    use super::{SSEEventType, SSEItemType};
+    use crate::types::event::MessageStatus;
+    use crate::types::io::{FunctionToolCall, OutputItem};
+
+    #[test]
+    fn sse_item_type_strictly_parses_known_wire_types() {
+        assert_eq!("function_call".parse(), Ok(SSEItemType::FunctionCall));
+        assert!("unsupported_item".parse::<SSEItemType>().is_err());
+    }
+
+    #[test]
+    fn sse_item_type_is_derived_from_typed_output_items() {
+        let item = OutputItem::FunctionCall(FunctionToolCall {
+            id: "fc_1".to_owned(),
+            call_id: "call_1".to_owned(),
+            name: "lookup".to_owned(),
+            namespace: None,
+            arguments: "{}".to_owned(),
+            status: MessageStatus::Completed,
+        });
+
+        assert_eq!(SSEItemType::try_from(&item), Ok(SSEItemType::FunctionCall));
+        assert!(SSEItemType::try_from(&OutputItem::Unknown).is_err());
+    }
 
     #[test]
     fn sse_event_type_wire_names_round_trip() {

@@ -1244,7 +1244,9 @@ mod tests {
         let data_lines = chunks
             .iter()
             .filter_map(|chunk| chunk.lines().find(|line| line.starts_with("data: ")).map(str::to_owned));
-        let response = ResponseAccumulator::from_sse_lines(data_lines, None).finalize("test-model", None, None);
+        let response = ResponseAccumulator::from_sse_lines(data_lines, None)
+            .expect("valid SSE stream")
+            .finalize("test-model", None, None);
         assert_eq!(response.output.len(), 1);
         assert!(matches!(response.output[0], OutputItem::Compaction(_)));
     }

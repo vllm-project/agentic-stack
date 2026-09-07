@@ -842,6 +842,47 @@ mod tests {
     }
 
     #[test]
+    fn unnamed_custom_function_is_recovered_by_output_index_when_done_changes_id() {
+        let mut accumulator = ResponseAccumulator::new("resp_1".to_owned(), None);
+        let mut translator = FunctionSseTranslator::new(HashMap::from([("raw_echo".to_owned(), ToolType::Custom)]));
+        let events = [
+            serde_json::json!({
+                "type": "response.output_item.added", "output_index": 1,
+                "item": {"id": "fc_transient", "type": "function_call", "status": "in_progress",
+                    "call_id": "call_echo", "arguments": ""}
+            }),
+            serde_json::json!({
+                "type": "response.function_call_arguments.delta", "output_index": 1,
+                "item_id": "fc_transient", "call_id": "call_echo", "delta": "{\"input\":\"hello\"}"
+            }),
+            serde_json::json!({
+                "type": "response.output_item.done", "output_index": 1,
+                "item": {"id": "fc_stable", "type": "function_call", "status": "completed",
+                    "call_id": "call_echo", "name": "raw_echo", "arguments": "{\"input\":\"hello\"}"}
+            }),
+        ];
+
+        let frames = events
+            .iter()
+            .flat_map(|event| translate(&mut accumulator, &mut translator, event).frames)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            frames.iter().map(|frame| frame.event_type).collect::<Vec<_>>(),
+            [
+                SSEEventType::OutputItemAdded,
+                SSEEventType::CustomToolCallInputDelta,
+                SSEEventType::CustomToolCallInputDone,
+                SSEEventType::OutputItemDone,
+            ]
+        );
+        assert_eq!(frames[0].wire.rest["item"]["id"], "ctc_stable");
+        assert_eq!(frames[1].wire.rest["item_id"], "ctc_stable");
+        assert_eq!(frames[2].wire.rest["item_id"], "ctc_stable");
+        assert_eq!(frames[3].wire.rest["item"]["id"], "ctc_stable");
+    }
+
+    #[test]
     fn parallel_unnamed_functions_with_empty_ids_remain_distinct() {
         let mut accumulator = ResponseAccumulator::new("resp_1".to_owned(), None);
         let mut translator = FunctionSseTranslator::new(HashMap::from([

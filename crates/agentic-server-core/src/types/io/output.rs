@@ -823,6 +823,22 @@ pub enum OutputItem {
 }
 
 impl OutputItem {
+    /// Returns the output item's wire ID, if the item has a known type.
+    #[must_use]
+    pub fn id(&self) -> Option<&str> {
+        match self {
+            Self::Message(item) => Some(&item.id),
+            Self::FunctionCall(item) => Some(&item.id),
+            Self::CustomToolCall(item) => Some(&item.id),
+            Self::WebSearchCall(item) => Some(&item.id),
+            Self::McpCall(item) => Some(&item.id),
+            Self::McpListTools(item) => Some(&item.id),
+            Self::Reasoning(item) => Some(&item.id),
+            Self::Compaction(item) => item.id.as_deref(),
+            Self::Unknown => None,
+        }
+    }
+
     #[must_use]
     pub fn requires_client_action(&self, registry: &ToolRegistry) -> bool {
         match self {
@@ -884,6 +900,21 @@ mod tests {
         assert_eq!(serialized["encrypted_content"], "durable summary");
         let parsed: OutputItem = serde_json::from_value(serialized).unwrap();
         assert!(matches!(parsed, OutputItem::Compaction(_)));
+    }
+
+    #[test]
+    fn output_item_exposes_its_wire_id() {
+        let item: OutputItem = serde_json::from_value(serde_json::json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": []
+        }))
+        .expect("valid message output item");
+
+        assert_eq!(item.id(), Some("msg_1"));
+        assert_eq!(OutputItem::Unknown.id(), None);
     }
 
     #[test]

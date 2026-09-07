@@ -30,6 +30,7 @@ This repository is Rust-first under the `vllm-project` GitHub organization.
 ├── crates/agentic-praxis/       # Praxis integration
 ├── python/agentic_api/          # Python distribution, diagnostics, and launcher
 ├── tests/python/                # Python package and CLI tests
+├── skills/                      # Repository-specific agent review workflows
 ├── pyproject.toml               # Python wheel build metadata
 ├── Cargo.toml                    # Workspace manifest and shared dependencies/lints
 └── docs/                         # Documentation (MkDocs)
@@ -101,6 +102,32 @@ lifecycle, module-by-module walkthrough, and contribution guide.
   database models and operations; `utils/` contains genuinely shared, domain-neutral helpers.
 - Respect this dependency direction: handlers call core APIs; executor coordinates `events`, `tool`, and `storage`;
   those modules share contracts through `types`. Do not introduce transport concerns into core types or business logic.
+
+#### Executor streaming change rules
+
+Read [the target streaming pipeline](ARCHITECTURE.md#target-streaming-pipeline-and-ownership-boundaries) before changing
+streaming code in `events/` or `executor/`. RFC [#241](https://github.com/vllm-project/agentic-api/issues/241) is split
+into synchronous ingestion [#243](https://github.com/vllm-project/agentic-api/issues/243), client delivery
+[#244](https://github.com/vllm-project/agentic-api/issues/244), and execution-placement measurement
+[#245](https://github.com/vllm-project/agentic-api/issues/245). New work must converge on those boundaries:
+
+- Assign every responsibility to one stage: `inference.rs` owns HTTP/SSE framing, `events/` owns normalization, the
+  synchronous ingestion state machine owns semantic-event validation and output-item assembly, the stream relay owns
+  ordered client delivery, and `engine.rs` owns inference rounds, the tool loop, and persistence.
+- Extend the single ingestion path. Do not add a second parser, lifecycle validator, delta folder, finalizer,
+  tool-call translator, or client-emission path. Different validation policies must share the same state transitions.
+- Keep transport free of semantic-event and output-item decisions. Keep ingestion free of client-delivery concerns.
+  Keep the relay free of response-assembly state. Keep the engine free of SSE parsing.
+- Do not introduce unbounded channels. A channel needs an entry capacity plus either a byte budget or a maximum item
+  size, defined full/disconnect behavior, cancellation propagation, and task join/error handling.
+- Run synchronous ingestion inline by default. Add worker or `spawn_blocking` placement only when representative
+  measurements show a benefit and include queue occupancy, tail latency, memory, and cancellation behavior.
+- Preserve compile-time extension points: typed output-item state, exhaustive matches, and one declared path for a new
+  semantic event or output-item kind. Test invalid lifecycle order, identifier/index mismatch, duplicate completion,
+  terminal finalization, slow consumers, and disconnects when the changed boundary can encounter them.
+
+Use [`skills/executor-architecture-review/SKILL.md`](skills/executor-architecture-review/SKILL.md) for a focused,
+read-only boundary review while planning or reviewing these changes.
 
 ## Rust Best Practices
 

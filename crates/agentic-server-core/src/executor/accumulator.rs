@@ -7,6 +7,7 @@
 //! runs on a blocking thread while the async task continues reading from the
 //! network — keeping the tokio executor thread free between chunk arrivals.
 
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::mpsc;
 
@@ -14,7 +15,10 @@ use indexmap::IndexMap;
 
 use futures::{Stream, StreamExt};
 
-use crate::events::{EventFrame, EventPayload, SSEEventType, SSEItemType, normalize_sse_line};
+use crate::events::{
+    EventFrame, EventPayload, SSEEventType, SSEItemType, ValidatedFrame, is_data_frame, normalize_sse_line,
+    output_item_identity, validate_frame,
+};
 use crate::executor::error::{ExecutorError, ExecutorResult};
 use crate::executor::function_sse::{FunctionSseTranslation, FunctionSseTranslator};
 use crate::types::event::{MessageStatus, ResponseStatus};
@@ -30,6 +34,7 @@ use crate::utils::uuid7_str;
 
 /// Tracks a single output item currently being streamed, together with its
 /// accumulated text/arguments buffer.
+#[derive(Clone)]
 enum InFlight {
     Message { item: OutputMessage, text: String },
     Reasoning { item: ReasoningOutput },
@@ -92,7 +97,45 @@ impl InFlight {
 #[derive(Debug)]
 struct InFlightEntry {
     output_index: u32,
+    item_id: String,
+    item_type: SSEItemType,
     item: InFlight,
+    done_item: Option<OutputItem>,
+}
+
+#[derive(Debug, Default)]
+struct CallIdObservation {
+    first: Option<String>,
+    changed: bool,
+}
+
+impl CallIdObservation {
+    fn observe(&mut self, call_id: Option<&str>) {
+        let Some(call_id) = call_id.filter(|call_id| !call_id.is_empty()) else {
+            return;
+        };
+        match self.first.as_deref() {
+            Some(first) if first != call_id => self.changed = true,
+            None => self.first = Some(call_id.to_owned()),
+            Some(_) => {}
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum StreamLifecycle {
+    #[default]
+    AwaitingCreated,
+    Created,
+    InProgress,
+    Terminal,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResolvePolicy {
+    Lenient,
+    Authoritative,
+    Strict,
 }
 
 #[derive(Clone, Copy)]
@@ -122,10 +165,14 @@ pub struct ResponseAccumulator {
     status: ResponseStatus,
     incomplete_details: Option<IncompleteDetails>,
     error: Option<serde_json::Value>,
-    /// In-flight output items keyed by `item_id`, in insertion order.
+    /// In-flight output items keyed by `item_id` or an internal fallback key.
     in_flight: IndexMap<String, InFlightEntry>,
+    /// Explicit wire output indexes mapped to their in-flight key.
+    in_flight_indexes: HashMap<u32, String>,
     /// Completed streaming items waiting to be emitted in `output_index` order.
     completed: Vec<(u32, OutputItem)>,
+    strict_call_ids: HashMap<u32, CallIdObservation>,
+    stream_lifecycle: StreamLifecycle,
 }
 
 impl ResponseAccumulator {
@@ -141,7 +188,10 @@ impl ResponseAccumulator {
             incomplete_details: None,
             error: None,
             in_flight: IndexMap::new(),
+            in_flight_indexes: HashMap::new(),
             completed: Vec::new(),
+            strict_call_ids: HashMap::new(),
+            stream_lifecycle: StreamLifecycle::AwaitingCreated,
         }
     }
 
@@ -182,7 +232,10 @@ impl ResponseAccumulator {
             incomplete_details,
             error,
             in_flight: IndexMap::new(),
+            in_flight_indexes: HashMap::new(),
             completed: Vec::new(),
+            strict_call_ids: HashMap::new(),
+            stream_lifecycle: StreamLifecycle::Terminal,
         })
     }
 
@@ -193,8 +246,9 @@ impl ResponseAccumulator {
     /// free between chunk arrivals.
     ///
     /// # Errors
-    /// Returns `ExecutorError::ParseError` if chunk parsing fails, or
-    /// `ExecutorError::StreamError` if the stream or worker encounters an error.
+    /// Returns [`ExecutorError::InvalidRequest`] when repeated authoritative
+    /// output-item content conflicts, or [`ExecutorError::StreamError`] when
+    /// the input stream or worker encounters an error.
     pub async fn from_stream(
         mut stream: Pin<Box<dyn Stream<Item = Result<String, ExecutorError>> + Send>>,
         conversation_id: Option<&str>,
@@ -224,32 +278,38 @@ impl ResponseAccumulator {
         // Properly async join — does not block the tokio executor thread.
         worker_handle
             .await
-            .map_err(|_| ExecutorError::StreamError("Worker thread panicked".into()))
+            .map_err(|_| ExecutorError::StreamError("Worker thread panicked".into()))?
     }
 
     /// Worker function that processes SSE lines from the channel (runs on blocking thread).
-    fn process_stream_chunks(rx: mpsc::Receiver<String>, conversation_id: Option<String>) -> Self {
+    fn process_stream_chunks(rx: mpsc::Receiver<String>, conversation_id: Option<String>) -> ExecutorResult<Self> {
         let mut acc = Self::new(uuid7_str("resp_"), conversation_id);
         for line in rx {
-            let _ = acc.process_sse_line(&line);
+            let _ = acc.process_lenient_sse_line(&line)?;
         }
         acc.finish_stream();
-        acc
+        Ok(acc)
     }
 
     /// Processes pre-collected raw SSE lines synchronously.
     ///
     /// Useful when lines have already been buffered (e.g. replaying a recorded stream).
     /// Prefer [`from_stream`](Self::from_stream) for live async streams.
-    /// Line parse errors are silently skipped — this function is infallible.
-    #[must_use]
-    pub fn from_sse_lines(lines: impl IntoIterator<Item = String>, conversation_id: Option<&str>) -> Self {
+    /// Malformed data frames are skipped for compatibility.
+    ///
+    /// # Errors
+    /// Returns [`ExecutorError::InvalidRequest`] when repeated authoritative
+    /// output-item content conflicts with the previously accumulated value.
+    pub fn from_sse_lines(
+        lines: impl IntoIterator<Item = String>,
+        conversation_id: Option<&str>,
+    ) -> ExecutorResult<Self> {
         let mut acc = Self::new(uuid7_str("resp_"), conversation_id.map(str::to_string));
         for line in lines {
-            let _ = acc.process_sse_line(&line);
+            let _ = acc.process_lenient_sse_line(&line)?;
         }
         acc.finalize_all();
-        acc
+        Ok(acc)
     }
 
     /// Finalizes all streaming items in upstream `output_index` order.
@@ -259,20 +319,269 @@ impl ResponseAccumulator {
                 .drain(..)
                 .filter_map(|(_, entry)| entry.item.finalize().map(|item| (entry.output_index, item))),
         );
+        self.in_flight_indexes.clear();
         self.completed.sort_by_key(|(output_index, _)| *output_index);
         self.output
             .extend(self.completed.drain(..).map(|(_, output_item)| output_item));
     }
 
-    pub(crate) fn process_sse_line(&mut self, line: &str) -> Option<EventFrame> {
-        let frame = normalize_sse_line(line)?;
-        self.process_normalized_event(&frame);
-        Some(frame)
+    pub(super) fn process_lenient_sse_line(&mut self, line: &str) -> ExecutorResult<Option<EventFrame>> {
+        let Some(frame) = normalize_sse_line(line) else {
+            return Ok(None);
+        };
+        if !self.process_normalized_event(&frame, None, false)? {
+            return Ok(None);
+        }
+        Ok(Some(frame))
     }
 
-    pub(crate) fn process_normalized_event(&mut self, frame: &EventFrame) {
+    pub(crate) fn process_strict_sse_line(&mut self, line: &str) -> ExecutorResult<Option<EventFrame>> {
+        let Some(frame) = normalize_sse_line(line) else {
+            if is_data_frame(line) {
+                return Err(ExecutorError::InvalidRequest(
+                    "upstream stream contains a malformed data frame".to_owned(),
+                ));
+            }
+            return Ok(None);
+        };
+        let validated = validate_frame(&frame).map_err(|error| ExecutorError::InvalidRequest(error.to_string()))?;
+        self.validate_strict_transition(&frame, &validated)?;
+        let _ = self.process_normalized_event(&frame, Some(&validated), true)?;
+        if let Some(item) = validated
+            .item
+            .as_ref()
+            .filter(|_| frame.event_type == SSEEventType::OutputItemDone)
+        {
+            self.completed.extend(
+                self.in_flight
+                    .shift_remove(item.item_id)
+                    .and_then(|entry| entry.item.finalize().map(|output| (item.output_index, output))),
+            );
+            self.in_flight_indexes.remove(&item.output_index);
+        }
+        Ok(Some(frame))
+    }
+
+    fn process_normalized_event(
+        &mut self,
+        frame: &EventFrame,
+        validated: Option<&ValidatedFrame<'_>>,
+        strict: bool,
+    ) -> ExecutorResult<bool> {
         self.capture_terminal_details_if_needed(frame);
-        self.process_event(frame);
+        self.process_event_checked(frame, validated, strict)
+    }
+
+    fn validate_strict_transition(&mut self, frame: &EventFrame, validated: &ValidatedFrame<'_>) -> ExecutorResult<()> {
+        let event_name = frame.wire.event_type.as_deref().unwrap_or("streaming event");
+        if self.stream_lifecycle == StreamLifecycle::Terminal {
+            return Err(invalid_stream(
+                "upstream stream contains an event after its terminal event",
+            ));
+        }
+
+        match (&frame.event_type, &frame.payload) {
+            (SSEEventType::ResponseCreated, EventPayload::Response { .. }) => {
+                if self.stream_lifecycle != StreamLifecycle::AwaitingCreated {
+                    return Err(invalid_lifecycle(event_name));
+                }
+            }
+            (SSEEventType::ResponseInProgress, EventPayload::Response { id, .. }) => {
+                if self.stream_lifecycle != StreamLifecycle::Created || id != &self.response_id {
+                    return Err(invalid_lifecycle_or_id(event_name));
+                }
+            }
+            (
+                SSEEventType::ResponseCompleted | SSEEventType::ResponseFailed | SSEEventType::ResponseIncomplete,
+                EventPayload::Response { id, .. },
+            ) => {
+                if self.stream_lifecycle != StreamLifecycle::InProgress || id != &self.response_id {
+                    return Err(invalid_lifecycle_or_id(event_name));
+                }
+                if !self.in_flight.is_empty() {
+                    return Err(invalid_stream("upstream stream ended with unfinished output items"));
+                }
+                self.validate_terminal_output(frame, frame.event_type != SSEEventType::ResponseFailed)?;
+            }
+            (SSEEventType::OutputItemAdded, _) => {
+                self.require_in_progress(event_name)?;
+                let item = validated
+                    .item
+                    .as_ref()
+                    .ok_or_else(|| invalid_stream("validated output item is missing"))?;
+                if self.has_output_index(item.output_index) || self.has_item_id(item.item_id) {
+                    return Err(invalid_stream(format!(
+                        "upstream stream repeats output item '{}'",
+                        item.item_id
+                    )));
+                }
+            }
+            _ => self.require_in_progress(event_name)?,
+        }
+        Ok(())
+    }
+
+    fn require_in_progress(&self, event_name: &str) -> ExecutorResult<()> {
+        if self.stream_lifecycle == StreamLifecycle::InProgress {
+            return Ok(());
+        }
+        Err(invalid_lifecycle(event_name))
+    }
+
+    fn resolve_active(
+        &mut self,
+        output_index: u32,
+        item_id: &str,
+        expected_type: SSEItemType,
+        event_name: &str,
+        output_index_is_explicit: bool,
+        policy: ResolvePolicy,
+    ) -> ExecutorResult<Option<&mut InFlightEntry>> {
+        let Some(position) = self.active_position(item_id, output_index) else {
+            return if policy == ResolvePolicy::Strict {
+                Err(invalid_stream(format!(
+                    "upstream stream event '{event_name}' has no active output item"
+                )))
+            } else {
+                Ok(None)
+            };
+        };
+        let index_matches = self
+            .in_flight_indexes
+            .get(&output_index)
+            .and_then(|key| self.in_flight.get_index_of(key))
+            == Some(position);
+        let Some((_, active)) = self.in_flight.get_index_mut(position) else {
+            return Ok(None);
+        };
+        let id_matches = active.item_id.is_empty() || item_id.is_empty() || active.item_id == item_id;
+        let index_is_consistent = active.output_index == output_index;
+        let type_matches = active.item_type == expected_type;
+        if output_index_is_explicit && !index_is_consistent {
+            return Err(invalid_stream(format!(
+                "upstream stream event '{event_name}' does not match its active output item"
+            )));
+        }
+        if !type_matches || (!id_matches && (policy == ResolvePolicy::Strict || !index_matches)) {
+            return if policy == ResolvePolicy::Lenient {
+                Ok(None)
+            } else {
+                Err(invalid_stream(format!(
+                    "upstream stream event '{event_name}' does not match its active output item"
+                )))
+            };
+        }
+        if active.item_id.is_empty() && !item_id.is_empty() {
+            item_id.clone_into(&mut active.item_id);
+        }
+        Ok(Some(active))
+    }
+
+    fn active_position(&self, item_id: &str, output_index: u32) -> Option<usize> {
+        self.in_flight.get_index_of(item_id).or_else(|| {
+            self.in_flight_indexes
+                .get(&output_index)
+                .and_then(|key| self.in_flight.get_index_of(key))
+        })
+    }
+
+    fn has_output_index(&self, output_index: u32) -> bool {
+        self.in_flight_indexes.contains_key(&output_index)
+            || self.completed.iter().any(|(index, _)| *index == output_index)
+    }
+
+    fn has_item_id(&self, item_id: &str) -> bool {
+        self.in_flight.contains_key(item_id)
+            || self
+                .completed
+                .iter()
+                .any(|(_, item)| item.id().is_some_and(|id| id == item_id))
+    }
+
+    fn validate_terminal_output(&mut self, frame: &EventFrame, enforce_call_id_stability: bool) -> ExecutorResult<()> {
+        if enforce_call_id_stability {
+            self.ensure_stable_strict_call_ids()?;
+        }
+        let response = frame
+            .wire
+            .rest
+            .get("response")
+            .and_then(serde_json::Value::as_object)
+            .ok_or_else(|| invalid_stream("terminal upstream response has no valid 'response'"))?;
+        let Some(output) = response.get("output") else {
+            return Ok(());
+        };
+        if output.is_null() {
+            return Ok(());
+        }
+        let output = output
+            .as_array()
+            .ok_or_else(|| invalid_stream("terminal upstream response has no valid 'output'"))?;
+        if output.len() != self.completed.len() {
+            return Err(invalid_stream(
+                "terminal upstream response output does not match completed item events",
+            ));
+        }
+
+        let mut terminal_item_ids = HashSet::with_capacity(output.len());
+        for (output_index, item) in output.iter().enumerate() {
+            let output_index = u32::try_from(output_index)
+                .map_err(|_| invalid_stream("terminal upstream response has too many output items"))?;
+            let item = item
+                .as_object()
+                .ok_or_else(|| invalid_stream("terminal upstream response contains an invalid output item"))?;
+            let (item_id, item_type) = output_item_identity(item, "terminal output item")
+                .map_err(|error| invalid_stream(error.to_string()))?;
+            if !terminal_item_ids.insert(item_id) {
+                return Err(invalid_stream(format!(
+                    "terminal upstream response repeats output item '{item_id}'"
+                )));
+            }
+            let Some((_, completed)) = self.completed.iter().find(|(index, _)| *index == output_index) else {
+                return Err(invalid_stream(
+                    "terminal upstream response output does not match completed item events",
+                ));
+            };
+            if SSEItemType::try_from(completed) != Ok(item_type) {
+                return Err(invalid_stream(
+                    "terminal upstream response output does not match completed item events",
+                ));
+            }
+            let mut canonical = serde_json::Value::Object(item.clone());
+            if canonical
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(str::is_empty)
+            {
+                canonical["id"] = serde_json::Value::String(item_id.to_owned());
+            }
+            let terminal_item = serde_json::from_value(canonical).map_err(|error| {
+                invalid_stream(format!("terminal upstream response output item is invalid: {error}"))
+            })?;
+            self.observe_strict_call_id(output_index, output_item_call_id(&terminal_item));
+        }
+        if enforce_call_id_stability {
+            self.ensure_stable_strict_call_ids()?;
+        }
+        Ok(())
+    }
+
+    fn ensure_stable_strict_call_ids(&self) -> ExecutorResult<()> {
+        if let Some(output_index) = self
+            .strict_call_ids
+            .iter()
+            .filter_map(|(output_index, observation)| observation.changed.then_some(*output_index))
+            .min()
+        {
+            return Err(invalid_stream(format!(
+                "upstream stream changes 'call_id' for output[{output_index}]"
+            )));
+        }
+        Ok(())
+    }
+
+    fn observe_strict_call_id(&mut self, output_index: u32, call_id: Option<&str>) {
+        self.strict_call_ids.entry(output_index).or_default().observe(call_id);
     }
 
     pub(super) fn process_sse_line_with_translator(
@@ -280,7 +589,7 @@ impl ResponseAccumulator {
         line: &str,
         translator: &mut FunctionSseTranslator,
     ) -> ExecutorResult<Option<FunctionSseTranslation>> {
-        let Some(frame) = self.process_sse_line(line) else {
+        let Some(frame) = self.process_lenient_sse_line(line)? else {
             return Ok(None);
         };
         let call_key = function_event_key(&frame.payload);
@@ -289,23 +598,18 @@ impl ResponseAccumulator {
     }
 
     fn accumulated_function_call(&self, item_id: &str, output_index: u32) -> Option<AccumulatedFunctionCall<'_>> {
-        let entry = self
-            .in_flight
-            .get(item_id)
-            .filter(|entry| entry.output_index == output_index && matches!(entry.item, InFlight::FunctionCall { .. }))
-            .or_else(|| {
-                self.in_flight.values().find(|entry| {
-                    entry.output_index == output_index && matches!(entry.item, InFlight::FunctionCall { .. })
-                })
-            });
         if let Some(InFlightEntry {
-            output_index,
+            item_id: _,
+            item_type: SSEItemType::FunctionCall,
             item: InFlight::FunctionCall { item, arguments },
-        }) = entry
+            ..
+        }) = self
+            .active_position(item_id, output_index)
+            .and_then(|position| self.in_flight.get_index(position).map(|(_, entry)| entry))
         {
             return Some(AccumulatedFunctionCall {
                 item,
-                output_index: *output_index,
+                output_index,
                 arguments,
             });
         }
@@ -343,9 +647,14 @@ impl ResponseAccumulator {
         }
     }
 
-    /// Ask before `finish_stream`, which forces an unterminated stream to `completed`.
-    pub(crate) fn saw_terminal_frame(&self) -> bool {
-        self.status != ResponseStatus::InProgress
+    pub(crate) fn finish_strict_stream(&mut self) -> ExecutorResult<()> {
+        if self.stream_lifecycle != StreamLifecycle::Terminal {
+            return Err(ExecutorError::InvalidRequest(
+                "upstream stream ended without a terminal event".to_owned(),
+            ));
+        }
+        self.finish_stream();
+        Ok(())
     }
 
     pub(crate) fn finish_stream(&mut self) {
@@ -353,6 +662,7 @@ impl ResponseAccumulator {
         if self.status == ResponseStatus::InProgress {
             self.status = ResponseStatus::Completed;
         }
+        self.stream_lifecycle = StreamLifecycle::Terminal;
     }
 
     /// Processes a typed [`EventFrame`], updating accumulator state.
@@ -360,101 +670,239 @@ impl ResponseAccumulator {
     /// This is the core state machine — callers that already have a normalized
     /// frame (e.g. [`StreamTee`](future)) can call this directly without
     /// re-parsing from a raw line.
-    pub(crate) fn process_event(&mut self, frame: &EventFrame) {
+    #[cfg(test)]
+    fn process_event(&mut self, frame: &EventFrame) {
+        let _ = self.process_event_checked(frame, None, false);
+    }
+
+    fn process_event_checked(
+        &mut self,
+        frame: &EventFrame,
+        validated: Option<&ValidatedFrame<'_>>,
+        strict: bool,
+    ) -> ExecutorResult<bool> {
+        let event_name = frame.wire.event_type.as_deref().unwrap_or("streaming event");
+        let resolve_policy = if strict {
+            ResolvePolicy::Strict
+        } else {
+            ResolvePolicy::Lenient
+        };
+        let output_index_is_explicit = has_explicit_output_index(frame);
+        let mut emit = true;
         match (&frame.event_type, &frame.payload) {
             (SSEEventType::ResponseCreated, EventPayload::Response { id, .. }) if !id.is_empty() => {
                 self.response_id.clone_from(id);
+                self.stream_lifecycle = StreamLifecycle::Created;
             }
-            (SSEEventType::OutputItemAdded, payload @ EventPayload::OutputItemAdded { .. }) => {
-                self.start_output_item(payload);
+            (SSEEventType::ResponseInProgress, EventPayload::Response { .. }) => {
+                self.stream_lifecycle = StreamLifecycle::InProgress;
+            }
+            (SSEEventType::OutputItemAdded, EventPayload::OutputItemAdded { .. }) => {
+                self.process_output_item_added(frame, strict);
             }
             (SSEEventType::OutputItemDone, payload @ EventPayload::OutputItemDone { .. }) => {
-                self.complete_call_item(payload);
+                let done_item = validated
+                    .and_then(|frame| frame.item.as_ref())
+                    .and_then(|item| item.done_item.as_ref());
+                emit = self.complete_call_item(payload, done_item, event_name, output_index_is_explicit, strict)?;
+            }
+            (SSEEventType::ReasoningTextDone | SSEEventType::ReasoningSummaryTextDone, payload) => {
+                self.process_reasoning_done(payload, event_name, output_index_is_explicit, resolve_policy)?;
+            }
+            (SSEEventType::FunctionCallArgumentsDelta | SSEEventType::FunctionCallArgumentsDone, _) => {
+                self.process_function_event(&frame.payload, event_name, output_index_is_explicit, strict)?;
+            }
+            (SSEEventType::CustomToolCallInputDelta | SSEEventType::CustomToolCallInputDone, payload) => {
+                self.process_custom_tool_event(payload, event_name, output_index_is_explicit, resolve_policy)?;
             }
             (
-                SSEEventType::ReasoningTextDone,
-                payload @ EventPayload::ReasoningTextDone {
-                    item_id, output_index, ..
-                },
-            )
-            | (
-                SSEEventType::ReasoningSummaryTextDone,
-                payload @ EventPayload::ReasoningSummaryTextDone {
-                    item_id, output_index, ..
-                },
-            ) => {
-                if let Some(item) = self.in_flight_reasoning_mut(item_id, *output_index) {
-                    item.apply_done(payload, &mut String::new());
-                }
-            }
-            (
-                SSEEventType::FunctionCallArgumentsDelta,
-                EventPayload::FunctionCallArgsDelta {
+                SSEEventType::OutputTextDelta,
+                EventPayload::TextDelta {
                     delta,
                     item_id,
                     output_index,
                     ..
                 },
             ) => {
-                let key = self.in_flight_call_key(item_id, SSEItemType::FunctionCall, *output_index);
-                if let Some(InFlight::FunctionCall { arguments, .. }) = key
-                    .as_deref()
-                    .and_then(|key| self.in_flight.get_mut(key))
-                    .map(|entry| &mut entry.item)
-                {
-                    arguments.push_str(delta);
-                }
-            }
-            (
-                SSEEventType::FunctionCallArgumentsDone,
-                EventPayload::FunctionCallArgsDone {
-                    item_id, output_index, ..
-                },
-            ) => {
-                let key = self.in_flight_call_key(item_id, SSEItemType::FunctionCall, *output_index);
-                if let Some(InFlight::FunctionCall { item, arguments }) = key
-                    .as_deref()
-                    .and_then(|key| self.in_flight.get_mut(key))
-                    .map(|entry| &mut entry.item)
-                {
-                    item.apply_done(&frame.payload, arguments);
-                }
-            }
-            (SSEEventType::CustomToolCallInputDelta, EventPayload::CustomToolCallInputDelta { delta, item_id, .. }) => {
-                if let Some(InFlight::CustomToolCall { input, .. }) =
-                    self.in_flight.get_mut(item_id).map(|entry| &mut entry.item)
-                {
-                    input.push_str(delta);
-                }
-            }
-            (SSEEventType::CustomToolCallInputDone, EventPayload::CustomToolCallInputDone { item_id, .. }) => {
-                if let Some(InFlight::CustomToolCall { item, input }) =
-                    self.in_flight.get_mut(item_id).map(|entry| &mut entry.item)
-                {
-                    item.apply_done(&frame.payload, input);
-                }
-            }
-            (SSEEventType::OutputTextDelta, EventPayload::TextDelta { delta, item_id, .. }) => {
-                if let Some(InFlight::Message { text, .. }) =
-                    self.in_flight.get_mut(item_id).map(|entry| &mut entry.item)
+                if let Some(entry) = self.resolve_active(
+                    *output_index,
+                    item_id,
+                    SSEItemType::Message,
+                    event_name,
+                    output_index_is_explicit,
+                    resolve_policy,
+                )? && let InFlight::Message { text, .. } = &mut entry.item
                 {
                     text.push_str(delta);
                 }
             }
-            (SSEEventType::ResponseCompleted, EventPayload::Response { usage, .. }) => {
-                self.finish_response(ResponseStatus::Completed, *usage);
+            (
+                event_type @ (SSEEventType::ResponseCompleted
+                | SSEEventType::ResponseFailed
+                | SSEEventType::ResponseIncomplete),
+                EventPayload::Response { usage, .. },
+            ) => self.finish_response_event(*event_type, *usage),
+            _ => {
+                if strict && let Some(item) = validated.and_then(|frame| frame.item.as_ref()) {
+                    let _ = self.resolve_active(
+                        item.output_index,
+                        item.item_id,
+                        item.item_type,
+                        event_name,
+                        true,
+                        ResolvePolicy::Strict,
+                    )?;
+                }
             }
-            (SSEEventType::ResponseFailed, EventPayload::Response { usage, .. }) => {
-                self.finish_response(ResponseStatus::Error, *usage);
+        }
+        Ok(emit)
+    }
+
+    fn process_reasoning_done(
+        &mut self,
+        payload: &EventPayload,
+        event_name: &str,
+        output_index_is_explicit: bool,
+        resolve_policy: ResolvePolicy,
+    ) -> ExecutorResult<()> {
+        let (item_id, output_index) = match payload {
+            EventPayload::ReasoningTextDone {
+                item_id, output_index, ..
             }
-            (SSEEventType::ResponseIncomplete, EventPayload::Response { usage, .. }) => {
-                self.finish_response(ResponseStatus::Incomplete, *usage);
+            | EventPayload::ReasoningSummaryTextDone {
+                item_id, output_index, ..
+            } => (item_id, *output_index),
+            _ => return Ok(()),
+        };
+        if let Some(entry) = self.resolve_active(
+            output_index,
+            item_id,
+            SSEItemType::Reasoning,
+            event_name,
+            output_index_is_explicit,
+            resolve_policy,
+        )? && let InFlight::Reasoning { item } = &mut entry.item
+        {
+            item.apply_done(payload, &mut String::new());
+        }
+        Ok(())
+    }
+
+    fn process_custom_tool_event(
+        &mut self,
+        payload: &EventPayload,
+        event_name: &str,
+        output_index_is_explicit: bool,
+        resolve_policy: ResolvePolicy,
+    ) -> ExecutorResult<()> {
+        let (item_id, output_index) = match payload {
+            EventPayload::CustomToolCallInputDelta {
+                item_id, output_index, ..
+            }
+            | EventPayload::CustomToolCallInputDone {
+                item_id, output_index, ..
+            } => (item_id, *output_index),
+            _ => return Ok(()),
+        };
+        let Some(entry) = self.resolve_active(
+            output_index,
+            item_id,
+            SSEItemType::CustomToolCall,
+            event_name,
+            output_index_is_explicit,
+            resolve_policy,
+        )?
+        else {
+            return Ok(());
+        };
+        match (&mut entry.item, payload) {
+            (InFlight::CustomToolCall { input, .. }, EventPayload::CustomToolCallInputDelta { delta, .. }) => {
+                input.push_str(delta);
+            }
+            (InFlight::CustomToolCall { item, input }, EventPayload::CustomToolCallInputDone { .. }) => {
+                item.apply_done(payload, input);
             }
             _ => {}
         }
+        Ok(())
     }
 
-    fn start_output_item(&mut self, payload: &EventPayload) {
+    fn finish_response_event(&mut self, event_type: SSEEventType, usage: Option<ResponseUsage>) {
+        let status = match event_type {
+            SSEEventType::ResponseCompleted => ResponseStatus::Completed,
+            SSEEventType::ResponseFailed => ResponseStatus::Error,
+            SSEEventType::ResponseIncomplete => ResponseStatus::Incomplete,
+            _ => return,
+        };
+        self.finish_response(status, usage);
+    }
+
+    fn process_output_item_added(&mut self, frame: &EventFrame, strict: bool) {
+        let payload = &frame.payload;
+        if strict
+            && let EventPayload::OutputItemAdded {
+                output_index, call_id, ..
+            } = payload
+        {
+            self.observe_strict_call_id(*output_index, call_id.as_deref());
+        }
+        self.start_output_item(payload, has_explicit_output_index(frame));
+    }
+
+    fn process_function_event(
+        &mut self,
+        payload: &EventPayload,
+        event_name: &str,
+        output_index_is_explicit: bool,
+        strict: bool,
+    ) -> ExecutorResult<()> {
+        let (item_id, output_index, call_id) = match payload {
+            EventPayload::FunctionCallArgsDelta {
+                item_id,
+                output_index,
+                call_id,
+                ..
+            }
+            | EventPayload::FunctionCallArgsDone {
+                item_id,
+                output_index,
+                call_id,
+                ..
+            } => (item_id.as_str(), *output_index, call_id.as_deref()),
+            _ => return Ok(()),
+        };
+        if strict {
+            self.observe_strict_call_id(output_index, call_id);
+        }
+        let resolve_policy = if strict {
+            ResolvePolicy::Strict
+        } else {
+            ResolvePolicy::Lenient
+        };
+        let Some(entry) = self.resolve_active(
+            output_index,
+            item_id,
+            SSEItemType::FunctionCall,
+            event_name,
+            output_index_is_explicit,
+            resolve_policy,
+        )?
+        else {
+            return Ok(());
+        };
+        match (&mut entry.item, payload) {
+            (InFlight::FunctionCall { arguments, .. }, EventPayload::FunctionCallArgsDelta { delta, .. }) => {
+                arguments.push_str(delta);
+            }
+            (InFlight::FunctionCall { item, arguments }, EventPayload::FunctionCallArgsDone { .. }) => {
+                item.apply_done(payload, arguments);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn start_output_item(&mut self, payload: &EventPayload, has_explicit_output_index: bool) {
         let EventPayload::OutputItemAdded {
             item_id,
             item_type,
@@ -497,22 +945,27 @@ impl ResponseAccumulator {
                 .map(|item| InFlight::McpListTools { item }),
         };
         if let Some(item) = item {
-            let needs_internal_key = matches!(&item, InFlight::FunctionCall { .. })
-                && (item_id.is_empty() || self.in_flight.contains_key(item_id));
-            let key = if needs_internal_key {
-                let mut key = format!("__output_index_{output_index}");
-                while self.in_flight.contains_key(&key) {
-                    key.push('_');
-                }
-                key
-            } else {
+            let mut key = if !item_id.is_empty() && !self.in_flight.contains_key(item_id) {
                 item_id.clone()
+            } else {
+                format!("__output_index_{output_index}")
             };
+            while self.in_flight.contains_key(&key) {
+                key.push('_');
+            }
+            if has_explicit_output_index {
+                self.in_flight_indexes
+                    .entry(*output_index)
+                    .or_insert_with(|| key.clone());
+            }
             self.in_flight.insert(
                 key,
                 InFlightEntry {
                     output_index: *output_index,
+                    item_id: item_id.clone(),
+                    item_type: *item_type,
                     item,
+                    done_item: None,
                 },
             );
         }
@@ -522,9 +975,17 @@ impl ResponseAccumulator {
         self.finalize_all();
         self.status = status;
         self.usage = usage;
+        self.stream_lifecycle = StreamLifecycle::Terminal;
     }
 
-    fn complete_call_item(&mut self, payload: &EventPayload) {
+    fn complete_call_item(
+        &mut self,
+        payload: &EventPayload,
+        validated_done_item: Option<&OutputItem>,
+        event_name: &str,
+        output_index_is_explicit: bool,
+        strict: bool,
+    ) -> ExecutorResult<bool> {
         let EventPayload::OutputItemDone {
             item_id,
             item_type,
@@ -533,42 +994,61 @@ impl ResponseAccumulator {
             ..
         } = payload
         else {
-            return;
+            return Ok(true);
         };
-        let in_flight_key = if *item_type == SSEItemType::Reasoning {
-            self.in_flight_reasoning_key(item_id, *output_index)
+        let parsed_done_item = validated_done_item.cloned().or_else(|| {
+            deserialize_from_value_opt::<OutputItem>(raw_item.clone()).or_else(|| {
+                (*item_type == SSEItemType::Reasoning)
+                    .then(|| ReasoningOutput::try_from(payload).ok().map(OutputItem::Reasoning))
+                    .flatten()
+            })
+        });
+        if strict {
+            self.observe_strict_call_id(*output_index, parsed_done_item.as_ref().and_then(output_item_call_id));
+        }
+
+        let resolve_policy = if strict {
+            ResolvePolicy::Strict
         } else {
-            self.in_flight_call_key(item_id, *item_type, *output_index)
+            ResolvePolicy::Authoritative
         };
-        let done_item = if *item_type == SSEItemType::Reasoning {
-            ReasoningOutput::try_from(payload).ok().map(OutputItem::Reasoning)
-        } else {
-            deserialize_from_value_opt::<OutputItem>(raw_item.clone())
-        };
-        if let Some(entry) = in_flight_key.as_deref().and_then(|key| self.in_flight.get_mut(key)) {
-            match (&mut entry.item, done_item) {
-                (InFlight::Message { item, text }, Some(OutputItem::Message(done_message))) => {
-                    *item = done_message;
-                    text.clear();
+        if let Some(entry) = self.resolve_active(
+            *output_index,
+            item_id,
+            *item_type,
+            event_name,
+            output_index_is_explicit,
+            resolve_policy,
+        )? {
+            let mut candidate = entry.item.clone();
+            apply_output_item_done(&mut candidate, payload, parsed_done_item.as_ref(), &entry.item_id);
+            let candidate_done = candidate.clone().finalize();
+            if let Some(previous) = &entry.done_item {
+                if candidate_done
+                    .as_ref()
+                    .is_some_and(|candidate| output_items_semantically_equal(previous, candidate))
+                {
+                    return Ok(false);
                 }
-                (InFlight::Reasoning { item }, _) => item.apply_done(payload, &mut String::new()),
-                (InFlight::FunctionCall { item, arguments }, _) => item.apply_done(payload, arguments),
-                (InFlight::CustomToolCall { item, input }, _) => item.apply_done(payload, input),
-                (InFlight::McpCall { item }, _) => item.apply_done(payload, &mut String::new()),
-                (InFlight::McpListTools { item }, _) => item.apply_done(payload, &mut String::new()),
-                (InFlight::Compaction { item }, _) => item.apply_done(payload, &mut String::new()),
-                (InFlight::WebSearchCall { item }, Some(OutputItem::WebSearchCall(mut call))) => {
-                    if call.id.is_empty() {
-                        call.id = in_flight_key
-                            .as_deref()
-                            .filter(|id| !id.is_empty())
-                            .map_or_else(|| uuid7_str("ws_"), str::to_owned);
-                    }
-                    *item = Some(call);
-                }
-                _ => {}
+                return Err(invalid_stream(format!(
+                    "upstream stream contains conflicting repeated output item.done for output[{output_index}]"
+                )));
             }
-            return;
+            entry.item = candidate;
+            entry.done_item = candidate_done;
+            return Ok(true);
+        }
+
+        if let Some((_, previous)) = self.completed.iter().find(|(index, _)| index == output_index) {
+            if parsed_done_item
+                .as_ref()
+                .is_some_and(|candidate| output_items_semantically_equal(previous, candidate))
+            {
+                return Ok(false);
+            }
+            return Err(invalid_stream(format!(
+                "upstream stream contains conflicting repeated output item.done for output[{output_index}]"
+            )));
         }
 
         if let Some(
@@ -579,51 +1059,18 @@ impl ResponseAccumulator {
             | OutputItem::McpCall(_)
             | OutputItem::McpListTools(_)
             | OutputItem::Compaction(_)),
-        ) = done_item
+        ) = parsed_done_item
         {
             let OutputItem::WebSearchCall(call) = &mut output_item else {
                 self.completed.push((*output_index, output_item));
-                return;
+                return Ok(true);
             };
             if call.id.is_empty() {
                 call.id = uuid7_str("ws_");
             }
             self.completed.push((*output_index, output_item));
         }
-    }
-
-    fn in_flight_reasoning_mut(&mut self, item_id: &str, output_index: u32) -> Option<&mut ReasoningOutput> {
-        let key = self.in_flight_reasoning_key(item_id, output_index)?;
-        let InFlight::Reasoning { item } = &mut self.in_flight.get_mut(&key)?.item else {
-            return None;
-        };
-        Some(item)
-    }
-
-    fn in_flight_reasoning_key(&self, item_id: &str, output_index: u32) -> Option<String> {
-        self.in_flight
-            .get(item_id)
-            .filter(|entry| entry.output_index == output_index && matches!(entry.item, InFlight::Reasoning { .. }))
-            .map(|_| item_id.to_owned())
-            .or_else(|| {
-                self.in_flight.iter().find_map(|(key, entry)| {
-                    (entry.output_index == output_index && matches!(entry.item, InFlight::Reasoning { .. }))
-                        .then(|| key.clone())
-                })
-            })
-    }
-
-    fn in_flight_call_key(&self, item_id: &str, item_type: SSEItemType, output_index: u32) -> Option<String> {
-        self.in_flight
-            .get(item_id)
-            .filter(|entry| entry.output_index == output_index && in_flight_matches_call_type(&entry.item, item_type))
-            .map(|_| item_id.to_owned())
-            .or_else(|| {
-                self.in_flight.iter().find_map(|(key, entry)| {
-                    (entry.output_index == output_index && in_flight_matches_call_type(&entry.item, item_type))
-                        .then(|| key.clone())
-                })
-            })
+        Ok(true)
     }
 
     /// Marks the response as incomplete due to an error or interruption.
@@ -662,17 +1109,140 @@ impl ResponseAccumulator {
     }
 }
 
-fn in_flight_matches_call_type(item: &InFlight, item_type: SSEItemType) -> bool {
-    matches!(
-        (item, item_type),
-        (InFlight::Message { .. }, SSEItemType::Message)
-            | (InFlight::FunctionCall { .. }, SSEItemType::FunctionCall)
-            | (InFlight::CustomToolCall { .. }, SSEItemType::CustomToolCall)
-            | (InFlight::WebSearchCall { .. }, SSEItemType::WebSearchCall)
-            | (InFlight::McpCall { .. }, SSEItemType::McpCall)
-            | (InFlight::McpListTools { .. }, SSEItemType::McpListTools)
-            | (InFlight::Compaction { .. }, SSEItemType::Compaction)
-    )
+fn apply_output_item_done(
+    in_flight: &mut InFlight,
+    payload: &EventPayload,
+    done_item: Option<&OutputItem>,
+    item_id: &str,
+) {
+    match (in_flight, done_item) {
+        (InFlight::Message { item, text }, Some(OutputItem::Message(done))) => {
+            item.clone_from(done);
+            text.clear();
+        }
+        (InFlight::Reasoning { item }, Some(OutputItem::Reasoning(done))) => {
+            let mut done = done.clone();
+            let raw = match payload {
+                EventPayload::OutputItemDone { item, .. } => item.as_object(),
+                _ => None,
+            };
+            if raw.is_some_and(|raw| !raw.contains_key("content")) {
+                done.content.clone_from(&item.content);
+            }
+            if raw.is_some_and(|raw| !raw.contains_key("summary")) {
+                done.summary.clone_from(&item.summary);
+            }
+            if done.id.is_empty() {
+                done.id.clone_from(&item.id);
+            }
+            *item = done;
+        }
+        (InFlight::FunctionCall { item, arguments }, Some(OutputItem::FunctionCall(done))) => {
+            let mut done = done.clone();
+            if done.id.is_empty() {
+                done.id.clone_from(&item.id);
+            }
+            if done.call_id.is_empty() {
+                done.call_id.clone_from(&item.call_id);
+            }
+            if done.name.is_empty() {
+                done.name.clone_from(&item.name);
+            }
+            if done.namespace.is_none() {
+                done.namespace.clone_from(&item.namespace);
+            }
+            if done.arguments.is_empty() {
+                done.arguments = if item.arguments.is_empty() {
+                    std::mem::take(arguments)
+                } else {
+                    item.arguments.clone()
+                };
+            } else {
+                arguments.clear();
+            }
+            *item = done;
+        }
+        (InFlight::CustomToolCall { item, input }, Some(OutputItem::CustomToolCall(done))) => {
+            let mut done = done.clone();
+            if done.id.is_empty() {
+                done.id.clone_from(&item.id);
+            }
+            if done.call_id.is_empty() {
+                done.call_id.clone_from(&item.call_id);
+            }
+            if done.name.is_empty() {
+                done.name.clone_from(&item.name);
+            }
+            if done.input.is_empty() {
+                done.input = if item.input.is_empty() {
+                    std::mem::take(input)
+                } else {
+                    item.input.clone()
+                };
+            } else {
+                input.clear();
+            }
+            *item = done;
+        }
+        (InFlight::WebSearchCall { item }, Some(OutputItem::WebSearchCall(done))) => {
+            let mut done = done.clone();
+            if done.id.is_empty() {
+                done.id = if item_id.is_empty() {
+                    uuid7_str("ws_")
+                } else {
+                    item_id.to_owned()
+                };
+            }
+            *item = Some(done);
+        }
+        (InFlight::McpCall { item }, Some(OutputItem::McpCall(done))) => item.clone_from(done),
+        (InFlight::McpListTools { item }, Some(OutputItem::McpListTools(done))) => item.clone_from(done),
+        (InFlight::Compaction { item }, Some(OutputItem::Compaction(done))) => {
+            let mut done = done.clone();
+            if done.id.as_deref().is_none_or(str::is_empty) {
+                done.id.clone_from(&item.id);
+            }
+            *item = done;
+        }
+        (InFlight::Reasoning { item }, None) => item.apply_done(payload, &mut String::new()),
+        (InFlight::FunctionCall { item, arguments }, None) => item.apply_done(payload, arguments),
+        (InFlight::CustomToolCall { item, input }, None) => item.apply_done(payload, input),
+        (InFlight::McpCall { item }, None) => item.apply_done(payload, &mut String::new()),
+        (InFlight::McpListTools { item }, None) => item.apply_done(payload, &mut String::new()),
+        (InFlight::Compaction { item }, None) => item.apply_done(payload, &mut String::new()),
+        _ => {}
+    }
+}
+
+fn output_item_call_id(item: &OutputItem) -> Option<&str> {
+    match item {
+        OutputItem::FunctionCall(call) => Some(&call.call_id),
+        OutputItem::CustomToolCall(call) => Some(&call.call_id),
+        _ => None,
+    }
+}
+
+fn output_items_semantically_equal(left: &OutputItem, right: &OutputItem) -> bool {
+    match (serde_json::to_value(left), serde_json::to_value(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn invalid_lifecycle(event_name: &str) -> ExecutorError {
+    invalid_stream(format!(
+        "upstream stream event '{event_name}' is out of lifecycle order"
+    ))
+}
+
+fn invalid_lifecycle_or_id(event_name: &str) -> ExecutorError {
+    invalid_stream(format!(
+        "upstream stream event '{event_name}' is out of lifecycle order or changes the response id"
+    ))
+}
+
+fn invalid_stream(message: impl Into<String>) -> ExecutorError {
+    ExecutorError::InvalidRequest(message.into())
 }
 
 fn function_event_key(payload: &EventPayload) -> Option<(&str, u32)> {
@@ -699,11 +1269,23 @@ fn function_event_key(payload: &EventPayload) -> Option<(&str, u32)> {
     }
 }
 
+fn has_explicit_output_index(frame: &EventFrame) -> bool {
+    frame
+        .wire
+        .output_index
+        .and_then(|index| u32::try_from(index).ok())
+        .is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::events::WireEvent;
     use crate::types::io::{McpCallError, McpCallStatus, WebSearchCallStatus};
+
+    fn from_sse_lines(lines: impl IntoIterator<Item = String>, conversation_id: Option<&str>) -> ResponseAccumulator {
+        ResponseAccumulator::from_sse_lines(lines, conversation_id).expect("valid SSE stream")
+    }
 
     #[test]
     fn test_accumulator_new() {
@@ -723,7 +1305,7 @@ mod tests {
 
     #[test]
     fn test_accumulator_preserves_streamed_failure_details() {
-        let acc = ResponseAccumulator::from_sse_lines(
+        let acc = from_sse_lines(
             [r#"data: {"type":"response.failed","response":{"id":"resp_failed","status":"failed","error":{"code":"tool_catalog_too_large","message":"Too many tools"},"incomplete_details":{"reason":"upstream_error"}}}"#.to_owned()],
             None,
         );
@@ -751,7 +1333,7 @@ mod tests {
 
     #[test]
     fn test_accumulator_from_sse_lines_empty() {
-        let acc = ResponseAccumulator::from_sse_lines(vec![], None);
+        let acc = from_sse_lines(vec![], None);
         assert_eq!(acc.status, ResponseStatus::InProgress);
         assert!(acc.output.is_empty());
     }
@@ -766,7 +1348,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.status, ResponseStatus::Completed);
         assert_eq!(acc.output.len(), 1);
 
@@ -889,7 +1471,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.status, ResponseStatus::Completed);
         assert_eq!(acc.output.len(), 1);
         assert!(matches!(acc.output[0], OutputItem::McpCall(_)));
@@ -906,10 +1488,10 @@ mod tests {
         ];
 
         let mut acc = ResponseAccumulator::new("resp_1".to_owned(), None);
-        acc.process_sse_line(added);
+        let _ = acc.process_lenient_sse_line(added).expect("valid SSE event");
         let Some(InFlightEntry {
-            output_index: 0,
             item: InFlight::McpListTools { item },
+            ..
         }) = acc.in_flight.get("mcpl_1")
         else {
             panic!("expected in-flight mcp_list_tools");
@@ -918,7 +1500,7 @@ mod tests {
         assert!(item.tools.is_empty());
 
         for line in remaining {
-            acc.process_sse_line(&line);
+            let _ = acc.process_lenient_sse_line(&line).expect("valid SSE event");
         }
         acc.finalize_all();
 
@@ -943,10 +1525,10 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_compaction_output(&acc.output);
 
-        let done_only = ResponseAccumulator::from_sse_lines([done.to_owned()], None);
+        let done_only = from_sse_lines([done.to_owned()], None);
         assert_compaction_output(&done_only.output);
     }
 
@@ -971,7 +1553,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_abc","status":"completed","usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 2);
         assert!(matches!(acc.output[0], OutputItem::Reasoning(_)));
         assert!(matches!(acc.output[1], OutputItem::McpCall(_)));
@@ -987,7 +1569,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_abc","status":"completed","usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 2);
         assert!(matches!(acc.output[0], OutputItem::Reasoning(_)));
         assert!(matches!(acc.output[1], OutputItem::McpCall(_)));
@@ -1005,7 +1587,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_abc","status":"completed","usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 2);
         assert!(matches!(acc.output[0], OutputItem::Reasoning(_)));
         let OutputItem::WebSearchCall(call) = &acc.output[1] else {
@@ -1023,7 +1605,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_1","status":"completed"}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 1);
         let action = match &acc.output[0] {
             OutputItem::WebSearchCall(call) => serde_json::to_value(&call.action).unwrap(),
@@ -1041,7 +1623,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_1","status":"completed"}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 1);
         let action = match &acc.output[0] {
             OutputItem::WebSearchCall(call) => serde_json::to_value(&call.action).unwrap(),
@@ -1059,7 +1641,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_1","status":"completed"}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert!(acc.output.is_empty());
     }
 
@@ -1071,7 +1653,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_1","status":"completed"}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 1);
         let OutputItem::WebSearchCall(call) = &acc.output[0] else {
             panic!("expected web_search_call");
@@ -1087,12 +1669,148 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_1","status":"completed"}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 1);
         let OutputItem::WebSearchCall(call) = &acc.output[0] else {
             panic!("expected web_search_call");
         };
         assert_eq!(call.id, "ws_added");
+    }
+
+    #[test]
+    fn test_accumulator_uses_authoritative_done_item_with_item_id_fallback() {
+        let lines = vec![
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_1","role":"assistant","status":"in_progress","content":[]}}"#.to_string(),
+            r#"data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_1","delta":"partial"}"#.to_string(),
+            r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":null,"item_id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"authoritative","annotations":[]}]}}"#.to_string(),
+            r#"data: {"type":"response.done","response":{"id":"resp_1","status":"completed"}}"#.to_string(),
+        ];
+
+        let acc = from_sse_lines(lines, None);
+        assert_eq!(acc.output.len(), 1);
+        let OutputItem::Message(message) = &acc.output[0] else {
+            panic!("expected message");
+        };
+        assert_eq!(message.id, "msg_1");
+        assert_eq!(message.content.len(), 1);
+        assert_eq!(message.content[0].text, "authoritative");
+    }
+
+    #[test]
+    fn repeated_function_call_done_does_not_duplicate_lenient_output() {
+        let added = r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":""}}"#;
+        let done = r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}","status":"completed"}}"#;
+        let terminal = r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#;
+
+        let acc = from_sse_lines([added, done, done, terminal].map(str::to_owned), None);
+
+        assert_eq!(acc.output.len(), 1);
+        let OutputItem::FunctionCall(call) = &acc.output[0] else {
+            panic!("expected function call");
+        };
+        assert_eq!(call.id, "fc_1");
+        assert_eq!(call.call_id, "call_1");
+        assert_eq!(call.arguments, "{}");
+    }
+
+    #[test]
+    fn repeated_identical_done_is_not_emitted_by_lenient_translation() {
+        let added = r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":""}}"#;
+        let done = r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}","status":"completed"}}"#;
+        let mut acc = ResponseAccumulator::new("resp_1".to_owned(), None);
+        let mut translator = FunctionSseTranslator::default();
+
+        acc.process_sse_line_with_translator(added, &mut translator)
+            .expect("added item is valid");
+        acc.process_sse_line_with_translator(done, &mut translator)
+            .expect("first done item is valid");
+        let repeated = acc
+            .process_sse_line_with_translator(done, &mut translator)
+            .expect("identical repeated done is valid");
+
+        assert!(repeated.is_none());
+    }
+
+    #[test]
+    fn repeated_function_call_done_rejects_conflicting_lenient_authoritative_content() {
+        let added = r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":""}}"#;
+        let first = r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}","status":"completed"}}"#;
+        let conflicting = r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"query\":\"rust\"}","status":"completed"}}"#;
+        let mut acc = ResponseAccumulator::new("resp_1".to_owned(), None);
+        let mut translator = FunctionSseTranslator::default();
+
+        acc.process_sse_line_with_translator(added, &mut translator)
+            .expect("added item is valid");
+        acc.process_sse_line_with_translator(first, &mut translator)
+            .expect("first done item is valid");
+        let error = acc
+            .process_sse_line_with_translator(conflicting, &mut translator)
+            .expect_err("conflicting repeated done must be rejected");
+
+        assert!(error.to_string().contains("conflicting repeated output item.done"));
+    }
+
+    #[test]
+    fn from_sse_lines_propagates_conflicting_lenient_authoritative_content() {
+        let added = r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":""}}"#;
+        let first = r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}","status":"completed"}}"#;
+        let conflicting = r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"query\":\"rust\"}","status":"completed"}}"#;
+
+        let error = ResponseAccumulator::from_sse_lines([added, first, conflicting].map(str::to_owned), None)
+            .expect_err("conflicting authoritative content must propagate from the constructor");
+
+        assert!(error.to_string().contains("conflicting repeated output item.done"));
+    }
+
+    #[tokio::test]
+    async fn from_stream_propagates_conflicting_lenient_authoritative_content() {
+        let lines = [
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":""}}"#,
+            r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}","status":"completed"}}"#,
+            r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"query\":\"rust\"}","status":"completed"}}"#,
+        ];
+        let stream = futures::stream::iter(lines.into_iter().map(|line| Ok::<_, ExecutorError>(line.to_owned())));
+
+        let error = ResponseAccumulator::from_stream(Box::pin(stream), None)
+            .await
+            .expect_err("conflicting authoritative content must propagate from the async constructor");
+
+        assert!(error.to_string().contains("conflicting repeated output item.done"));
+    }
+
+    #[test]
+    fn repeated_done_rejects_a_conflicting_lenient_item_type() {
+        let added = r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":""}}"#;
+        let conflicting = r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"custom_tool_call","id":"fc_1","call_id":"call_1","name":"lookup","input":"{}","status":"completed"}}"#;
+        let mut acc = ResponseAccumulator::new("resp_1".to_owned(), None);
+        let mut translator = FunctionSseTranslator::default();
+
+        acc.process_sse_line_with_translator(added, &mut translator)
+            .expect("added item is valid");
+        let error = acc
+            .process_sse_line_with_translator(conflicting, &mut translator)
+            .expect_err("an authoritative done item must not change type");
+
+        assert!(error.to_string().contains("does not match its active output item"));
+    }
+
+    #[test]
+    fn lenient_events_reject_contradictory_explicit_item_id_and_output_index() {
+        let added_first = r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":""}}"#;
+        let added_second = r#"data: {"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"fc_2","call_id":"call_2","name":"lookup","arguments":""}}"#;
+        let contradictory = r#"data: {"type":"response.function_call_arguments.delta","output_index":1,"item_id":"fc_1","call_id":"call_1","delta":"{}"}"#;
+        let mut acc = ResponseAccumulator::new("resp_1".to_owned(), None);
+        let mut translator = FunctionSseTranslator::default();
+
+        acc.process_sse_line_with_translator(added_first, &mut translator)
+            .expect("first item is valid");
+        acc.process_sse_line_with_translator(added_second, &mut translator)
+            .expect("second item is valid");
+        let error = acc
+            .process_sse_line_with_translator(contradictory, &mut translator)
+            .expect_err("explicit item id and output index must resolve to the same item");
+
+        assert!(error.to_string().contains("does not match its active output item"));
     }
 
     #[test]
@@ -1104,7 +1822,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_abc","status":"completed","usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 1);
         let OutputItem::McpCall(call) = &acc.output[0] else {
             panic!("expected mcp_call");
@@ -1126,7 +1844,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         let statuses = acc
             .output
             .iter()
@@ -1151,7 +1869,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.status, ResponseStatus::Completed);
         assert_eq!(acc.output.len(), 1);
         assert!(matches!(acc.output[0], OutputItem::WebSearchCall(_)));
@@ -1237,7 +1955,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.status, ResponseStatus::Completed);
         assert_eq!(acc.output.len(), 2);
 
@@ -1267,7 +1985,7 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
 
         assert_eq!(acc.output.len(), 1);
         assert_eq!(
@@ -1297,7 +2015,7 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         let OutputItem::Reasoning(reasoning) = &acc.output[0] else {
             panic!("expected reasoning output");
         };
@@ -1329,7 +2047,7 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         let OutputItem::Reasoning(reasoning) = &acc.output[0] else {
             panic!("expected reasoning output");
         };
@@ -1361,14 +2079,14 @@ mod tests {
             r#"data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_summary_empty","type":"reasoning","summary":[]}}"#.to_owned(),
         ];
 
-        let content_null = ResponseAccumulator::from_sse_lines(content_null, None);
+        let content_null = from_sse_lines(content_null, None);
         let OutputItem::Reasoning(content_null) = &content_null.output[0] else {
             panic!("expected reasoning output");
         };
         assert!(content_null.content.is_empty());
         assert_eq!(content_null.summary[0]["text"], "kept summary");
 
-        let summary_empty = ResponseAccumulator::from_sse_lines(summary_empty, None);
+        let summary_empty = from_sse_lines(summary_empty, None);
         let OutputItem::Reasoning(summary_empty) = &summary_empty.output[0] else {
             panic!("expected reasoning output");
         };
@@ -1378,7 +2096,7 @@ mod tests {
 
     #[test]
     fn streaming_and_nonstreaming_nullable_reasoning_fields_are_equivalent() {
-        let streaming = ResponseAccumulator::from_sse_lines(
+        let streaming = from_sse_lines(
             [r#"data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","content":null,"summary":null,"encrypted_content":null,"status":"completed"}}"#.to_owned()],
             None,
         );
@@ -1403,7 +2121,7 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
 
         assert_eq!(acc.output.len(), 2);
         assert!(matches!(acc.output[0], OutputItem::Reasoning(_)));
@@ -1420,7 +2138,7 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}"#.to_owned(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         let OutputItem::Reasoning(reasoning) = &acc.output[0] else {
             panic!("expected reasoning output");
         };
@@ -1441,7 +2159,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 2);
         assert!(matches!(acc.output[0], OutputItem::Message(_)));
         assert!(matches!(acc.output[1], OutputItem::Reasoning(_)));
@@ -1455,7 +2173,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         if let OutputItem::Reasoning(reasoning) = &acc.output[0] {
             assert_eq!(reasoning.content.len(), 1);
             assert_eq!(reasoning.content[0].text, "done only");
@@ -1837,7 +2555,7 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":null}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 1);
         let OutputItem::FunctionCall(call) = &acc.output[0] else {
             panic!("expected function_call");
@@ -1857,7 +2575,7 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":null}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 1);
         let OutputItem::FunctionCall(call) = &acc.output[0] else {
             panic!("expected function_call");
@@ -1874,7 +2592,7 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":null}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 1);
         let OutputItem::FunctionCall(call) = &acc.output[0] else {
             panic!("expected function_call");
@@ -1999,7 +2717,7 @@ mod tests {
             r#"data: {"type":"response.done","response":{"id":"resp_fc","usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, Some("conv_1"));
+        let acc = from_sse_lines(lines, Some("conv_1"));
         assert_eq!(acc.status, ResponseStatus::Completed);
         assert_eq!(acc.output.len(), 1);
 
@@ -2026,7 +2744,7 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_custom","status":"completed","usage":null}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 1);
         let OutputItem::CustomToolCall(call) = &acc.output[0] else {
             panic!("expected CustomToolCall");
@@ -2047,7 +2765,7 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"id":"resp_custom","status":"completed","usage":null}}"#.to_string(),
         ];
 
-        let acc = ResponseAccumulator::from_sse_lines(lines, None);
+        let acc = from_sse_lines(lines, None);
         assert_eq!(acc.output.len(), 2);
         assert!(matches!(acc.output[0], OutputItem::Reasoning(_)));
         let OutputItem::CustomToolCall(call) = &acc.output[1] else {
