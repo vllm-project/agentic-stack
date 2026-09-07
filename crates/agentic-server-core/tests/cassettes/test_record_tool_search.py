@@ -60,12 +60,6 @@ GATEWAY_TOOL_CHOICES = [
     {"type": "function", "namespace": "travel", "name": "get_timezone"},
     "none",
 ]
-NORMALIZED_TOOL_CHOICES = [
-    {"type": "function", "name": "tool_search"},
-    {"type": "function", "name": "get_weather"},
-    {"type": "function", "name": FLAT_TIMEZONE_NAME},
-    "none",
-]
 
 
 class RecordToolSearchTests(unittest.TestCase):
@@ -85,10 +79,6 @@ class RecordToolSearchTests(unittest.TestCase):
         gateway_choices = json.loads(
             (fixture_dir / "gateway_tool_choice_sequence.json").read_text(encoding="utf-8")
         )
-        normalized_choices = json.loads(
-            (fixture_dir / "vllm_tool_choice_sequence.json").read_text(encoding="utf-8")
-        )
-
         ordinary = [tool for tool in initial if tool["type"] == "function"]
         namespaces = [tool for tool in initial if tool["type"] == "namespace"]
         self.assertEqual(
@@ -124,7 +114,6 @@ class RecordToolSearchTests(unittest.TestCase):
         )
         self.assertEqual(openai_choices, OPENAI_TOOL_CHOICES)
         self.assertEqual(gateway_choices, GATEWAY_TOOL_CHOICES)
-        self.assertEqual(normalized_choices, NORMALIZED_TOOL_CHOICES)
 
     def test_gateway_cli_profile_accepts_public_store_false_manual_replay(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -501,7 +490,6 @@ class RecordToolSearchTests(unittest.TestCase):
                 branches=[],
                 proxy_url="http://unused",
                 tools=initial_tools,
-                tool_choice_sequence=NORMALIZED_TOOL_CHOICES,
                 tool_outputs={
                     "get_weather": '{"temperature_c":21}',
                     FLAT_TIMEZONE_NAME: '{"iana_timezone":"Europe/Paris"}',
@@ -517,7 +505,6 @@ class RecordToolSearchTests(unittest.TestCase):
         )
         self.assertTrue(all(body["store"] is False for body in sent_bodies))
         self.assertTrue(all("previous_response_id" not in body for body in sent_bodies))
-        self.assertEqual([body["tool_choice"] for body in sent_bodies], NORMALIZED_TOOL_CHOICES)
 
         turn_one_input = sent_bodies[0]["input"]
         turn_two_input = sent_bodies[1]["input"]

@@ -211,7 +211,7 @@ turns:
 | `record_mcp_cassettes.sh` | Native MCP counter tool discovery and calls (streaming + non-streaming) | gateway and OpenAI reference |
 | `record_web_search_cassettes.sh` | Matching web-search calls (streaming + non-streaming) | gateway and OpenAI reference |
 | `record_dynamo_cassettes.sh` | Stateful two-turn and client-executed function tool call cassettes (streaming + non-streaming) | NVIDIA Dynamo frontend |
-| `record_tool_search_cassettes.sh` | Four-turn mixed function/namespace client tool-search characterization; gateway blocking, HTTP/SSE, and WebSocket acceptance | OpenAI reference, direct vLLM, and gateway |
+| `record_tool_search_cassettes.sh` | Four-turn mixed function/namespace client tool-search characterization; gateway blocking, HTTP/SSE, and WebSocket acceptance | gateway and OpenAI reference |
 
 ### Text-only (OpenAI)
 
@@ -279,16 +279,15 @@ hydrated item history the gateway sends upstream), records it, and merges both i
 DYNAMO_URL=http://127.0.0.1:8000 MODEL=openai/gpt-oss-20b bash tests/cassettes/record_dynamo_cassettes.sh
 ```
 
-### Client tool search (OpenAI reference, direct vLLM, and gateway)
+### Client tool search (OpenAI reference and gateway)
 
 The recorder captures four turns: a search call, a linked search output followed by one loaded ordinary function
 call, its linked function call output followed by one loaded namespace-member call, then that call's linked output and
 the final message. The initial catalog contains several deferred ordinary functions and a namespace with several
 deferred members; the search output loads exactly one ordinary function and exactly one member of that namespace.
-OpenAI and gateway use public `tool_search_call`/`tool_search_output` and public `{ namespace, name }` calls; direct
-vLLM uses a private synthetic `tool_search` function and the flattened namespace-member name. Direct vLLM and gateway
-blocking use `store: false` full-item replay; gateway SSE/WebSocket profiles use stored continuation. The private
-projection is not the gateway-to-vLLM envelope.
+OpenAI and gateway use public `tool_search_call`/`tool_search_output` and public `{ namespace, name }` calls. Gateway
+blocking uses `store: false` full-item replay; gateway SSE/WebSocket profiles use stored continuation. The private
+projection is not the gateway-to-upstream envelope.
 
 Each profile also records a four-entry `tool_choice` sequence so inference cannot repeat a prior call or emit another
 call on the final turn. OpenAI uses `required`, selected `get_weather`, `auto`, then `none`: its function selector
@@ -296,15 +295,14 @@ cannot identify a function nested in a namespace, and the stored continuation in
 parameter required by `required`, so the third-turn prompt identifies `travel.get_timezone` and the characterization
 strictly rejects a wrong or multiple call. Gateway profiles use `required`, selected `get_weather`,
 selected public `travel.get_timezone`, then `none`, so the gateway can resolve the namespace member to its flattened
-upstream identity. Direct vLLM selects the synthetic `tool_search`, `get_weather`, that flattened namespace member,
-then `none`. The first public choice is `required` because the gateway's typed public `tool_choice` currently has no
-`type: "tool_search"` selector; deferred declarations leave tool search as the only available choice on that turn.
+upstream identity. The first public choice is `required` because the gateway's typed public `tool_choice` currently
+has no `type: "tool_search"` selector; deferred declarations leave tool search as the only available choice on that
+turn.
 
-The complete set is exactly seven flows: OpenAI blocking/SSE, direct-vLLM blocking/SSE, and gateway blocking/SSE/WS.
-HTTP uses the embedded proxy; WebSocket uses bounded direct capture. Recorded vLLM was `0.25.1`; the target must expose
-the Responses API with a compatible function-call parser, but `/version` did not expose exact flags. Use a fresh gateway
-database. After recording, the script runs `tool_search_characterization_test` as the single semantic validator for the
-matrix.
+The checked-in set is exactly five public-contract flows: OpenAI blocking/SSE and gateway blocking/SSE/WebSocket.
+HTTP uses the embedded proxy; WebSocket uses bounded direct capture. `TOOL_SEARCH_RECORD_SET=all` records those five
+profiles. Use a fresh gateway database. After recording, the script runs `tool_search_characterization_test` as the
+single semantic validator for the matrix.
 
 Start the gateway with this SQLite path absent:
 
@@ -321,8 +319,6 @@ V_MODEL=Qwen/Qwen3.6-35B-A3B-FP8 \
 OPENAI_API_KEY=sk-... \
 TOOL_SEARCH_RECORD_SET=all \
 OPENAI_MODEL=gpt-5.6 \
-VLLM_URL=http://127.0.0.1:8000 \
-MODEL=Qwen/Qwen3.6-35B-A3B-FP8 \
 GATEWAY_URL=http://127.0.0.1:3099 \
 GATEWAY_MODEL=Qwen/Qwen3.6-35B-A3B-FP8 \
 bash crates/agentic-server-core/tests/cassettes/record_tool_search_cassettes.sh

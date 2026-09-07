@@ -43,8 +43,6 @@ struct RelevantCallLifecycle {
 
 const OPENAI_BLOCKING_CASSETTE: &str = "tool-search-openai-reference-gpt-5.6-nonstreaming.yaml";
 const OPENAI_STREAMING_CASSETTE: &str = "tool-search-openai-reference-gpt-5.6-streaming.yaml";
-const DIRECT_VLLM_BLOCKING_CASSETTE: &str = "tool-search-direct-vllm-Qwen-Qwen3.6-35B-A3B-FP8-nonstreaming.yaml";
-const DIRECT_VLLM_STREAMING_CASSETTE: &str = "tool-search-direct-vllm-Qwen-Qwen3.6-35B-A3B-FP8-streaming.yaml";
 const GATEWAY_BLOCKING_CASSETTE: &str = "tool-search-gateway-Qwen-Qwen3.6-35B-A3B-FP8-nonstreaming.yaml";
 const GATEWAY_STREAMING_CASSETTE: &str = "tool-search-gateway-Qwen-Qwen3.6-35B-A3B-FP8-streaming.yaml";
 const GATEWAY_WEBSOCKET_CASSETTE: &str = "tool-search-gateway-Qwen-Qwen3.6-35B-A3B-FP8-websocket.yaml";
@@ -1355,129 +1353,13 @@ fn openai_streaming_cassette_preserves_public_lifecycle_and_terminal_identity() 
     assert_eq!(semantic.final_text.trim(), "PARIS_MIXED_TOOLS_OK");
 }
 
-#[test]
-fn direct_vllm_streaming_cassette_characterizes_lifecycle_and_terminal_identity_mismatch() {
-    let path = tool_search_cassette_directory().join(DIRECT_VLLM_STREAMING_CASSETTE);
-    let cassette = support::load_cassette(path.to_str().expect("cassette path should be UTF-8"));
-    assert_eq!(cassette.turns.len(), 4);
-
-    let (search_lifecycle_item_id, search_lifecycle_call_id, search_arguments) =
-        assert_observed_call_lifecycle(&cassette.turns[0]);
-    assert!(
-        search_arguments["query"]
-            .as_str()
-            .is_some_and(|query| !query.trim().is_empty())
-    );
-    let (loaded_lifecycle_item_id, loaded_lifecycle_call_id, loaded_arguments) =
-        assert_observed_call_lifecycle(&cassette.turns[1]);
-    assert_eq!(loaded_arguments, serde_json::json!({"city": "Paris"}));
-    let (namespace_lifecycle_item_id, namespace_lifecycle_call_id, namespace_arguments) =
-        assert_observed_call_lifecycle(&cassette.turns[2]);
-    assert_eq!(namespace_arguments, serde_json::json!({"city": "Paris"}));
-
-    let final_events = support::recorded_named_sse_events(&cassette.turns[3]);
-    assert!(
-        final_events
-            .iter()
-            .all(|event| !matches!(event["type"].as_str(), Some("error" | "response.failed")))
-    );
-    let final_completed = final_events
-        .iter()
-        .filter(|event| event["type"] == "response.completed")
-        .collect::<Vec<_>>();
-    assert_eq!(final_completed.len(), 1);
-    assert_eq!(final_completed[0]["response"]["status"], "completed");
-    let final_lifecycle = relevant_call_lifecycle_from_named_sse(
-        cassette.turns[3]
-            .response
-            .sse
-            .as_ref()
-            .expect("streaming cassette should contain SSE")
-            .iter()
-            .flat_map(|entry| entry.lines()),
-    );
-    assert!(
-        final_lifecycle.is_empty(),
-        "final turn must not contain a client call lifecycle"
-    );
-
-    let responses = cassette.turns.iter().map(terminal_response).collect::<Vec<_>>();
-    let terminal_search_call = responses[0]["output"]
-        .as_array()
-        .expect("turn one terminal output should be an array")
-        .iter()
-        .find(|item| item["type"] == "function_call" && item["name"] == "tool_search")
-        .expect("turn one terminal response should contain tool_search");
-    let terminal_loaded_call = responses[1]["output"]
-        .as_array()
-        .expect("turn two terminal output should be an array")
-        .iter()
-        .find(|item| item["type"] == "function_call" && item["name"] == "get_weather")
-        .expect("turn two terminal response should contain get_weather");
-    let terminal_namespace_call = responses[2]["output"]
-        .as_array()
-        .expect("turn three terminal output should be an array")
-        .iter()
-        .find(|item| item["type"] == "function_call" && item["name"] == "agentic_ns__travel__get_timezone")
-        .expect("turn three terminal response should contain flattened travel.get_timezone");
-    assert_ne!(
-        terminal_search_call["id"].as_str(),
-        Some(search_lifecycle_item_id.as_str()),
-        "observed vLLM stream regenerates the terminal search item ID"
-    );
-    assert_ne!(
-        terminal_search_call["call_id"].as_str(),
-        Some(search_lifecycle_call_id.as_str()),
-        "observed vLLM stream regenerates the terminal search call ID"
-    );
-    assert_ne!(
-        terminal_loaded_call["id"].as_str(),
-        Some(loaded_lifecycle_item_id.as_str()),
-        "observed vLLM stream regenerates the terminal loaded-function item ID"
-    );
-    assert_ne!(
-        terminal_loaded_call["call_id"].as_str(),
-        Some(loaded_lifecycle_call_id.as_str()),
-        "observed vLLM stream regenerates the terminal loaded-function call ID"
-    );
-    assert_ne!(
-        terminal_namespace_call["id"].as_str(),
-        Some(namespace_lifecycle_item_id.as_str()),
-        "observed vLLM stream regenerates the terminal namespace-member item ID"
-    );
-    assert_ne!(
-        terminal_namespace_call["call_id"].as_str(),
-        Some(namespace_lifecycle_call_id.as_str()),
-        "observed vLLM stream regenerates the terminal namespace-member call ID"
-    );
-
-    let continuation_inputs = cassette.turns[1..]
-        .iter()
-        .map(|turn| turn.request.body.input.clone())
-        .collect::<Vec<_>>();
-    let semantic = normalize_flow(&responses, &continuation_inputs, Projection::Normalized);
-    assert_eq!(semantic.final_text.trim(), "PARIS_MIXED_TOOLS_OK");
-}
-
-const PROVIDER_PARITY_CASSETTES: [&str; 7] = [
+const PROVIDER_PARITY_CASSETTES: [&str; 5] = [
     OPENAI_BLOCKING_CASSETTE,
     OPENAI_STREAMING_CASSETTE,
-    DIRECT_VLLM_BLOCKING_CASSETTE,
-    DIRECT_VLLM_STREAMING_CASSETTE,
     GATEWAY_BLOCKING_CASSETTE,
     GATEWAY_STREAMING_CASSETTE,
     GATEWAY_WEBSOCKET_CASSETTE,
 ];
-
-fn provider_projection(filename: &str) -> Projection {
-    if filename.contains("openai-reference") || filename.contains("gateway") {
-        Projection::Public
-    } else if filename.contains("direct-vllm") {
-        Projection::Normalized
-    } else {
-        panic!("unexpected tool-search characterization cassette: {filename}");
-    }
-}
 
 #[cfg(unix)]
 fn assert_cassette_is_not_executable(path: &Path, filename: &str) {
@@ -1540,85 +1422,6 @@ fn assert_public_request_projection(
     assert!(request_bodies[1..].iter().all(|body| !body.contains_key("tools")));
 }
 
-fn assert_normalized_request_projection(
-    directory: &Path,
-    request_bodies: &[&serde_json::Map<String, Value>],
-    responses: &[Value],
-) {
-    let expected_initial = serde_json::from_str::<Value>(
-        &fs::read_to_string(directory.join("vllm_initial_tools.json"))
-            .expect("vLLM initial tool fixture should be readable"),
-    )
-    .expect("vLLM initial tool fixture should be valid JSON");
-    let expected_next = serde_json::from_str::<Value>(
-        &fs::read_to_string(directory.join("vllm_tools_after_search.json"))
-            .expect("vLLM post-search tool fixture should be readable"),
-    )
-    .expect("vLLM post-search tool fixture should be valid JSON");
-    assert_eq!(request_bodies[0].get("tools"), Some(&expected_initial));
-    assert_tool_choice_sequence(directory, "vllm_tool_choice_sequence.json", request_bodies);
-    assert!(
-        request_bodies[1..]
-            .iter()
-            .all(|body| body.get("tools") == Some(&expected_next))
-    );
-    assert!(
-        request_bodies
-            .iter()
-            .all(|body| body.get("store") == Some(&Value::Bool(false)))
-    );
-    assert!(
-        request_bodies
-            .iter()
-            .all(|body| !body.contains_key("previous_response_id"))
-    );
-
-    let inputs = request_bodies
-        .iter()
-        .map(|body| {
-            body["input"]
-                .as_array()
-                .expect("manual replay input should be an array")
-        })
-        .collect::<Vec<_>>();
-    let mut expected_second_prefix = inputs[0].clone();
-    expected_second_prefix.extend(
-        responses[0]["output"]
-            .as_array()
-            .expect("turn one output should be an array")
-            .iter()
-            .cloned(),
-    );
-    assert_eq!(
-        &inputs[1][..expected_second_prefix.len()],
-        expected_second_prefix.as_slice()
-    );
-    let mut expected_third_prefix = inputs[1].clone();
-    expected_third_prefix.extend(
-        responses[1]["output"]
-            .as_array()
-            .expect("turn two output should be an array")
-            .iter()
-            .cloned(),
-    );
-    assert_eq!(
-        &inputs[2][..expected_third_prefix.len()],
-        expected_third_prefix.as_slice()
-    );
-    let mut expected_fourth_prefix = inputs[2].clone();
-    expected_fourth_prefix.extend(
-        responses[2]["output"]
-            .as_array()
-            .expect("turn three output should be an array")
-            .iter()
-            .cloned(),
-    );
-    assert_eq!(
-        &inputs[3][..expected_fourth_prefix.len()],
-        expected_fourth_prefix.as_slice()
-    );
-}
-
 fn assert_tool_choice_sequence(directory: &Path, filename: &str, request_bodies: &[&serde_json::Map<String, Value>]) {
     let expected = fixture_json(directory, filename);
     let expected = expected
@@ -1631,13 +1434,7 @@ fn assert_tool_choice_sequence(directory: &Path, filename: &str, request_bodies:
     }
 }
 
-fn assert_request_projection(
-    directory: &Path,
-    filename: &str,
-    raw_document: &Value,
-    responses: &[Value],
-    projection: Projection,
-) {
+fn assert_request_projection(directory: &Path, filename: &str, raw_document: &Value, responses: &[Value]) {
     let request_bodies = raw_document["turns"]
         .as_array()
         .expect("raw cassette should contain turns")
@@ -1648,10 +1445,7 @@ fn assert_request_projection(
                 .expect("recorded request body should be an object")
         })
         .collect::<Vec<_>>();
-    match projection {
-        Projection::Public => assert_public_request_projection(directory, filename, &request_bodies, responses),
-        Projection::Normalized => assert_normalized_request_projection(directory, &request_bodies, responses),
-    }
+    assert_public_request_projection(directory, filename, &request_bodies, responses);
 }
 
 fn normalize_provider_cassette(directory: &Path, filename: &str) -> SemanticFlow {
@@ -1670,9 +1464,8 @@ fn normalize_provider_cassette(directory: &Path, filename: &str) -> SemanticFlow
         .iter()
         .map(|turn| turn.request.body.input.clone())
         .collect::<Vec<_>>();
-    let projection = provider_projection(filename);
-    assert_request_projection(directory, filename, &raw_document, &responses, projection);
-    normalize_flow(&responses, &inputs, projection)
+    assert_request_projection(directory, filename, &raw_document, &responses);
+    normalize_flow(&responses, &inputs, Projection::Public)
 }
 
 #[test]

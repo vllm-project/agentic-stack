@@ -1548,14 +1548,9 @@ fn validate_gateway_cassette_has_no_private_search_projection(raw: &Value) -> Re
 
 #[test]
 fn provider_parity_matrix_is_exact_and_gateway_has_no_private_search_leaks() {
-    const FLOW_CASSETTES: [(&str, bool); 7] = [
+    const FLOW_CASSETTES: [(&str, bool); 5] = [
         ("tool-search-openai-reference-gpt-5.6-nonstreaming.yaml", false),
         ("tool-search-openai-reference-gpt-5.6-streaming.yaml", false),
-        (
-            "tool-search-direct-vllm-Qwen-Qwen3.6-35B-A3B-FP8-nonstreaming.yaml",
-            false,
-        ),
-        ("tool-search-direct-vllm-Qwen-Qwen3.6-35B-A3B-FP8-streaming.yaml", false),
         ("tool-search-gateway-Qwen-Qwen3.6-35B-A3B-FP8-nonstreaming.yaml", true),
         ("tool-search-gateway-Qwen-Qwen3.6-35B-A3B-FP8-streaming.yaml", true),
         ("tool-search-gateway-Qwen-Qwen3.6-35B-A3B-FP8-websocket.yaml", true),
@@ -1574,18 +1569,17 @@ fn provider_parity_matrix_is_exact_and_gateway_has_no_private_search_leaks() {
             if path.extension().and_then(|extension| extension.to_str()) != Some("yaml") {
                 return None;
             }
+            let filename = path.file_name().and_then(|filename| filename.to_str())?;
+            if !filename.starts_with("tool-search-openai-reference-") && !filename.starts_with("tool-search-gateway-") {
+                return None;
+            }
             let cassette = support::load_cassette(path.to_str().expect("cassette path"));
-            (cassette.turns.len() == 4).then(|| {
-                path.file_name()
-                    .and_then(|filename| filename.to_str())
-                    .expect("cassette filename")
-                    .to_owned()
-            })
+            (cassette.turns.len() == 4).then(|| filename.to_owned())
         })
         .collect::<HashSet<_>>();
     assert_eq!(
         actual_names, expected_names,
-        "the final seven-cassette flow matrix must be exact"
+        "the five-cassette public-contract flow matrix must be exact"
     );
 
     for (filename, gateway) in FLOW_CASSETTES {
