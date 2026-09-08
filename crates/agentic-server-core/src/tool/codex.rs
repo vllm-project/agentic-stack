@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde_json::{Map, Value};
@@ -5,7 +6,7 @@ use serde_json::{Map, Value};
 use super::handler::{ToolError, ToolHandler};
 use super::registry::{ToolEntry, ToolType};
 use crate::events::WireEvent;
-use crate::types::io::{FunctionTool, FunctionToolCall, OutputItem, ToolChoice};
+use crate::types::io::{FunctionTool, FunctionToolCall, InputItem, OutputItem, ResponsesInput, ToolChoice};
 use crate::types::tools::{CodexNamespaceMember, CodexNamespaceToolParam, NonEmptyToolName, ResponsesTool};
 
 // Upstream Responses-compatible backends only see flat function names. Prefix
@@ -278,6 +279,31 @@ impl CodexNamespaceHandler {
         rewrite_tool_choice_with_map(tool_choice, map)
     }
 
+    /// Rewrite public namespaced function-call history to the exact flat names
+    /// from the request-scoped namespace map used for tool declarations.
+    #[must_use]
+    pub fn resolve_input<'a>(
+        &self,
+        map: Option<&NamespaceMap>,
+        input: Cow<'a, ResponsesInput>,
+    ) -> Cow<'a, ResponsesInput> {
+        let Some(map) = map else {
+            return input;
+        };
+        let should_rewrite = matches!(&*input, ResponsesInput::Items(items) if items.iter().any(|item| {
+            matches!(item, InputItem::FunctionCall(call)
+                if call.namespace.as_deref().is_some_and(|namespace| {
+                    map.mapping_for_member(namespace, &call.name).is_some()
+                }))
+        }));
+        if !should_rewrite {
+            return input;
+        }
+        let mut input = input.into_owned();
+        rewrite_input_with_map(&mut input, map);
+        Cow::Owned(input)
+    }
+
     pub fn restore_output_items(&self, output: &mut [OutputItem], map: Option<&NamespaceMap>) {
         let Some(map) = map else {
             return;
@@ -346,6 +372,25 @@ fn namespace_map_from_tools(tools: Option<&[ResponsesTool]>) -> Result<Option<Na
     Ok(Some(builder.finish()))
 }
 
+fn rewrite_input_with_map(input: &mut ResponsesInput, map: &NamespaceMap) {
+    let ResponsesInput::Items(items) = input else {
+        return;
+    };
+    for item in items {
+        let InputItem::FunctionCall(call) = item else {
+            continue;
+        };
+        let Some(namespace) = call.namespace.as_deref() else {
+            continue;
+        };
+        let Some(mapping) = map.mapping_for_member(namespace, &call.name) else {
+            continue;
+        };
+        call.name.clone_from(&mapping.upstream_name);
+        call.namespace = None;
+    }
+}
+
 /// Returns `namespace` with its function members' names rewritten to their
 /// flat, model-visible form, recording each rename in `builder` along the
 /// way.
@@ -404,7 +449,8 @@ fn typed_top_level_registry_keys(tools: &[ResponsesTool]) -> HashMap<String, Too
                 ResponsesTool::WebSearch(_) => "web_search".to_owned(),
                 ResponsesTool::FileSearch(_) => "file_search".to_owned(),
                 ResponsesTool::CodeInterpreter(_) => "code_interpreter".to_owned(),
-                ResponsesTool::Mcp(_)
+                ResponsesTool::ToolSearch(_)
+                | ResponsesTool::Mcp(_)
                 | ResponsesTool::Namespace(_)
                 | ResponsesTool::Custom(_)
                 | ResponsesTool::Unknown => return None,
@@ -471,6 +517,10 @@ fn rewrite_tool_choice_with_map(choice: &ToolChoice, map: &NamespaceMap) -> Tool
 fn restore_response_value_with_map(value: &mut Value, map: &NamespaceMap) -> bool {
     let mut changed = false;
 
+    if let Some(object) = value.as_object_mut() {
+        changed |= restore_response_metadata_with_map(object, map);
+    }
+
     if let Some(item) = value.as_object_mut().and_then(|object| object.get_mut("item")) {
         changed |= restore_call_value_with_map(item, map);
     }
@@ -521,8 +571,35 @@ fn restore_call_value_with_map(value: &mut Value, map: &NamespaceMap) -> bool {
     true
 }
 
+fn restore_response_metadata_with_map(object: &mut Map<String, Value>, map: &NamespaceMap) -> bool {
+    object
+        .get_mut("tool_choice")
+        .is_some_and(|choice| restore_tool_choice_with_map(choice, map))
+}
+
+fn restore_tool_choice_with_map(choice: &mut Value, map: &NamespaceMap) -> bool {
+    let Some(object) = choice.as_object_mut() else {
+        return false;
+    };
+    if object.get("type").and_then(Value::as_str) != Some("function")
+        || object.get("namespace").and_then(Value::as_str).is_some()
+    {
+        return false;
+    }
+    let Some(mapping) = object
+        .get("name")
+        .and_then(Value::as_str)
+        .and_then(|name| map.mapping_for_call(name))
+    else {
+        return false;
+    };
+    object.insert("namespace".to_owned(), Value::String(mapping.member.namespace.clone()));
+    object.insert("name".to_owned(), Value::String(mapping.member.name.clone()));
+    true
+}
+
 fn restore_response_map_with_map(object: &mut Map<String, Value>, map: &NamespaceMap) -> bool {
-    let mut changed = false;
+    let mut changed = restore_response_metadata_with_map(object, map);
     if let Some(item) = object.get_mut("item") {
         changed |= restore_call_value_with_map(item, map);
     }
@@ -910,5 +987,38 @@ mod tests {
         assert_eq!(value["item"]["namespace"], "mcp__agentic_fixture");
         assert_eq!(value["item"]["name"], "add_numbers");
         assert_eq!(value["item"]["arguments"], "{\"numbers\":[8,0]}");
+    }
+
+    #[test]
+    fn response_lifecycle_metadata_restores_public_namespace_tool_choice() {
+        let tools: Vec<ResponsesTool> = serde_json::from_value(serde_json::json!([{
+            "type": "namespace",
+            "name": "travel",
+            "tools": [{"type": "function", "name": "get_timezone"}]
+        }]))
+        .unwrap();
+        let map = CodexNamespaceHandler
+            .build_namespace_map(Some(&tools))
+            .expect("valid namespace map");
+        let mut wire = WireEvent::new("response.created");
+        wire.rest.insert(
+            "response".to_owned(),
+            serde_json::json!({
+                "tool_choice": {
+                    "type": "function",
+                    "name": "agentic_ns__travel__get_timezone"
+                }
+            }),
+        );
+
+        assert!(CodexNamespaceHandler.restore_response_wire(&mut wire, map.as_ref()));
+        assert_eq!(
+            wire.rest["response"]["tool_choice"],
+            serde_json::json!({
+                "type": "function",
+                "namespace": "travel",
+                "name": "get_timezone"
+            })
+        );
     }
 }

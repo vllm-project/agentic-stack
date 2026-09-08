@@ -16,7 +16,7 @@ pub use storage::{
 };
 pub use tool::{
     CodexNamespaceHandler, FunctionHandler, GatewayExecutor, GatewayExecutorRegistration, McpServerEntry, ToolEntry,
-    ToolError, ToolHandler, ToolOutput, ToolRegistry, ToolType, WebSearchHandler,
+    ToolError, ToolHandler, ToolOutput, ToolRegistry, ToolSearchHandler, ToolType, WebSearchHandler,
 };
 pub use types::{
     AllowedTool, AllowedToolsMode, CodeInterpreterToolParam, CodexNamespaceMember, CodexNamespaceToolParam,

@@ -1,0 +1,19 @@
+[
+  {
+    "type": "function",
+    "name": "tool_search",
+    "description": "Search the client tool catalog for tools that can satisfy the request. Available catalog entries: get_weather — Get the current weather for a city; get_exchange_rate — Get the exchange rate between two currencies; search_hotels — Search for hotels in a city; travel — Travel location tools.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "A concise description of the needed capabilities."
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    },
+    "strict": false
+  }
+]

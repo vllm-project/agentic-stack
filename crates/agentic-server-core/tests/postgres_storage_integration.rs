@@ -403,6 +403,7 @@ async fn postgres_optimistic_conversation_conflict() {
         let store = ConversationStore::new(first_pool.clone());
         let conversation_id = conversation.conversation_id.clone();
         let barrier = Arc::clone(&barrier);
+        let version = version.clone();
         tokio::spawn(async move {
             let response_id = format!("resp_postgres_{}", uuid::Uuid::now_v7());
             let items = vec![input_item("writer one input"), input_item("writer one follow-up")];

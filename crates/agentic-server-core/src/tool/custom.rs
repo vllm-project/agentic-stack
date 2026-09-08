@@ -229,6 +229,12 @@ impl ToolHandler for CustomHandler {
     }
 
     fn validate(&self, params: &CustomToolParam) -> Result<(), ToolError> {
+        if params.defer_loading == Some(true) {
+            return Err(ToolError::Config(format!(
+                "custom tool '{}' cannot use defer_loading because deferred custom tools are not supported",
+                params.name
+            )));
+        }
         if params
             .format
             .as_ref()
@@ -377,6 +383,20 @@ mod tests {
         CustomHandler
             .validate(&param)
             .expect("unconstrained text is representable");
+    }
+
+    #[test]
+    fn deferred_custom_tools_are_rejected() {
+        let param = serde_json::from_value::<CustomToolParam>(serde_json::json!({
+            "name": "freeform",
+            "defer_loading": true
+        }))
+        .expect("custom tool");
+
+        let error = CustomHandler
+            .validate(&param)
+            .expect_err("deferred custom tools are not supported");
+        assert!(error.to_string().contains("deferred custom tools are not supported"));
     }
 
     #[test]

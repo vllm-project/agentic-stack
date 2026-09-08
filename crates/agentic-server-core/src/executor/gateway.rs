@@ -278,7 +278,11 @@ impl GatewayScheduler {
             Err(ToolError::Execution(message) | ToolError::Config(message)) => {
                 (execution_error_output(&call, &message)?, GatewayCallStatus::Failed)
             }
-            Err(error @ ToolError::MissingOutput { .. }) => return Err(ExecutorError::from(error)),
+            Err(
+                error @ (ToolError::MissingOutput { .. }
+                | ToolError::InvalidUpstreamToolSearch
+                | ToolError::UpstreamWithheldFunctionCall),
+            ) => return Err(ExecutorError::from(error)),
         };
         let public_output = binding.public_output(&call, &output, status);
         Ok(GatewayCallResult {
@@ -467,6 +471,7 @@ pub(super) fn emit_gateway_start_events<'a>(
             }
             OutputItem::Message(_)
             | OutputItem::FunctionCall(_)
+            | OutputItem::ToolSearchCall(_)
             | OutputItem::CustomToolCall(_)
             | OutputItem::Reasoning(_)
             | OutputItem::Compaction(_)
@@ -514,6 +519,7 @@ pub(super) fn emit_gateway_completed_events<'a, T: GatewayPublicOutputSource>(
             OutputItem::Compaction(_) => None,
             OutputItem::Message(_)
             | OutputItem::FunctionCall(_)
+            | OutputItem::ToolSearchCall(_)
             | OutputItem::CustomToolCall(_)
             | OutputItem::Reasoning(_)
             | OutputItem::Unknown => continue,

@@ -1,0 +1,13 @@
+[
+  "required",
+  {
+    "type": "function",
+    "name": "get_weather"
+  },
+  {
+    "type": "function",
+    "namespace": "travel",
+    "name": "get_timezone"
+  },
+  "none"
+]

@@ -33,6 +33,7 @@ Usage:
 """
 
 import base64
+import copy
 import hashlib
 import importlib.util
 import json
@@ -57,7 +58,8 @@ import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from httpx import AsyncClient
-from yaml import dump as yaml_dump, safe_load as yaml_load
+from yaml import dump as yaml_dump
+from yaml import safe_load as yaml_load
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("cassette_proxy")
@@ -400,6 +402,7 @@ class WebSocketClient:
         self.url = url
         self.headers = headers
         self.sock: socket.socket | ssl.SSLSocket | None = None
+        self._receive_buffer = bytearray()
 
     def __enter__(self) -> "WebSocketClient":
         parsed = urlparse(self.url)
@@ -456,6 +459,10 @@ class WebSocketClient:
     def _read_exact(self, size: int) -> bytes:
         assert self.sock is not None
         chunks = bytearray()
+        if self._receive_buffer:
+            buffered = min(size, len(self._receive_buffer))
+            chunks.extend(self._receive_buffer[:buffered])
+            del self._receive_buffer[:buffered]
         while len(chunks) < size:
             chunk = self.sock.recv(size - len(chunks))
             if not chunk:
@@ -471,7 +478,9 @@ class WebSocketClient:
             if not chunk:
                 raise EOFError("websocket closed during handshake")
             data.extend(chunk)
-        return data.decode("iso-8859-1")
+        header_end = data.index(b"\r\n\r\n") + 4
+        self._receive_buffer.extend(data[header_end:])
+        return data[:header_end].decode("iso-8859-1")
 
     def send_text(self, text: str) -> None:
         self._send_frame(0x1, text.encode("utf-8"))
@@ -601,10 +610,14 @@ def _send_websocket(
             except json.JSONDecodeError:
                 continue
             turn["response"]["sse"].append(
+                f"event: {event.get('type', '')}\n"
                 f"data: {json.dumps(event, separators=(',', ':'))}\n"
             )
             event_type = event.get("type")
             if event_type == "response.completed":
+                response_data = event.get("response")
+                break
+            if event_type == "response.failed":
                 response_data = event.get("response")
                 break
             if event_type == "error":
@@ -681,14 +694,15 @@ def _inject_tools(
 
 
 def _extract_tool_calls(response_data: dict | None) -> list[dict]:
-    """Extract client-owned function and custom tool calls from a response."""
+    """Extract client-owned tool calls from a Responses output."""
     if not response_data:
         return []
     output = response_data.get("output", [])
     return [
         item
         for item in output
-        if item.get("type") in {"function_call", "custom_tool_call"}
+        if item.get("type")
+        in {"function_call", "custom_tool_call", "tool_search_call"}
     ]
 
 
@@ -696,11 +710,12 @@ def _build_tool_output_input(
     tool_calls: list[dict],
     tool_outputs: "dict[str, str] | types.ModuleType",
     user_prompt: str | None,
+    tool_search_tools: list[dict] | None = None,
 ) -> list[dict]:
     """Build tool output items followed by an optional user message.
 
     Args:
-        tool_calls: function_call or custom_tool_call items from the previous response.
+        tool_calls: client-owned function, custom, or tool-search calls from the previous response.
         tool_outputs: either
             - a dict mapping tool name -> fake JSON output string (loaded from a
               --tool-outputs *.json* file), matched by name only; or
@@ -715,14 +730,62 @@ def _build_tool_output_input(
               call unresolved (e.g. one of two parallel calls to the same tool
               with different arguments) while resolving its sibling(s).
         user_prompt: the next user message (None for tool-output-only turns).
+        tool_search_tools: tools returned for public or synthetic tool search.
 
     Returns:
         A list suitable for the `input` field of the next request.
     """
     input_items: list[dict] = []
     for call in tool_calls:
-        call_id = call.get("call_id", "")
+        call_id = call.get("call_id")
+        if not isinstance(call_id, str) or not call_id.strip():
+            raise ValueError(
+                f"{call.get('type', 'tool')} item has no non-empty call_id"
+            )
+
+        call_type = call.get("type")
         name = call.get("name", "")
+        is_public_search = call_type == "tool_search_call"
+        is_synthetic_search = call_type == "function_call" and name == "tool_search"
+        if is_public_search or is_synthetic_search:
+            if tool_search_tools is None:
+                raise ValueError("a tool-search call requires --tool-search-output-tools")
+            if is_public_search:
+                input_items.append(
+                    {
+                        "type": "tool_search_output",
+                        "call_id": call_id,
+                        "execution": "client",
+                        "status": "completed",
+                        "tools": copy.deepcopy(tool_search_tools),
+                    }
+                )
+            else:
+                input_items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps(
+                            {"tools": tool_search_tools},
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ),
+                    }
+                )
+            continue
+
+        if tool_search_tools is not None:
+            has_fixture = (
+                getattr(tool_outputs, name, None) is not None
+                if isinstance(tool_outputs, types.ModuleType)
+                else name in tool_outputs
+            )
+            if not has_fixture:
+                raise ValueError(
+                    f"loaded function {name!r} requires an explicit output fixture"
+                )
+
         if isinstance(tool_outputs, types.ModuleType):
             fn = getattr(tool_outputs, name, None)
             if fn is None:
@@ -743,20 +806,17 @@ def _build_tool_output_input(
             {
                 "type": (
                     "custom_tool_call_output"
-                    if call.get("type") == "custom_tool_call"
+                    if call_type == "custom_tool_call"
                     else "function_call_output"
                 ),
                 "call_id": call_id,
                 "output": output,
             }
         )
+
     if user_prompt:
         input_items.append(
-            {
-                "type": "message",
-                "role": "user",
-                "content": user_prompt,
-            }
+            {"type": "message", "role": "user", "content": user_prompt}
         )
     return input_items
 
@@ -978,10 +1038,14 @@ def run_responses(
     output_file: Path | None = None,
     tools: list | None = None,
     tool_choice: Any = None,
-    tool_outputs: dict[str, str] | None = None,
+    tool_choice_sequence: list[Any] | None = None,
+    tool_outputs: "dict[str, str] | types.ModuleType | None" = None,
+    tool_search_output_tools: list[dict] | None = None,
+    tools_after_search: list | None = None,
     max_output_tokens: int | None = None,
     reasoning: dict | None = None,
     preset_input: str | list | None = None,
+    manual_item_replay: bool = False,
     parallel_tool_calls: bool | None = None,
 ) -> None:
     response_ids: dict[int, str] = {}
@@ -996,6 +1060,8 @@ def run_responses(
 
     previous_response_id: str | None = None
     last_response: dict | None = None
+    search_tools_loaded = False
+    manual_history: list[dict] = []
     for turn in range(1, turns + 1):
         if turn in branch_map:
             branch_from = branch_map[turn]
@@ -1014,17 +1080,49 @@ def run_responses(
         else:
             prompt = _prompt(f"Turn {turn}/{turns} — enter prompt: ")
 
-            # Inject matching function/custom output items before the user message.
-            pending_calls = _extract_tool_calls(last_response) if tool_outputs else []
-            if pending_calls and tool_outputs:
+            # Inject matching client-tool outputs before the user message.
+            has_output_fixtures = (
+                tool_outputs is not None or tool_search_output_tools is not None
+            )
+            pending_calls = (
+                _extract_tool_calls(last_response) if has_output_fixtures else []
+            )
+            if pending_calls:
+                search_tools_loaded = search_tools_loaded or any(
+                    call.get("type") == "tool_search_call"
+                    or (
+                        call.get("type") == "function_call"
+                        and call.get("name") == "tool_search"
+                    )
+                    for call in pending_calls
+                )
                 input_value = _build_tool_output_input(
-                    pending_calls, tool_outputs, prompt if prompt else None
+                    pending_calls,
+                    tool_outputs or {},
+                    prompt if prompt else None,
+                    tool_search_output_tools,
                 )
                 click.echo(
                     f"  [injecting {len(pending_calls)} tool output(s) before user message]"
                 )
             else:
                 input_value = prompt
+
+        if manual_item_replay:
+            if isinstance(input_value, str):
+                new_input_items = [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": input_value,
+                    }
+                ]
+            elif isinstance(input_value, list):
+                new_input_items = copy.deepcopy(input_value)
+            else:
+                raise ValueError("manual item replay input must be a string or item array")
+            manual_history.extend(new_input_items)
+            input_value = copy.deepcopy(manual_history)
 
         body: dict = {"model": model, "input": input_value, "stream": stream, "store": store}
         if max_output_tokens is not None:
@@ -1033,7 +1131,10 @@ def run_responses(
             body["reasoning"] = reasoning
         if previous_response_id and store:
             body["previous_response_id"] = previous_response_id
-        _inject_tools(body, tools, tool_choice, parallel_tool_calls)
+        effective_tools = tools_after_search if search_tools_loaded else tools
+        turn_tool_choice = tool_choice_sequence[turn - 1] if tool_choice_sequence is not None else tool_choice
+        effective_parallel_tool_calls = False if tool_search_output_tools is not None else parallel_tool_calls
+        _inject_tools(body, effective_tools, turn_tool_choice, effective_parallel_tool_calls)
         response_data = _send(
             client,
             body,
@@ -1045,6 +1146,13 @@ def run_responses(
             output_file,
         )
         response_id = response_data.get("id") if response_data else None
+        if manual_item_replay:
+            response_output = response_data.get("output") if response_data else None
+            if not isinstance(response_output, list):
+                raise ValueError(
+                    "manual item replay requires every response to contain an output array"
+                )
+            manual_history.extend(copy.deepcopy(response_output))
         previous_response_id = response_id if store else None
         last_response = response_data
         if response_id:
@@ -1195,6 +1303,14 @@ def run_responses(
     help='tool_choice value: "auto", "none", "required", or JSON e.g. \'{"type":"function","name":"foo"}\'.',
 )
 @click.option(
+    "--tool-choice-sequence",
+    "tool_choice_sequence_file",
+    metavar="FILE",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="JSON array containing one tool_choice value per linear Responses turn.",
+)
+@click.option(
     "--parallel-tool-calls",
     "parallel_tool_calls_raw",
     type=click.Choice(["true", "false"]),
@@ -1211,6 +1327,28 @@ def run_responses(
     "one function per tool name (called with the model's actual parsed arguments; returning None "
     "omits that call's output). When provided, matching function_call_output or "
     "custom_tool_call_output items are injected between turns (required for OpenAI Responses API).",
+)
+@click.option(
+    "--tool-search-output-tools",
+    "tool_search_output_tools_file",
+    metavar="FILE",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="JSON array returned by a client tool-search continuation.",
+)
+@click.option(
+    "--tools-after-search",
+    "tools_after_search_file",
+    metavar="FILE",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Effective JSON tools array used after search (required for direct vLLM characterization).",
+)
+@click.option(
+    "--manual-item-replay",
+    is_flag=True,
+    default=False,
+    help="Replay full accumulated item history with store=false (direct-vLLM or gateway tool-search).",
 )
 @click.option(
     "--input-file",
@@ -1255,8 +1393,12 @@ def main(
     gateway_url: str | None,
     tools_file: str | None,
     tool_choice_raw: str | None,
+    tool_choice_sequence_file: str | None,
     parallel_tool_calls_raw: str | None,
     tool_outputs_file: str | None,
+    tool_search_output_tools_file: str | None,
+    tools_after_search_file: str | None,
+    manual_item_replay: bool,
     input_file: str | None,
     reasoning_raw: str | None,
     max_output_tokens: int,
@@ -1274,6 +1416,59 @@ def main(
         (bf, branch_turn_number[i] if i < len(branch_turn_number) else None)
         for i, bf in enumerate(branch_from)
     ]
+    tool_search_recording = (
+        tool_search_output_tools_file is not None
+        or tools_after_search_file is not None
+    )
+    if tools_after_search_file and not tool_search_output_tools_file:
+        raise click.UsageError(
+            "--tools-after-search requires --tool-search-output-tools."
+        )
+    if manual_item_replay and not tool_search_recording:
+        raise click.UsageError(
+            "--manual-item-replay requires --tool-search-output-tools."
+        )
+    if tool_search_recording:
+        if mode != "responses":
+            raise click.UsageError(
+                "tool-search recorder fixtures require --mode responses."
+            )
+        if turns != 4:
+            raise click.UsageError(
+                "tool-search recorder fixtures require exactly --turns 4."
+            )
+        if branches:
+            raise click.UsageError(
+                "tool-search recorder fixtures do not support --branch-from."
+            )
+        if no_store and not manual_item_replay:
+            raise click.UsageError(
+                "store=false tool-search characterization requires --manual-item-replay."
+            )
+        if manual_item_replay and not no_store:
+            raise click.UsageError(
+                "--manual-item-replay requires --no-store."
+            )
+        if input_file:
+            raise click.UsageError(
+                "tool-search recorder fixtures do not support --input-file."
+            )
+        if not tools_file or not tool_outputs_file:
+            raise click.UsageError(
+                "tool-search recording requires --tools and --tool-outputs."
+            )
+        if not tool_choice_sequence_file:
+            raise click.UsageError(
+                "tool-search recording requires --tool-choice-sequence."
+            )
+    if tool_choice_raw and tool_choice_sequence_file:
+        raise click.UsageError(
+            "--tool-choice and --tool-choice-sequence are mutually exclusive."
+        )
+    if tool_choice_sequence_file and (mode != "responses" or branches):
+        raise click.UsageError(
+            "--tool-choice-sequence requires linear --mode responses without branches."
+        )
     backend_count = sum(bool(url) for url in (openai_url, vllm_url, gateway_url))
     if backend_count > 1:
         raise click.UsageError("--openai, --vllm, and --gateway are mutually exclusive.")
@@ -1311,6 +1506,15 @@ def main(
         else:
             tool_choice = stripped
 
+    tool_choice_sequence: list[Any] | None = None
+    if tool_choice_sequence_file:
+        with open(tool_choice_sequence_file, encoding="utf-8") as f:
+            tool_choice_sequence = json.load(f)
+        if not isinstance(tool_choice_sequence, list) or len(tool_choice_sequence) != turns:
+            raise click.UsageError(
+                "--tool-choice-sequence must contain one JSON value per turn."
+            )
+
     parallel_tool_calls: bool | None = None
     if parallel_tool_calls_raw is not None:
         parallel_tool_calls = parallel_tool_calls_raw == "true"
@@ -1331,6 +1535,43 @@ def main(
             if not isinstance(tool_outputs, dict):
                 raise click.UsageError("--tool-outputs JSON file must contain an object (name -> output string).")
             click.echo(f"Tool outputs: {list(tool_outputs.keys())}")
+
+    tool_search_output_tools: list[dict] | None = None
+    if tool_search_output_tools_file:
+        with open(tool_search_output_tools_file, encoding="utf-8") as f:
+            tool_search_output_tools = json.load(f)
+        if not isinstance(tool_search_output_tools, list) or not all(
+            isinstance(tool, dict) for tool in tool_search_output_tools
+        ):
+            raise click.UsageError(
+                "--tool-search-output-tools must contain a JSON array of objects."
+            )
+        if not tool_search_output_tools:
+            raise click.UsageError(
+                "--tool-search-output-tools must contain at least one tool."
+            )
+
+    tools_after_search: list | None = None
+    if tools_after_search_file:
+        with open(tools_after_search_file, encoding="utf-8") as f:
+            tools_after_search = json.load(f)
+        if not isinstance(tools_after_search, list):
+            raise click.UsageError(
+                "--tools-after-search must contain a JSON array."
+            )
+
+    if tool_search_recording and vllm_url and tools_after_search is None:
+        raise click.UsageError(
+            "direct vLLM tool-search characterization requires --tools-after-search."
+        )
+    if tool_search_recording and vllm_url and not manual_item_replay:
+        raise click.UsageError(
+            "direct vLLM tool-search characterization requires --manual-item-replay."
+        )
+    if tool_search_recording and not (vllm_url or gateway_url) and manual_item_replay:
+        raise click.UsageError(
+            "--manual-item-replay is reserved for direct vLLM or gateway tool-search recording."
+        )
 
     if gateway_url:
         target = gateway_url.rstrip("/")
@@ -1381,13 +1622,17 @@ def main(
                 target,
                 headers,
                 output_file,
-                tools,
-                tool_choice,
-                tool_outputs,
-                response_max_output_tokens,
-                reasoning,
-                preset_input,
-                parallel_tool_calls,
+                tools=tools,
+                tool_choice=tool_choice,
+                tool_choice_sequence=tool_choice_sequence,
+                tool_outputs=tool_outputs,
+                tool_search_output_tools=tool_search_output_tools,
+                tools_after_search=tools_after_search,
+                max_output_tokens=response_max_output_tokens,
+                reasoning=reasoning,
+                preset_input=preset_input,
+                manual_item_replay=manual_item_replay,
+                parallel_tool_calls=parallel_tool_calls,
             )
     else:
         click.echo(f"Proxy:   {proxy_url}  (requests go through here for recording)")
@@ -1415,13 +1660,17 @@ def main(
                         target,
                         headers,
                         output_file,
-                        tools,
-                        tool_choice,
-                        tool_outputs,
-                        response_max_output_tokens,
-                        reasoning,
-                        preset_input,
-                        parallel_tool_calls,
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        tool_choice_sequence=tool_choice_sequence,
+                        tool_outputs=tool_outputs,
+                        tool_search_output_tools=tool_search_output_tools,
+                        tools_after_search=tools_after_search,
+                        max_output_tokens=response_max_output_tokens,
+                        reasoning=reasoning,
+                        preset_input=preset_input,
+                        manual_item_replay=manual_item_replay,
+                        parallel_tool_calls=parallel_tool_calls,
                     )
                 elif mode == "messages":
                     run_messages(
