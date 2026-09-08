@@ -1,7 +1,10 @@
 use crate::executor::error::{ExecutorError, ExecutorResult};
+use crate::executor::persist::persist_prepared_turn;
+use crate::executor::prepare::prepare_request_tools;
 use crate::executor::rehydrate::rehydrate_conversation;
 use crate::executor::request::{ExecutionContext, RequestContext};
 use crate::executor::upstream::fetch_blocking_payload;
+use crate::tool::ToolSearchState;
 use crate::types::event::MessageStatus;
 use crate::types::io::input::latest_compaction_window;
 use crate::types::io::{
@@ -87,6 +90,8 @@ fn item_has_meaningful_context(item: &InputItem) -> bool {
         },
         InputItem::FunctionCall(call) => !call.name.trim().is_empty() || !call.arguments.trim().is_empty(),
         InputItem::FunctionCallOutput(output) => output.output.has_content(),
+        InputItem::ToolSearchCall(call) => !call.call_id.trim().is_empty() || value_has_content(&call.arguments),
+        InputItem::ToolSearchOutput(output) => !output.call_id.trim().is_empty() || !output.tools.is_empty(),
         InputItem::CustomToolCall(call) => !call.name.trim().is_empty() || !call.input.trim().is_empty(),
         InputItem::CustomToolCallOutput(output) => output.output.has_content(),
         InputItem::Reasoning(reasoning) => {
@@ -205,7 +210,7 @@ pub(crate) async fn compact_items(
         conversation_id: None,
         conversation_version: None,
     };
-    let response = fetch_blocking_payload(&ctx, exec_ctx, auth, None).await?;
+    let response = fetch_blocking_payload(&ctx, exec_ctx, auth, &crate::tool::ToolRegistry::default(), None).await?;
     let summary = completed_summary_text(&response)?;
 
     Ok((
@@ -280,7 +285,10 @@ pub async fn compact_response(
         request.instructions,
     );
     payload.previous_response_id = request.previous_response_id;
-    let mut ctx = rehydrate_conversation(payload, exec_ctx).await?;
+    let ctx = rehydrate_conversation(payload, exec_ctx).await?;
+    let (mut ctx, tool_search_state) =
+        prepare_request_tools(ctx, &exec_ctx.conv_handler, &exec_ctx.resp_handler).await?;
+    let tool_search_metadata = tool_search_state.map(ToolSearchState::into_public_metadata);
     let model = ctx.enriched_request.model.clone();
     let instructions = ctx.enriched_request.instructions.clone();
     let input = std::mem::replace(&mut ctx.enriched_request.input, ResponsesInput::Items(Vec::new()));
@@ -288,7 +296,15 @@ pub async fn compact_response(
 
     let response_id = ctx.response_id.clone();
     ctx.new_input_items.clone_from(&output);
-    match exec_ctx.resp_handler.execute_turn(ctx, Vec::new()).await {
+    match persist_prepared_turn(
+        ctx,
+        tool_search_metadata,
+        Vec::new(),
+        &exec_ctx.conv_handler,
+        &exec_ctx.resp_handler,
+    )
+    .await
+    {
         Ok(()) | Err(ExecutorError::Storage(crate::StorageError::NotConfigured)) => {}
         Err(error) => return Err(error),
     }
@@ -551,6 +567,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn compaction_prepares_tool_search_before_summarization() {
+        let (exec_ctx, server) = mock_execution_context(ResponseStore::disabled()).await;
+        let request = serde_json::from_value(serde_json::json!({
+            "model": "test-model",
+            "input": [{
+                "type": "tool_search_call",
+                "id": "tsc_1",
+                "call_id": "call_search_1",
+                "arguments": {"query": "weather"}
+            }, {
+                "type": "tool_search_output",
+                "call_id": "call_search_1",
+                "tools": []
+            }]
+        }))
+        .expect("valid compact request");
+
+        let compacted = compact_response(request, &exec_ctx, None)
+            .await
+            .expect("compaction prepares and summarizes public search history");
+
+        assert!(matches!(compacted.output.last(), Some(InputItem::Compaction(_))));
+        assert!(
+            compacted
+                .output
+                .iter()
+                .all(|item| !matches!(item, InputItem::ToolSearchCall(_) | InputItem::ToolSearchOutput(_)))
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn compaction_persists_a_reusable_response_checkpoint() {
         let pool = create_pool_with_schema(Some("sqlite::memory:"))
             .await
@@ -587,6 +635,7 @@ mod tests {
                     model: "test-model".to_owned(),
                     previous_response_id: None,
                     effective_tools: None,
+                    tool_search_loaded_tools: None,
                     effective_tool_choice: crate::ToolChoice::Auto,
                     effective_instructions: None,
                 },

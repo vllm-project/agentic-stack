@@ -89,10 +89,10 @@ impl ConversationStore {
     /// Returns an error if a stored item is missing its sequence number or if the database query fails.
     pub async fn rehydrate_snapshot(&self, conversation_id: &str) -> StoreResult<ConversationSnapshot> {
         let pool = self.pool()?;
-        let rows = item::get_items_by_conversation(pool, conversation_id).await?;
+        let snapshot_rows = conversation::get_snapshot(pool, conversation_id).await?;
 
         let mut last_sequence = None;
-        for row in &rows {
+        for row in &snapshot_rows.items {
             last_sequence = Some(row.seq.ok_or_else(|| StorageError::InvalidConversationSequence {
                 conversation_id: conversation_id.to_string(),
                 item_id: row.id.clone(),
@@ -100,9 +100,31 @@ impl ConversationStore {
         }
 
         Ok(ConversationSnapshot {
-            items: rows.into_iter().filter_map(|row| row.as_inout()).collect(),
-            version: ConversationVersion::from_last_sequence(last_sequence),
+            items: snapshot_rows
+                .items
+                .into_iter()
+                .filter_map(|row| row.as_inout())
+                .collect(),
+            version: ConversationVersion::from_snapshot(last_sequence, snapshot_rows.latest_response_id),
         })
+    }
+
+    /// Loads metadata from the persisted turn at a captured version.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either targeted database lookup fails.
+    pub async fn response_metadata_at_version(
+        &self,
+        conversation_id: &str,
+        version: &ConversationVersion,
+    ) -> StoreResult<Option<ResponseMetadata>> {
+        let ConversationVersion::LastResponse { response_id, .. } = version else {
+            return Ok(None);
+        };
+        let pool = self.pool()?;
+        let response = response::get_conversation_turn(pool, conversation_id, response_id).await?;
+        Ok(response.and_then(|row| row.metadata_as()))
     }
 
     /// Persists conversation turn with new items and response metadata.
@@ -180,16 +202,17 @@ impl ConversationStore {
 
         let mut tx = pool.begin().await?;
 
-        match conversation::lock_in_tx(&mut tx, conversation_id).await {
-            Ok(()) => {}
+        let locked_conversation = match conversation::lock_in_tx(&mut tx, conversation_id).await {
+            Ok(conversation) => conversation,
             Err(sqlx::Error::RowNotFound) => {
                 return Err(StorageError::not_found("Conversation", conversation_id));
             }
             Err(error) => return Err(error.into()),
-        }
+        };
         if let Some(expected_version) = expected_version {
-            let current_version = ConversationVersion::from_last_sequence(
+            let current_version = ConversationVersion::from_snapshot(
                 item::last_conversation_sequence_in_tx(&mut tx, conversation_id).await?,
+                locked_conversation.latest_response_id,
             );
             if current_version != expected_version {
                 return Err(StorageError::ConversationConflict {
@@ -208,6 +231,7 @@ impl ConversationStore {
             Some(&metadata_json),
         )
         .await?;
+        conversation::set_latest_response_in_tx(&mut tx, conversation_id, response_id).await?;
         tx.commit().await?;
 
         Ok(())

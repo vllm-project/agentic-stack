@@ -225,7 +225,13 @@ impl ToolHandler for McpHandler {
         ToolType::Mcp
     }
 
-    fn validate(&self, _params: &McpToolParam) -> Result<(), ToolError> {
+    fn validate(&self, params: &McpToolParam) -> Result<(), ToolError> {
+        if params.defer_loading == Some(true) {
+            return Err(ToolError::Config(format!(
+                "MCP tool '{}' cannot use defer_loading because deferred MCP tools are not supported",
+                params.server_label
+            )));
+        }
         Ok(())
     }
 
@@ -479,6 +485,21 @@ mod tests {
         let handler = McpHandler::spec_from_param(&param);
 
         assert!(handler.normalize(&param).is_empty());
+    }
+
+    #[test]
+    fn deferred_mcp_tools_are_rejected() {
+        let param = serde_json::from_value::<McpToolParam>(serde_json::json!({
+            "server_label": "counter",
+            "server_url": "http://127.0.0.1:8000/mcp",
+            "defer_loading": true
+        }))
+        .expect("MCP tool param");
+
+        let error = McpHandler::spec_from_param(&param)
+            .validate(&param)
+            .expect_err("deferred MCP tools are not supported");
+        assert!(error.to_string().contains("deferred MCP tools are not supported"));
     }
 
     #[test]

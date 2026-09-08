@@ -1,0 +1,3553 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: First call tool_search exactly once to find both a current-weather function
+        and a travel time-zone function. Do not call any other tool yet.
+      max_output_tokens: 4096
+      model: Qwen/Qwen3.6-35B-A3B-FP8
+      parallel_tool_calls: false
+      store: true
+      stream: true
+      tool_choice: required
+      tools:
+      - description: Search the client tool catalog for tools that can satisfy the
+          request.
+        execution: client
+        parameters:
+          additionalProperties: false
+          properties:
+            query:
+              description: A concise description of the needed capabilities.
+              type: string
+          required:
+          - query
+          type: object
+        type: tool_search
+      - defer_loading: true
+        description: Get the current weather for a city
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - defer_loading: true
+        description: Get the exchange rate between two currencies
+        name: get_exchange_rate
+        parameters:
+          additionalProperties: false
+          properties:
+            base:
+              type: string
+            quote:
+              type: string
+          required:
+          - base
+          - quote
+          type: object
+        strict: true
+        type: function
+      - defer_loading: true
+        description: Search for hotels in a city
+        name: search_hotels
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Travel location tools
+        name: travel
+        tools:
+        - defer_loading: true
+          description: Get the IANA time zone for a city
+          name: get_timezone
+          parameters:
+            additionalProperties: false
+            properties:
+              city:
+                type: string
+            required:
+            - city
+            type: object
+          strict: true
+          type: function
+        - defer_loading: true
+          description: Get latitude and longitude for a city
+          name: get_coordinates
+          parameters:
+            additionalProperties: false
+            properties:
+              city:
+                type: string
+            required:
+            - city
+            type: object
+          strict: true
+          type: function
+        - defer_loading: true
+          description: Calculate the distance between two cities
+          name: calculate_distance
+          parameters:
+            additionalProperties: false
+            properties:
+              destination:
+                type: string
+              origin:
+                type: string
+            required:
+            - origin
+            - destination
+            type: object
+          strict: true
+          type: function
+        type: namespace
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","sequence_number":0,"response":{"background":false,"created_at":1787715694,"frequency_penalty":0.0,"id":"resp_01a03c28-b034-7bd1-b5d2-5243c66a0a14","incomplete_details":null,"input_messages":null,"instructions":null,"kv_transfer_params":null,"max_output_tokens":4096,"max_tool_calls":null,"metadata":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[],"output_messages":null,"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":null,"prompt":null,"reasoning":null,"service_tier":"auto","status":"in_progress","temperature":1.0,"text":null,"tool_choice":"required","tools":[{"description":"Search
+      the client tool catalog for tools that can satisfy the request.","execution":"client","parameters":{"additionalProperties":false,"properties":{"query":{"description":"A
+      concise description of the needed capabilities.","type":"string"}},"required":["query"],"type":"object"},"type":"tool_search"},{"defer_loading":true,"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Get
+      the exchange rate between two currencies","name":"get_exchange_rate","parameters":{"additionalProperties":false,"properties":{"base":{"type":"string"},"quote":{"type":"string"}},"required":["base","quote"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Search
+      for hotels in a city","name":"search_hotels","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"defer_loading":true,"description":"Get
+      the IANA time zone for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Get
+      latitude and longitude for a city","name":"get_coordinates","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Calculate
+      the distance between two cities","name":"calculate_distance","parameters":{"additionalProperties":false,"properties":{"destination":{"type":"string"},"origin":{"type":"string"}},"required":["origin","destination"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"top_logprobs":null,"top_p":0.95,"truncation":"disabled","usage":null,"user":null}}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","sequence_number":1,"response":{"background":false,"created_at":1787715694,"frequency_penalty":0.0,"id":"resp_01a03c28-b034-7bd1-b5d2-5243c66a0a14","incomplete_details":null,"input_messages":null,"instructions":null,"kv_transfer_params":null,"max_output_tokens":4096,"max_tool_calls":null,"metadata":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[],"output_messages":null,"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":null,"prompt":null,"reasoning":null,"service_tier":"auto","status":"in_progress","temperature":1.0,"text":null,"tool_choice":"required","tools":[{"description":"Search
+      the client tool catalog for tools that can satisfy the request.","execution":"client","parameters":{"additionalProperties":false,"properties":{"query":{"description":"A
+      concise description of the needed capabilities.","type":"string"}},"required":["query"],"type":"object"},"type":"tool_search"},{"defer_loading":true,"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Get
+      the exchange rate between two currencies","name":"get_exchange_rate","parameters":{"additionalProperties":false,"properties":{"base":{"type":"string"},"quote":{"type":"string"}},"required":["base","quote"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Search
+      for hotels in a city","name":"search_hotels","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"defer_loading":true,"description":"Get
+      the IANA time zone for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Get
+      latitude and longitude for a city","name":"get_coordinates","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Calculate
+      the distance between two cities","name":"calculate_distance","parameters":{"additionalProperties":false,"properties":{"destination":{"type":"string"},"origin":{"type":"string"}},"required":["origin","destination"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"top_logprobs":null,"top_p":0.95,"truncation":"disabled","usage":null,"user":null}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"content":null,"encrypted_content":null,"id":"a715a17044c59c6f","status":"in_progress","summary":[],"type":"reasoning"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_part.added
+
+      '
+    - 'data: {"type":"response.reasoning_part.added","sequence_number":3,"output_index":0,"content_index":0,"item_id":"a715a17044c59c6f","part":{"text":"","type":"reasoning_text"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":4,"output_index":0,"content_index":0,"delta":"The","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":5,"output_index":0,"content_index":0,"delta":"
+      user wants me","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":6,"output_index":0,"content_index":0,"delta":"
+      to search for","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":7,"output_index":0,"content_index":0,"delta":"
+      two","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":8,"output_index":0,"content_index":0,"delta":"
+      specific tools:","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":9,"output_index":0,"content_index":0,"delta":"\n1.","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":10,"output_index":0,"content_index":0,"delta":"
+      A current-","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":11,"output_index":0,"content_index":0,"delta":"weather
+      function\n","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":12,"output_index":0,"content_index":0,"delta":"2.
+      A","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":13,"output_index":0,"content_index":0,"delta":"
+      travel time-zone","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":14,"output_index":0,"content_index":0,"delta":"
+      function\n\nI","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":15,"output_index":0,"content_index":0,"delta":"
+      need to use","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":16,"output_index":0,"content_index":0,"delta":"
+      the `tool","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":17,"output_index":0,"content_index":0,"delta":"_search`
+      function","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":18,"output_index":0,"content_index":0,"delta":"
+      exactly once with","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":19,"output_index":0,"content_index":0,"delta":"
+      a query that","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":20,"output_index":0,"content_index":0,"delta":"
+      describes","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":21,"output_index":0,"content_index":0,"delta":"
+      both capabilities.","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":22,"output_index":0,"content_index":0,"delta":"\n\nLooking
+      at","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":23,"output_index":0,"content_index":0,"delta":"
+      the available tool","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":24,"output_index":0,"content_index":0,"delta":"
+      catalog","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":25,"output_index":0,"content_index":0,"delta":"
+      descriptions","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":26,"output_index":0,"content_index":0,"delta":":\n-","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":27,"output_index":0,"content_index":0,"delta":"
+      `","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":28,"output_index":0,"content_index":0,"delta":"get_weather`","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":29,"output_index":0,"content_index":0,"delta":"
+      — Get the","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":30,"output_index":0,"content_index":0,"delta":"
+      current weather for","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":31,"output_index":0,"content_index":0,"delta":"
+      a city\n","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":32,"output_index":0,"content_index":0,"delta":"-
+      `get","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":33,"output_index":0,"content_index":0,"delta":"_exchange_rate`","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":34,"output_index":0,"content_index":0,"delta":"
+      — Get the","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":35,"output_index":0,"content_index":0,"delta":"
+      exchange rate between","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":36,"output_index":0,"content_index":0,"delta":"
+      two currencies\n","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":37,"output_index":0,"content_index":0,"delta":"-
+      `search","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":38,"output_index":0,"content_index":0,"delta":"_hotels`","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":39,"output_index":0,"content_index":0,"delta":"
+      — Search for","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":40,"output_index":0,"content_index":0,"delta":"
+      hotels in a","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":41,"output_index":0,"content_index":0,"delta":"
+      city\n-","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":42,"output_index":0,"content_index":0,"delta":"
+      `travel`","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":43,"output_index":0,"content_index":0,"delta":"
+      — Travel location","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":44,"output_index":0,"content_index":0,"delta":"
+      tools.","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":45,"output_index":0,"content_index":0,"delta":"\n\nThe
+      `","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":46,"output_index":0,"content_index":0,"delta":"get","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":47,"output_index":0,"content_index":0,"delta":"_weather`
+      tool","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":48,"output_index":0,"content_index":0,"delta":"
+      matches \"","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":49,"output_index":0,"content_index":0,"delta":"current-weather","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":50,"output_index":0,"content_index":0,"delta":"
+      function\".\n","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":51,"output_index":0,"content_index":0,"delta":"The
+      `travel","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":52,"output_index":0,"content_index":0,"delta":"`
+      tool likely","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":53,"output_index":0,"content_index":0,"delta":"
+      contains","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":54,"output_index":0,"content_index":0,"delta":"
+      or","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":55,"output_index":0,"content_index":0,"delta":"
+      is","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":56,"output_index":0,"content_index":0,"delta":"
+      related to \"","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":57,"output_index":0,"content_index":0,"delta":"travel
+      time-zone","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":58,"output_index":0,"content_index":0,"delta":"
+      function\" based","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":59,"output_index":0,"content_index":0,"delta":"
+      on the description","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":60,"output_index":0,"content_index":0,"delta":"
+      \"","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":61,"output_index":0,"content_index":0,"delta":"Travel
+      location tools","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":62,"output_index":0,"content_index":0,"delta":"\".\n\nI","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":63,"output_index":0,"content_index":0,"delta":"
+      will formulate a","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":64,"output_index":0,"content_index":0,"delta":"
+      query that searches","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":65,"output_index":0,"content_index":0,"delta":"
+      for both.","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":66,"output_index":0,"content_index":0,"delta":"
+      \"","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":67,"output_index":0,"content_index":0,"delta":"current","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":68,"output_index":0,"content_index":0,"delta":"
+      weather function and","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":69,"output_index":0,"content_index":0,"delta":"
+      travel time-zone","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":70,"output_index":0,"content_index":0,"delta":"
+      function\".","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":71,"output_index":0,"content_index":0,"delta":"\n\nLet''s","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":72,"output_index":0,"content_index":0,"delta":"
+      call `","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":73,"output_index":0,"content_index":0,"delta":"tool_search`","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":74,"output_index":0,"content_index":0,"delta":"
+      with this query","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":75,"output_index":0,"content_index":0,"delta":".\n","item_id":"a715a17044c59c6f"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.done
+
+      '
+    - 'data: {"type":"response.reasoning_text.done","sequence_number":76,"output_index":0,"content_index":0,"item_id":"a715a17044c59c6f","text":"The
+      user wants me to search for two specific tools:\n1. A current-weather function\n2.
+      A travel time-zone function\n\nI need to use the `tool_search` function exactly
+      once with a query that describes both capabilities.\n\nLooking at the available
+      tool catalog descriptions:\n- `get_weather` — Get the current weather for a
+      city\n- `get_exchange_rate` — Get the exchange rate between two currencies\n-
+      `search_hotels` — Search for hotels in a city\n- `travel` — Travel location
+      tools.\n\nThe `get_weather` tool matches \"current-weather function\".\nThe
+      `travel` tool likely contains or is related to \"travel time-zone function\"
+      based on the description \"Travel location tools\".\n\nI will formulate a query
+      that searches for both. \"current weather function and travel time-zone function\".\n\nLet''s
+      call `tool_search` with this query.\n"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_part.done
+
+      '
+    - 'data: {"type":"response.reasoning_part.done","sequence_number":77,"output_index":0,"content_index":0,"item_id":"a715a17044c59c6f","part":{"text":"The
+      user wants me to search for two specific tools:\n1. A current-weather function\n2.
+      A travel time-zone function\n\nI need to use the `tool_search` function exactly
+      once with a query that describes both capabilities.\n\nLooking at the available
+      tool catalog descriptions:\n- `get_weather` — Get the current weather for a
+      city\n- `get_exchange_rate` — Get the exchange rate between two currencies\n-
+      `search_hotels` — Search for hotels in a city\n- `travel` — Travel location
+      tools.\n\nThe `get_weather` tool matches \"current-weather function\".\nThe
+      `travel` tool likely contains or is related to \"travel time-zone function\"
+      based on the description \"Travel location tools\".\n\nI will formulate a query
+      that searches for both. \"current weather function and travel time-zone function\".\n\nLet''s
+      call `tool_search` with this query.\n","type":"reasoning_text"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","sequence_number":78,"output_index":0,"item":{"content":[{"text":"The
+      user wants me to search for two specific tools:\n1. A current-weather function\n2.
+      A travel time-zone function\n\nI need to use the `tool_search` function exactly
+      once with a query that describes both capabilities.\n\nLooking at the available
+      tool catalog descriptions:\n- `get_weather` — Get the current weather for a
+      city\n- `get_exchange_rate` — Get the exchange rate between two currencies\n-
+      `search_hotels` — Search for hotels in a city\n- `travel` — Travel location
+      tools.\n\nThe `get_weather` tool matches \"current-weather function\".\nThe
+      `travel` tool likely contains or is related to \"travel time-zone function\"
+      based on the description \"Travel location tools\".\n\nI will formulate a query
+      that searches for both. \"current weather function and travel time-zone function\".\n\nLet''s
+      call `tool_search` with this query.\n","type":"reasoning_text"}],"encrypted_content":null,"id":"a715a17044c59c6f","status":"completed","summary":[],"type":"reasoning"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","sequence_number":79,"output_index":1,"item":{"arguments":{},"call_id":"call_9dbedda8b73d4737","execution":"client","id":"tsc_0e6b70f150f01d44","status":"in_progress","type":"tool_search_call"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","sequence_number":80,"output_index":1,"item":{"arguments":{"query":"current
+      weather function and travel time-zone function"},"call_id":"call_9dbedda8b73d4737","execution":"client","id":"tsc_0e6b70f150f01d44","status":"completed","type":"tool_search_call"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","sequence_number":81,"response":{"conversation_id":null,"created_at":1787715695,"error":null,"id":"resp_01a03c28-b034-7bd1-b5d2-5243c66a0a14","incomplete_details":null,"instructions":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[{"content":[{"text":"The
+      user wants me to search for two specific tools:\n1. A current-weather function\n2.
+      A travel time-zone function\n\nI need to use the `tool_search` function exactly
+      once with a query that describes both capabilities.\n\nLooking at the available
+      tool catalog descriptions:\n- `get_weather` — Get the current weather for a
+      city\n- `get_exchange_rate` — Get the exchange rate between two currencies\n-
+      `search_hotels` — Search for hotels in a city\n- `travel` — Travel location
+      tools.\n\nThe `get_weather` tool matches \"current-weather function\".\nThe
+      `travel` tool likely contains or is related to \"travel time-zone function\"
+      based on the description \"Travel location tools\".\n\nI will formulate a query
+      that searches for both. \"current weather function and travel time-zone function\".\n\nLet''s
+      call `tool_search` with this query.\n","type":"reasoning_text"}],"encrypted_content":null,"id":"a715a17044c59c6f","status":null,"summary":[],"type":"reasoning"},{"arguments":{"query":"current
+      weather function and travel time-zone function"},"call_id":"call_9dbedda8b73d4737","execution":"client","id":"tsc_0e6b70f150f01d44","status":"completed","type":"tool_search_call"}],"previous_response_id":null,"status":"completed","tool_choice":"required","tools":[{"description":"Search
+      the client tool catalog for tools that can satisfy the request.","execution":"client","parameters":{"additionalProperties":false,"properties":{"query":{"description":"A
+      concise description of the needed capabilities.","type":"string"}},"required":["query"],"type":"object"},"type":"tool_search"},{"defer_loading":true,"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Get
+      the exchange rate between two currencies","name":"get_exchange_rate","parameters":{"additionalProperties":false,"properties":{"base":{"type":"string"},"quote":{"type":"string"}},"required":["base","quote"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Search
+      for hotels in a city","name":"search_hotels","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"defer_loading":true,"description":"Get
+      the IANA time zone for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Get
+      latitude and longitude for a city","name":"get_coordinates","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"defer_loading":true,"description":"Calculate
+      the distance between two cities","name":"calculate_distance","parameters":{"additionalProperties":false,"properties":{"destination":{"type":"string"},"origin":{"type":"string"}},"required":["origin","destination"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"usage":{"input_tokens":394,"input_tokens_details":{"cached_tokens":0},"output_tokens":219,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":613}}}
+
+      '
+    - '
+
+      '
+    - 'data: [DONE]
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: call_9dbedda8b73d4737
+        execution: client
+        status: completed
+        tools:
+        - defer_loading: true
+          description: Get the current weather for a city
+          name: get_weather
+          parameters:
+            additionalProperties: false
+            properties:
+              city:
+                type: string
+            required:
+            - city
+            type: object
+          strict: true
+          type: function
+        - description: Travel location tools
+          name: travel
+          tools:
+          - defer_loading: true
+            description: Get the IANA time zone for a city
+            name: get_timezone
+            parameters:
+              additionalProperties: false
+              properties:
+                city:
+                  type: string
+              required:
+              - city
+              type: object
+            strict: true
+            type: function
+          type: namespace
+        type: tool_search_output
+      - content: Now call get_weather exactly once with {"city":"Paris"}. Do not call
+          any other tool.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: Qwen/Qwen3.6-35B-A3B-FP8
+      parallel_tool_calls: false
+      previous_response_id: resp_01a03c28-b034-7bd1-b5d2-5243c66a0a14
+      store: true
+      stream: true
+      tool_choice:
+        name: get_weather
+        type: function
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","sequence_number":0,"response":{"background":false,"created_at":1787715696,"frequency_penalty":0.0,"id":"resp_01a03c28-b7b8-76d1-93ce-33557fafbad7","incomplete_details":null,"input_messages":null,"instructions":null,"kv_transfer_params":null,"max_output_tokens":4096,"max_tool_calls":null,"metadata":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[],"output_messages":null,"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_01a03c28-b034-7bd1-b5d2-5243c66a0a14","prompt":null,"reasoning":null,"service_tier":"auto","status":"in_progress","temperature":1.0,"text":null,"tool_choice":{"name":"get_weather","type":"function"},"tools":[{"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"description":"Get the IANA time zone
+      for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"top_logprobs":null,"top_p":0.95,"truncation":"disabled","usage":null,"user":null}}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","sequence_number":1,"response":{"background":false,"created_at":1787715696,"frequency_penalty":0.0,"id":"resp_01a03c28-b7b8-76d1-93ce-33557fafbad7","incomplete_details":null,"input_messages":null,"instructions":null,"kv_transfer_params":null,"max_output_tokens":4096,"max_tool_calls":null,"metadata":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[],"output_messages":null,"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_01a03c28-b034-7bd1-b5d2-5243c66a0a14","prompt":null,"reasoning":null,"service_tier":"auto","status":"in_progress","temperature":1.0,"text":null,"tool_choice":{"name":"get_weather","type":"function"},"tools":[{"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"description":"Get the IANA time zone
+      for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"top_logprobs":null,"top_p":0.95,"truncation":"disabled","usage":null,"user":null}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"content":null,"encrypted_content":null,"id":"b75ff4c3553a0416","status":"in_progress","summary":[],"type":"reasoning"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_part.added
+
+      '
+    - 'data: {"type":"response.reasoning_part.added","sequence_number":3,"output_index":0,"content_index":0,"item_id":"b75ff4c3553a0416","part":{"text":"","type":"reasoning_text"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":4,"output_index":0,"content_index":0,"delta":"The","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":5,"output_index":0,"content_index":0,"delta":"
+      user wants me","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":6,"output_index":0,"content_index":0,"delta":"
+      to call `","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":7,"output_index":0,"content_index":0,"delta":"get_weather`","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":8,"output_index":0,"content_index":0,"delta":"
+      with the city","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":9,"output_index":0,"content_index":0,"delta":"
+      \"Paris\".","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":10,"output_index":0,"content_index":0,"delta":"
+      I","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":11,"output_index":0,"content_index":0,"delta":"
+      need","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":12,"output_index":0,"content_index":0,"delta":"
+      to make","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":13,"output_index":0,"content_index":0,"delta":"
+      sure I use","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":14,"output_index":0,"content_index":0,"delta":"
+      the","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":15,"output_index":0,"content_index":0,"delta":"
+      exact tool","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":16,"output_index":0,"content_index":0,"delta":"
+      and","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":17,"output_index":0,"content_index":0,"delta":"
+      parameters specified","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":18,"output_index":0,"content_index":0,"delta":".\nTool","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":19,"output_index":0,"content_index":0,"delta":":
+      `get","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":20,"output_index":0,"content_index":0,"delta":"_weather`\n","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":21,"output_index":0,"content_index":0,"delta":"Parameters:
+      `","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":22,"output_index":0,"content_index":0,"delta":"{\"city\":","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":23,"output_index":0,"content_index":0,"delta":"
+      \"Paris\"","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":24,"output_index":0,"content_index":0,"delta":"}`\n\n","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":25,"output_index":0,"content_index":0,"delta":"I
+      will call","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":26,"output_index":0,"content_index":0,"delta":"
+      the tool now","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":27,"output_index":0,"content_index":0,"delta":".\n","item_id":"b75ff4c3553a0416"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.done
+
+      '
+    - 'data: {"type":"response.reasoning_text.done","sequence_number":28,"output_index":0,"content_index":0,"item_id":"b75ff4c3553a0416","text":"The
+      user wants me to call `get_weather` with the city \"Paris\". I need to make
+      sure I use the exact tool and parameters specified.\nTool: `get_weather`\nParameters:
+      `{\"city\": \"Paris\"}`\n\nI will call the tool now.\n"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_part.done
+
+      '
+    - 'data: {"type":"response.reasoning_part.done","sequence_number":29,"output_index":0,"content_index":0,"item_id":"b75ff4c3553a0416","part":{"text":"The
+      user wants me to call `get_weather` with the city \"Paris\". I need to make
+      sure I use the exact tool and parameters specified.\nTool: `get_weather`\nParameters:
+      `{\"city\": \"Paris\"}`\n\nI will call the tool now.\n","type":"reasoning_text"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","sequence_number":30,"output_index":0,"item":{"content":[{"text":"The
+      user wants me to call `get_weather` with the city \"Paris\". I need to make
+      sure I use the exact tool and parameters specified.\nTool: `get_weather`\nParameters:
+      `{\"city\": \"Paris\"}`\n\nI will call the tool now.\n","type":"reasoning_text"}],"encrypted_content":null,"id":"b75ff4c3553a0416","status":"completed","summary":[],"type":"reasoning"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","sequence_number":31,"output_index":1,"item":{"arguments":"","call_id":"call_86fcb582d200885e","caller":null,"id":"993aaf1391b2c681","name":"get_weather","namespace":null,"status":"in_progress","type":"function_call"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","sequence_number":32,"output_index":1,"delta":"{\"city\":
+      \"","item_id":"993aaf1391b2c681"}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","sequence_number":33,"output_index":1,"delta":"Paris","item_id":"993aaf1391b2c681"}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","sequence_number":34,"output_index":1,"delta":"\"}","item_id":"993aaf1391b2c681"}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","sequence_number":35,"output_index":1,"arguments":"{\"city\":
+      \"Paris\"}","item_id":"993aaf1391b2c681","name":"get_weather"}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","sequence_number":36,"output_index":1,"item":{"arguments":"{\"city\":
+      \"Paris\"}","call_id":"call_86fcb582d200885e","caller":null,"id":"993aaf1391b2c681","name":"get_weather","namespace":null,"status":"completed","type":"function_call"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","sequence_number":37,"response":{"conversation_id":null,"created_at":1787715697,"error":null,"id":"resp_01a03c28-b7b8-76d1-93ce-33557fafbad7","incomplete_details":null,"instructions":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[{"content":[{"text":"The
+      user wants me to call `get_weather` with the city \"Paris\". I need to make
+      sure I use the exact tool and parameters specified.\nTool: `get_weather`\nParameters:
+      `{\"city\": \"Paris\"}`\n\nI will call the tool now.\n","type":"reasoning_text"}],"encrypted_content":null,"id":"b75ff4c3553a0416","status":null,"summary":[],"type":"reasoning"},{"arguments":"{\"city\":
+      \"Paris\"}","call_id":"call_86fcb582d200885e","id":"993aaf1391b2c681","name":"get_weather","status":"completed","type":"function_call"}],"previous_response_id":"resp_01a03c28-b034-7bd1-b5d2-5243c66a0a14","status":"completed","tool_choice":{"name":"get_weather","type":"function"},"tools":[{"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"description":"Get the IANA time zone
+      for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"usage":{"input_tokens":718,"input_tokens_details":{"cached_tokens":0},"output_tokens":84,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":802}}}
+
+      '
+    - '
+
+      '
+    - 'data: [DONE]
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t3
+  request:
+    body:
+      input:
+      - call_id: call_86fcb582d200885e
+        output: '{"city":"Paris","condition":"clear","temperature_c":21}'
+        type: function_call_output
+      - content: Now call the loaded travel namespace member get_timezone exactly
+          once with {"city":"Paris"}. Do not call any other tool.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: Qwen/Qwen3.6-35B-A3B-FP8
+      parallel_tool_calls: false
+      previous_response_id: resp_01a03c28-b7b8-76d1-93ce-33557fafbad7
+      store: true
+      stream: true
+      tool_choice:
+        name: get_timezone
+        namespace: travel
+        type: function
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","sequence_number":0,"response":{"background":false,"created_at":1787715698,"frequency_penalty":0.0,"id":"resp_01a03c28-bdd0-7c82-9e95-42037516c3de","incomplete_details":null,"input_messages":null,"instructions":null,"kv_transfer_params":null,"max_output_tokens":4096,"max_tool_calls":null,"metadata":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[],"output_messages":null,"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_01a03c28-b7b8-76d1-93ce-33557fafbad7","prompt":null,"reasoning":null,"service_tier":"auto","status":"in_progress","temperature":1.0,"text":null,"tool_choice":{"name":"get_timezone","namespace":"travel","type":"function"},"tools":[{"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"description":"Get the IANA time zone
+      for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"top_logprobs":null,"top_p":0.95,"truncation":"disabled","usage":null,"user":null}}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","sequence_number":1,"response":{"background":false,"created_at":1787715698,"frequency_penalty":0.0,"id":"resp_01a03c28-bdd0-7c82-9e95-42037516c3de","incomplete_details":null,"input_messages":null,"instructions":null,"kv_transfer_params":null,"max_output_tokens":4096,"max_tool_calls":null,"metadata":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[],"output_messages":null,"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_01a03c28-b7b8-76d1-93ce-33557fafbad7","prompt":null,"reasoning":null,"service_tier":"auto","status":"in_progress","temperature":1.0,"text":null,"tool_choice":{"name":"get_timezone","namespace":"travel","type":"function"},"tools":[{"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"description":"Get the IANA time zone
+      for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"top_logprobs":null,"top_p":0.95,"truncation":"disabled","usage":null,"user":null}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"content":null,"encrypted_content":null,"id":"a52b36823d861ad5","status":"in_progress","summary":[],"type":"reasoning"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_part.added
+
+      '
+    - 'data: {"type":"response.reasoning_part.added","sequence_number":3,"output_index":0,"content_index":0,"item_id":"a52b36823d861ad5","part":{"text":"","type":"reasoning_text"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":4,"output_index":0,"content_index":0,"delta":"The","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":5,"output_index":0,"content_index":0,"delta":"
+      user wants me","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":6,"output_index":0,"content_index":0,"delta":"
+      to call the","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":7,"output_index":0,"content_index":0,"delta":"
+      `get_timezone","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":8,"output_index":0,"content_index":0,"delta":"`
+      function from","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":9,"output_index":0,"content_index":0,"delta":"
+      the `travel","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":10,"output_index":0,"content_index":0,"delta":"`
+      namespace,","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":11,"output_index":0,"content_index":0,"delta":"
+      which was","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":12,"output_index":0,"content_index":0,"delta":"
+      loaded in the","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":13,"output_index":0,"content_index":0,"delta":"
+      previous tool","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":14,"output_index":0,"content_index":0,"delta":"
+      search result","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":15,"output_index":0,"content_index":0,"delta":".
+      The","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":16,"output_index":0,"content_index":0,"delta":"
+      parameters","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":17,"output_index":0,"content_index":0,"delta":"
+      should","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":18,"output_index":0,"content_index":0,"delta":"
+      be `{\"","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":19,"output_index":0,"content_index":0,"delta":"city\":
+      \"","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":20,"output_index":0,"content_index":0,"delta":"Paris\"}`","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":21,"output_index":0,"content_index":0,"delta":".\n","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":22,"output_index":0,"content_index":0,"delta":"I
+      need to","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":23,"output_index":0,"content_index":0,"delta":"
+      make","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":24,"output_index":0,"content_index":0,"delta":"
+      sure I call","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":25,"output_index":0,"content_index":0,"delta":"
+      exactly","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":26,"output_index":0,"content_index":0,"delta":"
+      this","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":27,"output_index":0,"content_index":0,"delta":"
+      tool and no","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":28,"output_index":0,"content_index":0,"delta":"
+      others","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":29,"output_index":0,"content_index":0,"delta":".\nThe","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":30,"output_index":0,"content_index":0,"delta":"
+      tool","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":31,"output_index":0,"content_index":0,"delta":"
+      is","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":32,"output_index":0,"content_index":0,"delta":"
+      `agentic","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":33,"output_index":0,"content_index":0,"delta":"_ns__travel","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":34,"output_index":0,"content_index":0,"delta":"__get_timezone","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":35,"output_index":0,"content_index":0,"delta":"`","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":36,"output_index":0,"content_index":0,"delta":"
+      based on the","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":37,"output_index":0,"content_index":0,"delta":"
+      schema provided","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":38,"output_index":0,"content_index":0,"delta":"
+      in","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":39,"output_index":0,"content_index":0,"delta":"
+      the system prompt","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":40,"output_index":0,"content_index":0,"delta":",
+      but usually","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":41,"output_index":0,"content_index":0,"delta":"
+      I","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":42,"output_index":0,"content_index":0,"delta":"
+      just call `","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":43,"output_index":0,"content_index":0,"delta":"travel","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":44,"output_index":0,"content_index":0,"delta":".get","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":45,"output_index":0,"content_index":0,"delta":"_timezone`
+      or","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":46,"output_index":0,"content_index":0,"delta":"
+      use","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":47,"output_index":0,"content_index":0,"delta":"
+      the full","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":48,"output_index":0,"content_index":0,"delta":"
+      name. Wait","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":49,"output_index":0,"content_index":0,"delta":",
+      looking","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":50,"output_index":0,"content_index":0,"delta":"
+      at the system","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":51,"output_index":0,"content_index":0,"delta":"
+      prompt, the","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":52,"output_index":0,"content_index":0,"delta":"
+      available tools are","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":53,"output_index":0,"content_index":0,"delta":":\n-","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":54,"output_index":0,"content_index":0,"delta":"
+      `get_exchange","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":55,"output_index":0,"content_index":0,"delta":"_rate`\n","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":56,"output_index":0,"content_index":0,"delta":"-
+      `search","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":57,"output_index":0,"content_index":0,"delta":"_hotels`","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":58,"output_index":0,"content_index":0,"delta":"\n-
+      `","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":59,"output_index":0,"content_index":0,"delta":"travel`
+      (","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":60,"output_index":0,"content_index":0,"delta":"namespace)\n","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":61,"output_index":0,"content_index":0,"delta":"And","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":62,"output_index":0,"content_index":0,"delta":"
+      the tool","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":63,"output_index":0,"content_index":0,"delta":"
+      description for","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":64,"output_index":0,"content_index":0,"delta":"
+      `get_timezone","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":65,"output_index":0,"content_index":0,"delta":"`
+      says `","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":66,"output_index":0,"content_index":0,"delta":"agentic_ns","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":67,"output_index":0,"content_index":0,"delta":"__travel__","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":68,"output_index":0,"content_index":0,"delta":"get_timezone`","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":69,"output_index":0,"content_index":0,"delta":"
+      in the schema","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":70,"output_index":0,"content_index":0,"delta":".","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":71,"output_index":0,"content_index":0,"delta":"\nLet","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":72,"output_index":0,"content_index":0,"delta":"''s
+      check the","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":73,"output_index":0,"content_index":0,"delta":"
+      exact name to","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":74,"output_index":0,"content_index":0,"delta":"
+      use.","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":75,"output_index":0,"content_index":0,"delta":"
+      The prompt","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":76,"output_index":0,"content_index":0,"delta":"
+      says: `","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":77,"output_index":0,"content_index":0,"delta":"agentic_ns","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":78,"output_index":0,"content_index":0,"delta":"__travel__","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":79,"output_index":0,"content_index":0,"delta":"get_timezone`","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":80,"output_index":0,"content_index":0,"delta":"
+      is","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":81,"output_index":0,"content_index":0,"delta":"
+      the","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":82,"output_index":0,"content_index":0,"delta":"
+      function name in","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":83,"output_index":0,"content_index":0,"delta":"
+      the schema.","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":84,"output_index":0,"content_index":0,"delta":"\nParameters","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":85,"output_index":0,"content_index":0,"delta":":
+      `{\"","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":86,"output_index":0,"content_index":0,"delta":"city\":
+      \"","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":87,"output_index":0,"content_index":0,"delta":"Paris\"}`","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":88,"output_index":0,"content_index":0,"delta":".\nI","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":89,"output_index":0,"content_index":0,"delta":"
+      will call it","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":90,"output_index":0,"content_index":0,"delta":"
+      now.\n","item_id":"a52b36823d861ad5"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.done
+
+      '
+    - 'data: {"type":"response.reasoning_text.done","sequence_number":91,"output_index":0,"content_index":0,"item_id":"a52b36823d861ad5","text":"The
+      user wants me to call the `get_timezone` function from the `travel` namespace,
+      which was loaded in the previous tool search result. The parameters should be
+      `{\"city\": \"Paris\"}`.\nI need to make sure I call exactly this tool and no
+      others.\nThe tool is `agentic_ns__travel__get_timezone` based on the schema
+      provided in the system prompt, but usually I just call `travel.get_timezone`
+      or use the full name. Wait, looking at the system prompt, the available tools
+      are:\n- `get_exchange_rate`\n- `search_hotels`\n- `travel` (namespace)\nAnd
+      the tool description for `get_timezone` says `agentic_ns__travel__get_timezone`
+      in the schema.\nLet''s check the exact name to use. The prompt says: `agentic_ns__travel__get_timezone`
+      is the function name in the schema.\nParameters: `{\"city\": \"Paris\"}`.\nI
+      will call it now.\n"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_part.done
+
+      '
+    - 'data: {"type":"response.reasoning_part.done","sequence_number":92,"output_index":0,"content_index":0,"item_id":"a52b36823d861ad5","part":{"text":"The
+      user wants me to call the `get_timezone` function from the `travel` namespace,
+      which was loaded in the previous tool search result. The parameters should be
+      `{\"city\": \"Paris\"}`.\nI need to make sure I call exactly this tool and no
+      others.\nThe tool is `agentic_ns__travel__get_timezone` based on the schema
+      provided in the system prompt, but usually I just call `travel.get_timezone`
+      or use the full name. Wait, looking at the system prompt, the available tools
+      are:\n- `get_exchange_rate`\n- `search_hotels`\n- `travel` (namespace)\nAnd
+      the tool description for `get_timezone` says `agentic_ns__travel__get_timezone`
+      in the schema.\nLet''s check the exact name to use. The prompt says: `agentic_ns__travel__get_timezone`
+      is the function name in the schema.\nParameters: `{\"city\": \"Paris\"}`.\nI
+      will call it now.\n","type":"reasoning_text"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","sequence_number":93,"output_index":0,"item":{"content":[{"text":"The
+      user wants me to call the `get_timezone` function from the `travel` namespace,
+      which was loaded in the previous tool search result. The parameters should be
+      `{\"city\": \"Paris\"}`.\nI need to make sure I call exactly this tool and no
+      others.\nThe tool is `agentic_ns__travel__get_timezone` based on the schema
+      provided in the system prompt, but usually I just call `travel.get_timezone`
+      or use the full name. Wait, looking at the system prompt, the available tools
+      are:\n- `get_exchange_rate`\n- `search_hotels`\n- `travel` (namespace)\nAnd
+      the tool description for `get_timezone` says `agentic_ns__travel__get_timezone`
+      in the schema.\nLet''s check the exact name to use. The prompt says: `agentic_ns__travel__get_timezone`
+      is the function name in the schema.\nParameters: `{\"city\": \"Paris\"}`.\nI
+      will call it now.\n","type":"reasoning_text"}],"encrypted_content":null,"id":"a52b36823d861ad5","status":"completed","summary":[],"type":"reasoning"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","sequence_number":94,"output_index":1,"item":{"arguments":"","call_id":"call_a84a81ee9e4ff247","caller":null,"id":"a38fa81e31f2efa8","name":"get_timezone","namespace":"travel","status":"in_progress","type":"function_call"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","sequence_number":95,"output_index":1,"delta":"{\"city\":
+      \"Paris","item_id":"a38fa81e31f2efa8"}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","sequence_number":96,"output_index":1,"delta":"\"}","item_id":"a38fa81e31f2efa8"}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","sequence_number":97,"output_index":1,"arguments":"{\"city\":
+      \"Paris\"}","item_id":"a38fa81e31f2efa8","name":"agentic_ns__travel__get_timezone"}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","sequence_number":98,"output_index":1,"item":{"arguments":"{\"city\":
+      \"Paris\"}","call_id":"call_a84a81ee9e4ff247","caller":null,"id":"a38fa81e31f2efa8","name":"get_timezone","namespace":"travel","status":"completed","type":"function_call"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","sequence_number":99,"response":{"conversation_id":null,"created_at":1787715699,"error":null,"id":"resp_01a03c28-bdd0-7c82-9e95-42037516c3de","incomplete_details":null,"instructions":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[{"content":[{"text":"The
+      user wants me to call the `get_timezone` function from the `travel` namespace,
+      which was loaded in the previous tool search result. The parameters should be
+      `{\"city\": \"Paris\"}`.\nI need to make sure I call exactly this tool and no
+      others.\nThe tool is `agentic_ns__travel__get_timezone` based on the schema
+      provided in the system prompt, but usually I just call `travel.get_timezone`
+      or use the full name. Wait, looking at the system prompt, the available tools
+      are:\n- `get_exchange_rate`\n- `search_hotels`\n- `travel` (namespace)\nAnd
+      the tool description for `get_timezone` says `agentic_ns__travel__get_timezone`
+      in the schema.\nLet''s check the exact name to use. The prompt says: `agentic_ns__travel__get_timezone`
+      is the function name in the schema.\nParameters: `{\"city\": \"Paris\"}`.\nI
+      will call it now.\n","type":"reasoning_text"}],"encrypted_content":null,"id":"a52b36823d861ad5","status":null,"summary":[],"type":"reasoning"},{"arguments":"{\"city\":
+      \"Paris\"}","call_id":"call_a84a81ee9e4ff247","id":"a38fa81e31f2efa8","name":"get_timezone","namespace":"travel","status":"completed","type":"function_call"}],"previous_response_id":"resp_01a03c28-b7b8-76d1-93ce-33557fafbad7","status":"completed","tool_choice":{"name":"get_timezone","namespace":"travel","type":"function"},"tools":[{"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"description":"Get the IANA time zone
+      for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"usage":{"input_tokens":802,"input_tokens_details":{"cached_tokens":0},"output_tokens":243,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":1045}}}
+
+      '
+    - '
+
+      '
+    - 'data: [DONE]
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t4
+  request:
+    body:
+      input:
+      - call_id: call_a84a81ee9e4ff247
+        output: '{"city":"Paris","iana_timezone":"Europe/Paris"}'
+        type: function_call_output
+      - content: Use both function outputs and call no more tools. Reply with exactly
+          PARIS_MIXED_TOOLS_OK.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: Qwen/Qwen3.6-35B-A3B-FP8
+      parallel_tool_calls: false
+      previous_response_id: resp_01a03c28-bdd0-7c82-9e95-42037516c3de
+      store: true
+      stream: true
+      tool_choice: none
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","sequence_number":0,"response":{"background":false,"created_at":1787715699,"frequency_penalty":0.0,"id":"resp_01a03c28-c49d-7d72-9538-73724b7ad60f","incomplete_details":null,"input_messages":null,"instructions":null,"kv_transfer_params":null,"max_output_tokens":4096,"max_tool_calls":null,"metadata":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[],"output_messages":null,"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_01a03c28-bdd0-7c82-9e95-42037516c3de","prompt":null,"reasoning":null,"service_tier":"auto","status":"in_progress","temperature":1.0,"text":null,"tool_choice":"none","tools":[{"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"description":"Get the IANA time zone
+      for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"top_logprobs":null,"top_p":0.95,"truncation":"disabled","usage":null,"user":null}}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","sequence_number":1,"response":{"background":false,"created_at":1787715699,"frequency_penalty":0.0,"id":"resp_01a03c28-c49d-7d72-9538-73724b7ad60f","incomplete_details":null,"input_messages":null,"instructions":null,"kv_transfer_params":null,"max_output_tokens":4096,"max_tool_calls":null,"metadata":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[],"output_messages":null,"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_01a03c28-bdd0-7c82-9e95-42037516c3de","prompt":null,"reasoning":null,"service_tier":"auto","status":"in_progress","temperature":1.0,"text":null,"tool_choice":"none","tools":[{"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"description":"Get the IANA time zone
+      for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"top_logprobs":null,"top_p":0.95,"truncation":"disabled","usage":null,"user":null}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"content":null,"encrypted_content":null,"id":"be6b0d01ce538c64","status":"in_progress","summary":[],"type":"reasoning"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_part.added
+
+      '
+    - 'data: {"type":"response.reasoning_part.added","sequence_number":3,"output_index":0,"content_index":0,"item_id":"be6b0d01ce538c64","part":{"text":"","type":"reasoning_text"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":4,"output_index":0,"content_index":0,"delta":"The","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":5,"output_index":0,"content_index":0,"delta":"
+      user wants me","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":6,"output_index":0,"content_index":0,"delta":"
+      to combine","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":7,"output_index":0,"content_index":0,"delta":"
+      the information","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":8,"output_index":0,"content_index":0,"delta":"
+      from the","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":9,"output_index":0,"content_index":0,"delta":"
+      previous tool calls","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":10,"output_index":0,"content_index":0,"delta":"
+      and output a","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":11,"output_index":0,"content_index":0,"delta":"
+      specific string.","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":12,"output_index":0,"content_index":0,"delta":"\n\n","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":13,"output_index":0,"content_index":0,"delta":"1.
+      ","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":14,"output_index":0,"content_index":0,"delta":"
+      **Review","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":15,"output_index":0,"content_index":0,"delta":"
+      previous","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":16,"output_index":0,"content_index":0,"delta":"
+      tool outputs:**","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":17,"output_index":0,"content_index":0,"delta":"\n    *","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":18,"output_index":0,"content_index":0,"delta":"   `get","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":19,"output_index":0,"content_index":0,"delta":"_weather`","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":20,"output_index":0,"content_index":0,"delta":"
+      for Paris","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":21,"output_index":0,"content_index":0,"delta":"
+      returned: `","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":22,"output_index":0,"content_index":0,"delta":"{\"city\":\"","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":23,"output_index":0,"content_index":0,"delta":"Paris\",\"condition","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":24,"output_index":0,"content_index":0,"delta":"\":\"clear\",\"","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":25,"output_index":0,"content_index":0,"delta":"temperature_c\":","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":26,"output_index":0,"content_index":0,"delta":"21}`","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":27,"output_index":0,"content_index":0,"delta":".\n   ","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":28,"output_index":0,"content_index":0,"delta":"
+      *   `","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":29,"output_index":0,"content_index":0,"delta":"travel","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":30,"output_index":0,"content_index":0,"delta":".get","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":31,"output_index":0,"content_index":0,"delta":"_timezone`
+      for","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":32,"output_index":0,"content_index":0,"delta":"
+      Paris returned:","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":33,"output_index":0,"content_index":0,"delta":"
+      `{\"city","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":34,"output_index":0,"content_index":0,"delta":"\":\"Paris\",\"","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":35,"output_index":0,"content_index":0,"delta":"iana_timezone\":\"","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":36,"output_index":0,"content_index":0,"delta":"Europe/Paris","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":37,"output_index":0,"content_index":0,"delta":"\"}`.","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":38,"output_index":0,"content_index":0,"delta":"\n\n2.","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":39,"output_index":0,"content_index":0,"delta":"  **Instruction","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":40,"output_index":0,"content_index":0,"delta":":**
+      \"Use","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":41,"output_index":0,"content_index":0,"delta":"
+      both function outputs","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":42,"output_index":0,"content_index":0,"delta":"
+      and call no","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":43,"output_index":0,"content_index":0,"delta":"
+      more tools.","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":44,"output_index":0,"content_index":0,"delta":"
+      Reply with exactly","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":45,"output_index":0,"content_index":0,"delta":"
+      PARIS_MIXED","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":46,"output_index":0,"content_index":0,"delta":"_TOOLS_OK","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":47,"output_index":0,"content_index":0,"delta":".\"\n\n3","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":48,"output_index":0,"content_index":0,"delta":".  **","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":49,"output_index":0,"content_index":0,"delta":"Action:**
+      The","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":50,"output_index":0,"content_index":0,"delta":"
+      specific","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":51,"output_index":0,"content_index":0,"delta":"
+      instruction regarding","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":52,"output_index":0,"content_index":0,"delta":"
+      the content","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":53,"output_index":0,"content_index":0,"delta":"
+      (\"","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":54,"output_index":0,"content_index":0,"delta":"Use
+      both function","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":55,"output_index":0,"content_index":0,"delta":"
+      outputs\") seems","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":56,"output_index":0,"content_index":0,"delta":"
+      to be context","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":57,"output_index":0,"content_index":0,"delta":"
+      for the final","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":58,"output_index":0,"content_index":0,"delta":"
+      verification","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":59,"output_index":0,"content_index":0,"delta":",
+      but the","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":60,"output_index":0,"content_index":0,"delta":"
+      explicit output","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":61,"output_index":0,"content_index":0,"delta":"
+      instruction","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":62,"output_index":0,"content_index":0,"delta":"
+      is \"Reply","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":63,"output_index":0,"content_index":0,"delta":"
+      with exactly PARIS","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":64,"output_index":0,"content_index":0,"delta":"_MIXED_TO","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":65,"output_index":0,"content_index":0,"delta":"OLS_OK.\"","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":66,"output_index":0,"content_index":0,"delta":"\n\n4.","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":67,"output_index":0,"content_index":0,"delta":"  **Constraint","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":68,"output_index":0,"content_index":0,"delta":"
+      Check:** \"","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":69,"output_index":0,"content_index":0,"delta":"call
+      no more","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":70,"output_index":0,"content_index":0,"delta":"
+      tools\"","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":71,"output_index":0,"content_index":0,"delta":"
+      ->","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":72,"output_index":0,"content_index":0,"delta":"
+      I will","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":73,"output_index":0,"content_index":0,"delta":"
+      not call any","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":74,"output_index":0,"content_index":0,"delta":"
+      tool","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":75,"output_index":0,"content_index":0,"delta":".
+      \"","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":76,"output_index":0,"content_index":0,"delta":"Reply
+      with exactly","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":77,"output_index":0,"content_index":0,"delta":"...\"
+      -> I","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":78,"output_index":0,"content_index":0,"delta":"
+      will print","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":79,"output_index":0,"content_index":0,"delta":"
+      the","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":80,"output_index":0,"content_index":0,"delta":"
+      specific","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":81,"output_index":0,"content_index":0,"delta":"
+      text","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":82,"output_index":0,"content_index":0,"delta":".\n\n5","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":83,"output_index":0,"content_index":0,"delta":".  **","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":84,"output_index":0,"content_index":0,"delta":"Final
+      Output:**","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":85,"output_index":0,"content_index":0,"delta":"
+      PARIS_MIXED","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":86,"output_index":0,"content_index":0,"delta":"_TOOLS_OK","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.delta
+
+      '
+    - 'data: {"type":"response.reasoning_text.delta","sequence_number":87,"output_index":0,"content_index":0,"delta":"\n","item_id":"be6b0d01ce538c64"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_text.done
+
+      '
+    - 'data: {"type":"response.reasoning_text.done","sequence_number":88,"output_index":0,"content_index":0,"item_id":"be6b0d01ce538c64","text":"The
+      user wants me to combine the information from the previous tool calls and output
+      a specific string.\n\n1.  **Review previous tool outputs:**\n    *   `get_weather`
+      for Paris returned: `{\"city\":\"Paris\",\"condition\":\"clear\",\"temperature_c\":21}`.\n    *   `travel.get_timezone`
+      for Paris returned: `{\"city\":\"Paris\",\"iana_timezone\":\"Europe/Paris\"}`.\n\n2.  **Instruction:**
+      \"Use both function outputs and call no more tools. Reply with exactly PARIS_MIXED_TOOLS_OK.\"\n\n3.  **Action:**
+      The specific instruction regarding the content (\"Use both function outputs\")
+      seems to be context for the final verification, but the explicit output instruction
+      is \"Reply with exactly PARIS_MIXED_TOOLS_OK.\"\n\n4.  **Constraint Check:**
+      \"call no more tools\" -> I will not call any tool. \"Reply with exactly...\"
+      -> I will print the specific text.\n\n5.  **Final Output:** PARIS_MIXED_TOOLS_OK\n"}
+
+      '
+    - '
+
+      '
+    - 'event: response.reasoning_part.done
+
+      '
+    - 'data: {"type":"response.reasoning_part.done","sequence_number":89,"output_index":0,"content_index":0,"item_id":"be6b0d01ce538c64","part":{"text":"The
+      user wants me to combine the information from the previous tool calls and output
+      a specific string.\n\n1.  **Review previous tool outputs:**\n    *   `get_weather`
+      for Paris returned: `{\"city\":\"Paris\",\"condition\":\"clear\",\"temperature_c\":21}`.\n    *   `travel.get_timezone`
+      for Paris returned: `{\"city\":\"Paris\",\"iana_timezone\":\"Europe/Paris\"}`.\n\n2.  **Instruction:**
+      \"Use both function outputs and call no more tools. Reply with exactly PARIS_MIXED_TOOLS_OK.\"\n\n3.  **Action:**
+      The specific instruction regarding the content (\"Use both function outputs\")
+      seems to be context for the final verification, but the explicit output instruction
+      is \"Reply with exactly PARIS_MIXED_TOOLS_OK.\"\n\n4.  **Constraint Check:**
+      \"call no more tools\" -> I will not call any tool. \"Reply with exactly...\"
+      -> I will print the specific text.\n\n5.  **Final Output:** PARIS_MIXED_TOOLS_OK\n","type":"reasoning_text"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","sequence_number":90,"output_index":0,"item":{"content":[{"text":"The
+      user wants me to combine the information from the previous tool calls and output
+      a specific string.\n\n1.  **Review previous tool outputs:**\n    *   `get_weather`
+      for Paris returned: `{\"city\":\"Paris\",\"condition\":\"clear\",\"temperature_c\":21}`.\n    *   `travel.get_timezone`
+      for Paris returned: `{\"city\":\"Paris\",\"iana_timezone\":\"Europe/Paris\"}`.\n\n2.  **Instruction:**
+      \"Use both function outputs and call no more tools. Reply with exactly PARIS_MIXED_TOOLS_OK.\"\n\n3.  **Action:**
+      The specific instruction regarding the content (\"Use both function outputs\")
+      seems to be context for the final verification, but the explicit output instruction
+      is \"Reply with exactly PARIS_MIXED_TOOLS_OK.\"\n\n4.  **Constraint Check:**
+      \"call no more tools\" -> I will not call any tool. \"Reply with exactly...\"
+      -> I will print the specific text.\n\n5.  **Final Output:** PARIS_MIXED_TOOLS_OK\n","type":"reasoning_text"}],"encrypted_content":null,"id":"be6b0d01ce538c64","status":"completed","summary":[],"type":"reasoning"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","sequence_number":91,"output_index":1,"item":{"content":[],"id":"bb25dfecba62be6b","phase":null,"role":"assistant","status":"in_progress","type":"message"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.content_part.added
+
+      '
+    - 'data: {"type":"response.content_part.added","sequence_number":92,"output_index":1,"content_index":0,"item_id":"bb25dfecba62be6b","part":{"annotations":[],"logprobs":[],"text":"","type":"output_text"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","sequence_number":93,"output_index":1,"content_index":0,"delta":"\n\nPAR","item_id":"bb25dfecba62be6b","logprobs":[]}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","sequence_number":94,"output_index":1,"content_index":0,"delta":"IS_MIXED","item_id":"bb25dfecba62be6b","logprobs":[]}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","sequence_number":95,"output_index":1,"content_index":0,"delta":"_TOOLS_OK","item_id":"bb25dfecba62be6b","logprobs":[]}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.done
+
+      '
+    - 'data: {"type":"response.output_text.done","sequence_number":96,"output_index":1,"content_index":0,"item_id":"bb25dfecba62be6b","logprobs":[],"text":"\n\nPARIS_MIXED_TOOLS_OK"}
+
+      '
+    - '
+
+      '
+    - 'event: response.content_part.done
+
+      '
+    - 'data: {"type":"response.content_part.done","sequence_number":97,"output_index":1,"content_index":0,"item_id":"bb25dfecba62be6b","part":{"annotations":[],"logprobs":null,"text":"\n\nPARIS_MIXED_TOOLS_OK","type":"output_text"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","sequence_number":98,"output_index":1,"item":{"content":[{"annotations":[],"logprobs":null,"text":"\n\nPARIS_MIXED_TOOLS_OK","type":"output_text"}],"id":"bb25dfecba62be6b","phase":null,"role":"assistant","status":"completed","summary":[],"type":"message"}}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","sequence_number":99,"response":{"conversation_id":null,"created_at":1787715700,"error":null,"id":"resp_01a03c28-c49d-7d72-9538-73724b7ad60f","incomplete_details":null,"instructions":null,"model":"Qwen/Qwen3.6-35B-A3B-FP8","object":"response","output":[{"content":[{"text":"The
+      user wants me to combine the information from the previous tool calls and output
+      a specific string.\n\n1.  **Review previous tool outputs:**\n    *   `get_weather`
+      for Paris returned: `{\"city\":\"Paris\",\"condition\":\"clear\",\"temperature_c\":21}`.\n    *   `travel.get_timezone`
+      for Paris returned: `{\"city\":\"Paris\",\"iana_timezone\":\"Europe/Paris\"}`.\n\n2.  **Instruction:**
+      \"Use both function outputs and call no more tools. Reply with exactly PARIS_MIXED_TOOLS_OK.\"\n\n3.  **Action:**
+      The specific instruction regarding the content (\"Use both function outputs\")
+      seems to be context for the final verification, but the explicit output instruction
+      is \"Reply with exactly PARIS_MIXED_TOOLS_OK.\"\n\n4.  **Constraint Check:**
+      \"call no more tools\" -> I will not call any tool. \"Reply with exactly...\"
+      -> I will print the specific text.\n\n5.  **Final Output:** PARIS_MIXED_TOOLS_OK\n","type":"reasoning_text"}],"encrypted_content":null,"id":"be6b0d01ce538c64","status":null,"summary":[],"type":"reasoning"},{"content":[{"annotations":[],"text":"\n\nPARIS_MIXED_TOOLS_OK","type":"output_text"}],"id":"bb25dfecba62be6b","role":"assistant","status":"completed","type":"message"}],"previous_response_id":"resp_01a03c28-bdd0-7c82-9e95-42037516c3de","status":"completed","tool_choice":"none","tools":[{"description":"Get
+      the current weather for a city","name":"get_weather","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"},{"description":"Travel
+      location tools","name":"travel","tools":[{"description":"Get the IANA time zone
+      for a city","name":"get_timezone","parameters":{"additionalProperties":false,"properties":{"city":{"type":"string"}},"required":["city"],"type":"object"},"strict":true,"type":"function"}],"type":"namespace"}],"usage":{"input_tokens":347,"input_tokens_details":{"cached_tokens":0},"output_tokens":219,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":566}}}
+
+      '
+    - '
+
+      '
+    - 'data: [DONE]
+
+      '
+    - '
+
+      '
+    status_code: 200

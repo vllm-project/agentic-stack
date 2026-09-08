@@ -16,7 +16,7 @@ use crate::executor::gateway_accumulator::{GatewayStreamAccumulator, StreamEvent
 use crate::executor::inference::{call_inference, fetch_response_json};
 use crate::executor::request::{ExecutionContext, RequestContext};
 use crate::executor::response_budget::ExecutorResponseBudget;
-use crate::tool::ToolRegistry;
+use crate::tool::{ToolRegistry, ToolSearchHandler};
 use crate::types::io::OutputItem;
 use crate::types::request_response::ResponsePayload;
 use crate::utils::common::{deserialize_from_str, serialize_to_string};
@@ -50,9 +50,11 @@ pub(super) async fn fetch_blocking_payload(
     ctx: &RequestContext,
     exec_ctx: &ExecutionContext,
     auth: Option<&str>,
+    registry: &ToolRegistry,
     response_budget: Option<&ExecutorResponseBudget>,
 ) -> ExecutorResult<ResponsePayload> {
     let url = exec_ctx.responses_url();
+    registry.ensure_request_prepared(&ctx.enriched_request)?;
     // Non-streaming request: stream=false -> full JSON body -> from_json.
     let upstream_json = upstream_request(ctx, false)?;
 
@@ -61,7 +63,11 @@ pub(super) async fn fetch_blocking_payload(
         response_budget.consume(body.len())?;
     }
 
-    payload_from_upstream(ctx, UpstreamBody::Json(&body))
+    registry.validate_blocking_response(&body)?;
+    let mut payload = payload_from_upstream(ctx, UpstreamBody::Json(&body))?;
+    let status = payload.status.parse().unwrap_or_default();
+    ToolSearchHandler::normalize_response_output(registry, &mut payload.output, status, &HashSet::new())?;
+    Ok(payload)
 }
 
 /// A complete upstream response, in whichever form the caller received it.
@@ -187,6 +193,7 @@ pub(super) async fn fetch_stream_payload(
     response_budget: &ExecutorResponseBudget,
 ) -> ExecutorResult<StreamPayload> {
     let url = exec_ctx.responses_url();
+    registry.ensure_request_prepared(&ctx.enriched_request)?;
     let upstream_json = upstream_request(ctx, true)?;
     let mut line_stream = Box::pin(call_inference(
         upstream_json,
@@ -196,14 +203,14 @@ pub(super) async fn fetch_stream_payload(
         exec_ctx.streaming_timeout,
     ));
     let mut acc = ResponseAccumulator::new(ctx.response_id.clone(), ctx.conversation_id.clone());
-    let mut function_sse = FunctionSseTranslator::new(registry.tool_type_map());
+    let mut function_sse = FunctionSseTranslator::new(registry);
     let mut defer_from_output_index = None;
     let mut deferred_events = Vec::new();
     let mut deferred_bytes = 0;
     while let Some(line_result) = line_stream.next().await {
         let line = line_result?;
         response_budget.consume(line.len())?;
-        if stream.is_none() {
+        if stream.is_none() && !registry.tool_search_is_active() {
             absorb_line(&mut acc, ctx, &line)?;
             continue;
         }
@@ -249,8 +256,16 @@ pub(super) async fn fetch_stream_payload(
             }
         }
     }
+    let function_sse_outcome = function_sse.finish()?;
     acc.finish_stream();
-    let payload = finalize_payload(ctx, acc);
+    let mut payload = finalize_payload(ctx, acc);
+    let status = payload.status.parse().unwrap_or_default();
+    ToolSearchHandler::normalize_response_output(
+        registry,
+        &mut payload.output,
+        status,
+        &function_sse_outcome.unfinished_tool_search_item_ids,
+    )?;
     Ok(StreamPayload {
         payload,
         deferred_events,
@@ -317,6 +332,7 @@ fn should_defer_stream_event(frame: &EventFrame, defer_from_output_index: Option
 
 async fn emit_stream_frame(frame: &mut EventFrame, emit_ctx: &mut StreamEmitContext<'_>) -> ExecutorResult<bool> {
     apply_context_response_ids(&mut frame.wire, emit_ctx.request);
+    emit_ctx.registry.restore_tool_search_response_tools(&mut frame.wire)?;
     emit_ctx.registry.restore_stream_event_wire(&mut frame.wire);
     let emitted = emit_ctx.accumulator.process_event(frame, emit_ctx.output_offset);
     if emitted {

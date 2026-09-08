@@ -1,0 +1,51 @@
+[
+  {
+    "type": "function",
+    "name": "tool_search",
+    "description": "Search the client tool catalog for tools that can satisfy the request. Available catalog entries: get_exchange_rate — Get the exchange rate between two currencies; search_hotels — Search for hotels in a city; travel — Travel location tools.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "A concise description of the needed capabilities."
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    },
+    "strict": false
+  },
+  {
+    "type": "function",
+    "name": "get_weather",
+    "description": "Get the current weather for a city",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string"
+        }
+      },
+      "required": ["city"],
+      "additionalProperties": false
+    },
+    "strict": true
+  },
+  {
+    "type": "function",
+    "name": "agentic_ns__travel__get_timezone",
+    "description": "Get the IANA time zone for a city",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string"
+        }
+      },
+      "required": ["city"],
+      "additionalProperties": false
+    },
+    "strict": true
+  }
+]

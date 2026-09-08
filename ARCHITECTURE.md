@@ -263,7 +263,7 @@ access happen — those live in `tool/`, `executor/`, and `storage/` respectivel
   continuation state available to orchestration without sending unsupported public
   item types to vLLM.
 - **`types/tools/params.rs`** — the tool **declaration** shapes a client sends:
-  `ResponsesTool` (tagged enum: `Function`, `Mcp`, `WebSearch`, `FileSearch`,
+  `ResponsesTool` (tagged enum: `Function`, `ToolSearch`, `Mcp`, `WebSearch`, `FileSearch`,
   `CodeInterpreter`, `Namespace`, `Custom`, `Unknown`) and each variant's param struct.
   This is a good concrete example of the module boundary: `ResponsesTool` is *defined*
   here as a pure shape, but its behavior — `validate()` and `to_function_tools()` — is
@@ -472,9 +472,9 @@ in the response accumulator or inference transport.
 
 #### `function_sse.rs` — `FunctionSseTranslator`
 
-vLLM only ever emits `function_call` SSE events, regardless of which tool type the
-call is routed to. This translator looks up each call's name in the tool registry and
-reshapes the raw stream accordingly:
+Upstreams without native support for a declared tool type emit `function_call` SSE
+events instead. This translator borrows the request-scoped tool registry for
+classification and reshapes those raw calls accordingly:
 - **Custom tools** — rewritten into the public `custom_tool_call` event shape
   (`output_item.added` / `custom_tool_call_input.delta` / `.done` / `output_item.done`),
   reconstructing the `input` JSON incrementally from the streamed `arguments`.
@@ -482,6 +482,9 @@ reshapes the raw stream accordingly:
   frames are suppressed entirely. Their real client-visible events are synthesized
   later, once the call has actually executed, by `gateway.rs`.
 - **Client-owned tools** (`Function`, `CodexNamespace`) — pass through unchanged.
+- **Tool search** — native `tool_search_call` events pass through as typed items;
+  synthetic `function_call` events named `tool_search` are projected into that same
+  public lifecycle after validation.
 
 It also buffers function-call events that arrive before the call's name is known
 (bounded at 256 KiB) and replays them once the name resolves.

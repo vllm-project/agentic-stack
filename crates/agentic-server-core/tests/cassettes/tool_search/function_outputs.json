@@ -1,0 +1,5 @@
+{
+  "get_weather": "{\"city\":\"Paris\",\"condition\":\"clear\",\"temperature_c\":21}",
+  "get_timezone": "{\"city\":\"Paris\",\"iana_timezone\":\"Europe/Paris\"}",
+  "agentic_ns__travel__get_timezone": "{\"city\":\"Paris\",\"iana_timezone\":\"Europe/Paris\"}"
+}

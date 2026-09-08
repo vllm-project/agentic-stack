@@ -1,0 +1,4 @@
+First call tool_search exactly once to find both a current-weather function and a travel time-zone function. Do not call any other tool yet.
+Now call get_weather exactly once with {"city":"Paris"}. Do not call any other tool.
+Now call the loaded travel namespace member get_timezone exactly once with {"city":"Paris"}. Do not call any other tool.
+Use both function outputs and call no more tools. Reply with exactly PARIS_MIXED_TOOLS_OK.

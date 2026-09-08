@@ -39,6 +39,10 @@ pub enum ToolError {
     Execution(String),
     #[error("invalid tool config: {0}")]
     Config(String),
+    #[error("upstream returned an invalid tool-search call")]
+    InvalidUpstreamToolSearch,
+    #[error("upstream returned a call for a function that has not been loaded")]
+    UpstreamWithheldFunctionCall,
     /// A continuation request omitted the output for a pending function call
     /// from the prior turn.
     #[error("No tool output found for function call {call_id}.")]
@@ -73,8 +77,8 @@ pub trait ToolHandler: Send + Sync {
 /// Only executable gateway handlers implement this trait. MCP and web search
 /// implement it today. File search and code interpreter are gateway-owned in
 /// the registry but do not yet have executors. Client-owned tools (`Function`,
-/// `Custom`, `CodexNamespace`) do not implement it, so they cannot be dispatched
-/// through this interface.
+/// `ToolSearch`, `Custom`, `CodexNamespace`) do not implement it, so they cannot
+/// be dispatched through this interface.
 ///
 /// ## Note on `async fn` in traits
 ///
