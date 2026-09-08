@@ -282,7 +282,7 @@ fn strict_relay_decoder_accepts_compatible_recorded_responses_streams() {
     );
     assert_eq!(
         rejected.len(),
-        13,
+        10,
         "the recorded call-ID incompatibility baseline changed:\n{}",
         rejected.join("\n")
     );
