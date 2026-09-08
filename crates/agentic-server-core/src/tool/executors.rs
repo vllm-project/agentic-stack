@@ -11,8 +11,6 @@ use crate::config::ToolRuntimeConfig;
 use crate::types::tools::McpToolParam;
 
 pub enum GatewayExecutorRegistration {
-    /// Explicitly grant shell execution to an application-provided sandbox.
-    Shell(Arc<dyn super::shell::ShellExecutor>),
     WebSearch(Arc<WebSearchExecutor>),
     Mcp {
         server_label: String,
@@ -51,14 +49,12 @@ pub struct GatewayExecutors {
     mcp_discovered: Arc<RwLock<HashMap<String, Vec<McpDiscoveredHandler>>>>,
     mcp_allowed_hosts: Vec<String>,
     web_search: Option<Arc<WebSearchExecutor>>,
-    shell: Option<Arc<dyn super::shell::ShellExecutor>>,
 }
 
 impl GatewayExecutors {
     #[must_use]
     pub fn from_env(client: Arc<reqwest::Client>) -> Self {
         Self {
-            shell: None,
             mcp: HashMap::new(),
             mcp_configs: HashMap::new(),
             mcp_clients: Arc::new(RwLock::new(HashMap::new())),
@@ -79,7 +75,6 @@ impl GatewayExecutors {
     /// discovery happen when a configured server is requested.
     pub fn from_config(client: Arc<reqwest::Client>, config: &ToolRuntimeConfig) -> Result<Self, ToolError> {
         let executors = Self {
-            shell: None,
             mcp: HashMap::new(),
             mcp_configs: config.mcp_servers.clone(),
             mcp_clients: Arc::new(RwLock::new(HashMap::new())),
@@ -113,7 +108,6 @@ impl GatewayExecutors {
 
     pub fn insert(&mut self, registration: impl Into<GatewayExecutorRegistration>) {
         match registration.into() {
-            GatewayExecutorRegistration::Shell(executor) => self.shell = Some(executor),
             GatewayExecutorRegistration::WebSearch(executor) => self.web_search = Some(executor),
             GatewayExecutorRegistration::Mcp { server_label, handlers } => {
                 if handlers.is_empty() {
@@ -135,11 +129,6 @@ impl GatewayExecutors {
         self.web_search
             .clone()
             .unwrap_or_else(|| Arc::new(WebSearchHandler::spec_only()))
-    }
-
-    #[must_use]
-    pub(crate) fn shell_executor(&self) -> Option<Arc<dyn super::shell::ShellExecutor>> {
-        self.shell.clone()
     }
 
     #[must_use]
@@ -311,7 +300,6 @@ fn validate_mcp_execution_options(param: &McpToolParam, configured_server: bool)
 impl std::fmt::Debug for GatewayExecutors {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GatewayExecutors")
-            .field("shell", &self.shell.is_some())
             .field("mcp_server_handlers", &self.mcp.len())
             .field("mcp_server_configs", &self.mcp_configs.len())
             .field("mcp_clients", &Arc::strong_count(&self.mcp_clients))

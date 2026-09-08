@@ -1,0 +1,214 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'The local shell environment is Linux bash. Use the shell tool exactly
+        once with this exact action, preserving the commands array and its order:
+        {"commands": ["printf ''SHELL_OK\\n''", "printf ''SHELL_ERROR\\n'' >&2; exit
+        7", "sleep 2"], "timeout_ms": 1000, "max_output_length": 4096}. Keep semicolon-separated
+        statements in the same command string. Wait for the client to return shell_call_output
+        before interpreting the results.'
+      max_output_tokens: 4096
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - environment:
+          type: local
+        type: shell
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788851408
+      error: null
+      id: resp_01a07fda-4a82-7130-9be9-183ef7971b0b
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user wants me to execute a shell command using the shell tool.
+            They''ve provided the exact parameters I need to use:
+
+
+            1. commands: ["printf ''SHELL_OK\\n''", "printf ''SHELL_ERROR\\n'' >&2;
+            exit 7", "sleep 2"]
+
+            2. timeout_ms: 1000
+
+            3. max_output_length: 4096
+
+
+            I need to call the shell function with these exact parameters. The commands
+            array has 3 commands that will be executed in order. I should wait for
+            the result before interpreting it.
+
+
+            Let me make the function call with these exact parameters.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_b5200a0edbcbd490
+        status: null
+        summary: []
+        type: reasoning
+      - action:
+          commands:
+          - printf 'SHELL_OK\n'
+          - printf 'SHELL_ERROR\n' >&2; exit 7
+          - sleep 2
+          max_output_length: 4096
+          timeout_ms: 1000
+        call_id: chatcmpl-tool-a5c8933a3e6749ed
+        id: sh_bea2ca3d52270581
+        status: completed
+        type: shell_call
+      previous_response_id: null
+      status: completed
+      usage:
+        input_tokens: 505
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 222
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 727
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: chatcmpl-tool-a5c8933a3e6749ed
+        max_output_length: 4096
+        output:
+        - outcome:
+            exit_code: 0
+            type: exit
+          stderr: ''
+          stdout: 'SHELL_OK
+
+            '
+        - outcome:
+            exit_code: 7
+            type: exit
+          stderr: 'SHELL_ERROR
+
+            '
+          stdout: ''
+        - outcome:
+            type: timeout
+          stderr: ''
+          stdout: ''
+        type: shell_call_output
+      - content: Use the shell output above without calling any more tools. For each
+          command, report its stdout, stderr, and exit code or timeout outcome in
+          order.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      previous_response_id: resp_01a07fda-4a82-7130-9be9-183ef7971b0b
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - environment:
+          type: local
+        type: shell
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788851411
+      error: null
+      id: resp_01a07fda-5048-7722-85c5-689b32df7131
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: "Let me analyze the shell output for each command in order:\n\n1.\
+            \ First command: `printf 'SHELL_OK\\n'`\n   - stdout: \"SHELL_OK\\n\"\n\
+            \   - stderr: \"\" (empty)\n   - outcome: exit_code 0 (successful completion)\n\
+            \n2. Second command: `printf 'SHELL_ERROR\\n' >&2; exit 7`\n   - stdout:\
+            \ \"\" (empty)\n   - stderr: \"SHELL_ERROR\\n\"\n   - outcome: exit_code\
+            \ 7 (the exit command)\n\n3. Third command: `sleep 2`\n   - stdout: \"\
+            \" (empty)\n   - stderr: \"\" (empty)\n   - outcome: timeout (the command\
+            \ timed out, which makes sense since sleep 2 with a 1000ms timeout would\
+            \ timeout)\n\nI need to report these results in order for each command.\n"
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_ae78128de0c6afde
+        status: null
+        summary: []
+        type: reasoning
+      - content:
+        - annotations: []
+          text: '
+
+
+            Here are the results for each command in order:
+
+
+            **Command 1: `printf ''SHELL_OK\n''`**
+
+            - stdout: `SHELL_OK`
+
+            - stderr: (empty)
+
+            - exit code: 0 (success)
+
+
+            **Command 2: `printf ''SHELL_ERROR\n'' >&2; exit 7`**
+
+            - stdout: (empty)
+
+            - stderr: `SHELL_ERROR`
+
+            - exit code: 7 (explicit exit)
+
+
+            **Command 3: `sleep 2`**
+
+            - stdout: (empty)
+
+            - stderr: (empty)
+
+            - outcome: timeout (the command exceeded the 1000ms timeout)'
+          type: output_text
+        id: msg_bcf01bcdb77a96c6
+        role: assistant
+        status: completed
+        type: message
+      previous_response_id: resp_01a07fda-4a82-7130-9be9-183ef7971b0b
+      status: completed
+      usage:
+        input_tokens: 695
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 337
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 1032
+    headers:
+      content-type: application/json
+    status_code: 200

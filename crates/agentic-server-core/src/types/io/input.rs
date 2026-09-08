@@ -7,7 +7,7 @@ use crate::types::event::MessageStatus;
 use crate::utils::common::deserialize_from_value;
 
 use super::output::{CustomToolCall, FunctionToolCall, McpListTools, ReasoningOutput};
-use super::shell::{ShellCall, ShellCallOutputMessage};
+use super::shell::{ShellCall, ShellCallOutputMessage, ShellCallStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputTextContent {
@@ -164,6 +164,36 @@ impl From<CustomToolCall> for InputFunctionToolCall {
             namespace: None,
             arguments: serde_json::json!({ "input": call.input }).to_string(),
             status: call.status,
+        }
+    }
+}
+
+impl From<ShellCall> for InputFunctionToolCall {
+    fn from(call: ShellCall) -> Self {
+        Self {
+            id: call.id.as_deref().and_then(function_call_item_id),
+            call_id: call.call_id,
+            name: "shell".to_owned(),
+            namespace: None,
+            // The action contains only JSON-compatible values and string map keys.
+            arguments: serde_json::to_string(&call.action).expect("shell action serializes to JSON"),
+            status: match call.status {
+                Some(ShellCallStatus::Completed) => Some(MessageStatus::Completed),
+                Some(ShellCallStatus::InProgress) => Some(MessageStatus::InProgress),
+                Some(ShellCallStatus::Incomplete) | None => None,
+            },
+        }
+    }
+}
+
+impl From<ShellCallOutputMessage> for FunctionToolResultMessage {
+    fn from(output: ShellCallOutputMessage) -> Self {
+        Self {
+            call_id: output.call_id,
+            // Command outputs contain only JSON-compatible values and string map keys.
+            output: serde_json::to_string(&output.output)
+                .expect("shell outputs serialize to JSON")
+                .into(),
         }
     }
 }
@@ -383,7 +413,11 @@ fn function_call_item_id(item_id: &str) -> Option<String> {
     if item_id.is_empty() {
         return None;
     }
-    if let Some(suffix) = item_id.strip_prefix("ctc_").filter(|suffix| !suffix.is_empty()) {
+    if let Some(suffix) = item_id
+        .strip_prefix("ctc_")
+        .or_else(|| item_id.strip_prefix("sh_"))
+        .filter(|suffix| !suffix.is_empty())
+    {
         return Some(format!("fc_{suffix}"));
     }
     Some(item_id.to_owned())
@@ -630,6 +664,22 @@ mod tests {
         };
         assert!(matches!(items[0], InputItem::ShellCall(_)));
         assert!(matches!(items[1], InputItem::ShellCallOutput(_)));
+
+        let borrowed = serde_json::to_value(Vec::<InputItem>::from(&input)).unwrap();
+        let owned = serde_json::to_value(Vec::<InputItem>::from(input.clone())).unwrap();
+        let prepared = ResponsesInput::Items(Vec::from(&input));
+        let model = serde_json::to_value(prepared.model_input()).unwrap();
+        assert_eq!(borrowed, owned);
+        assert_eq!(borrowed, model);
+        assert_eq!(model[0]["type"], "function_call");
+        assert_eq!(model[0]["id"], "fc_1");
+        assert_eq!(model[0]["name"], "shell");
+        assert_eq!(model[0]["call_id"], model[1]["call_id"]);
+        assert_eq!(model[1]["type"], "function_call_output");
+        let action: Value = serde_json::from_str(model[0]["arguments"].as_str().unwrap()).unwrap();
+        assert_eq!(action, serde_json::json!({"commands": ["pwd"], "timeout_ms": 1000}));
+        let output: Value = serde_json::from_str(model[1]["output"].as_str().unwrap()).unwrap();
+        assert_eq!(output[0]["outcome"]["exit_code"], 0);
 
         let serialized = serde_json::to_value(input).expect("shell history serializes");
         assert_eq!(serialized[0]["type"], "shell_call");

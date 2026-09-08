@@ -1,0 +1,178 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'The local shell environment is Linux bash. Use the shell tool exactly
+        once with this exact action, preserving the commands array and its order:
+        {"commands": ["printf ''SHELL_OK\\n''"], "timeout_ms": 1000, "max_output_length":
+        4096}. Keep semicolon-separated statements in the same command string. Wait
+        for the client to return shell_call_output before interpreting the results.'
+      max_output_tokens: 4096
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - environment:
+          type: local
+        type: shell
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788851382
+      error: null
+      id: resp_01a07fd9-e3e1-7652-accb-809e0744cf95
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user is asking me to use the shell tool exactly once with specific
+            commands. They''ve provided a specific action with a commands array containing
+            one command: ["printf ''SHELL_OK\\n''"] with timeout_ms of 1000 and max_output_length
+            of 4096.
+
+
+            They want me to call the shell function with these exact parameters. Let
+            me format this correctly.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_9ce0829b57171675
+        status: null
+        summary: []
+        type: reasoning
+      - action:
+          commands:
+          - printf 'SHELL_OK\n'
+          max_output_length: 4096
+          timeout_ms: 1000
+        call_id: chatcmpl-tool-a95aec1211d91651
+        id: sh_9989093f4e383727
+        status: completed
+        type: shell_call
+      previous_response_id: null
+      status: completed
+      usage:
+        input_tokens: 485
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 150
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 635
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: chatcmpl-tool-a95aec1211d91651
+        max_output_length: 4096
+        output:
+        - outcome:
+            exit_code: 0
+            type: exit
+          stderr: ''
+          stdout: 'SHELL_OK
+
+            '
+        type: shell_call_output
+      - content: Use the shell output above without calling any more tools. For each
+          command, report its stdout, stderr, and exit code or timeout outcome in
+          order.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      previous_response_id: resp_01a07fd9-e3e1-7652-accb-809e0744cf95
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - environment:
+          type: local
+        type: shell
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788851383
+      error: null
+      id: resp_01a07fd9-e7e1-7d12-8380-eaabf10caad6
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user wants me to report the shell output without calling any
+            more tools. I need to report the stdout, stderr, and exit code/outcome
+            for the command that was executed.
+
+
+            From the shell output I received:
+
+            - stdout: "SHELL_OK\n"
+
+            - stderr: ""
+
+            - outcome: {"type":"exit","exit_code":0}
+
+
+            This is straightforward - I just need to report this information in a
+            clear format.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_9eedd40ce9fb5964
+        status: null
+        summary: []
+        type: reasoning
+      - content:
+        - annotations: []
+          text: '
+
+
+            **Command 1:** `printf ''SHELL_OK\n''`
+
+            - **stdout:** `SHELL_OK`
+
+            - **stderr:** (empty)
+
+            - **outcome:** exit with code 0'
+          type: output_text
+        id: msg_a199910ae461cf10
+        role: assistant
+        status: completed
+        type: message
+      previous_response_id: resp_01a07fd9-e3e1-7652-accb-809e0744cf95
+      status: completed
+      usage:
+        input_tokens: 623
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 136
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 759
+    headers:
+      content-type: application/json
+    status_code: 200

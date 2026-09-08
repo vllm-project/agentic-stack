@@ -484,9 +484,11 @@ mod tests {
         let inputs = InOutItem::into_input_items(vec![item.as_inout().expect("stored shell item")]);
         let value = serde_json::to_value(&inputs[0]).expect("rehydrated shell input");
 
-        assert_eq!(value["type"], "shell_call");
+        assert_eq!(value["type"], "function_call");
+        assert_eq!(value["name"], "shell");
         assert_eq!(value["call_id"], "call_shell");
-        assert_eq!(value["action"]["commands"][0], "pwd");
+        let action: serde_json::Value = serde_json::from_str(value["arguments"].as_str().unwrap()).unwrap();
+        assert_eq!(action["commands"][0], "pwd");
         assert!(value.get(STORED_ITEM_KIND_KEY).is_none());
     }
 

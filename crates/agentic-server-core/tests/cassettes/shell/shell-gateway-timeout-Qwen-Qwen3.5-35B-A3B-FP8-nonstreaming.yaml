@@ -1,0 +1,193 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'The local shell environment is Linux bash. Use the shell tool exactly
+        once with this exact action, preserving the commands array and its order:
+        {"commands": ["sleep 2"], "timeout_ms": 1000, "max_output_length": 4096}.
+        Keep semicolon-separated statements in the same command string. Wait for the
+        client to return shell_call_output before interpreting the results.'
+      max_output_tokens: 4096
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - environment:
+          type: local
+        type: shell
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788851397
+      error: null
+      id: resp_01a07fda-1faf-70e1-8453-7a853ab296fc
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The user wants me to use the shell tool exactly once with a specific
+            command. They''ve given me precise instructions:
+
+            1. Use the shell tool with "sleep 2" command
+
+            2. Set timeout_ms to 1000
+
+            3. Set max_output_length to 4096
+
+            4. Keep semicolon-separated statements in the same command string (though
+            there''s only one command here)
+
+            5. Wait for the client to return shell_call_output before interpreting
+            results
+
+
+            I need to make the function call with these exact parameters.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_a927fc2c744809bd
+        status: null
+        summary: []
+        type: reasoning
+      - action:
+          commands:
+          - sleep 2
+          max_output_length: 4096
+          timeout_ms: 1000
+        call_id: chatcmpl-tool-85a453f43d4e506f
+        id: sh_9ce59cda34d58b60
+        status: completed
+        type: shell_call
+      previous_response_id: null
+      status: completed
+      usage:
+        input_tokens: 480
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 177
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 657
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: chatcmpl-tool-85a453f43d4e506f
+        max_output_length: 4096
+        output:
+        - outcome:
+            type: timeout
+          stderr: ''
+          stdout: ''
+        type: shell_call_output
+      - content: Use the shell output above without calling any more tools. For each
+          command, report its stdout, stderr, and exit code or timeout outcome in
+          order.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      previous_response_id: resp_01a07fda-1faf-70e1-8453-7a853ab296fc
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - environment:
+          type: local
+        type: shell
+    headers:
+      accept: '*/*'
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      conversation_id: null
+      created_at: 1788851399
+      error: null
+      id: resp_01a07fda-245b-79c0-b629-2efb5a884417
+      incomplete_details: null
+      instructions: null
+      model: Qwen/Qwen3.5-35B-A3B-FP8
+      object: response
+      output:
+      - content:
+        - text: 'The shell tool output shows that the command "sleep 2" timed out
+            because the timeout_ms was set to 1000 milliseconds (1 second), but the
+            sleep command was instructed to sleep for 2 seconds.
+
+
+            Let me report the output for this command:
+
+            - stdout: "" (empty string)
+
+            - stderr: "" (empty string)
+
+            - outcome: timeout (type: "timeout")
+
+
+            Since this is a timeout, there won''t be a traditional exit code - the
+            timeout outcome indicates the command was terminated before completion.
+
+            '
+          type: reasoning_text
+        encrypted_content: null
+        id: rs_af255b5ecad811d2
+        status: null
+        summary: []
+        type: reasoning
+      - content:
+        - annotations: []
+          text: '
+
+
+            Based on the shell output provided:
+
+
+            **Command 1: `sleep 2`**
+
+            - **stdout:** (empty)
+
+            - **stderr:** (empty)
+
+            - **Exit code/outcome:** **Timeout** (exceeded the 1000ms timeout limit)
+
+
+            The command timed out because it was instructed to sleep for 2 seconds,
+            but the timeout was set to only 1000ms (1 second). Since the timeout occurred
+            before the sleep could complete, no output was produced and the command
+            was terminated with a timeout outcome.'
+          type: output_text
+        id: msg_b192d821c53bef62
+        role: assistant
+        status: completed
+        type: message
+      previous_response_id: resp_01a07fda-1faf-70e1-8453-7a853ab296fc
+      status: completed
+      usage:
+        input_tokens: 603
+        input_tokens_details:
+          cached_tokens: 0
+        output_tokens: 231
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 834
+    headers:
+      content-type: application/json
+    status_code: 200

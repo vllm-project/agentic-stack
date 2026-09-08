@@ -23,5 +23,5 @@ pub use handler::{GatewayExecutor, GatewayToolEventPlan, ToolError, ToolHandler,
 pub use mcp::{McpClient, McpClientPool, McpDiscoveredHandler, McpError, McpHandler, McpOperation, McpServerEntry};
 pub use ownership::{GatewayBinding, ToolOwnership};
 pub use registry::{GatewayDispatchResult, ToolEntry, ToolRegistry, ToolType};
-pub use shell::{ShellExecutor, ShellHandler};
+pub use shell::ShellHandler;
 pub use web_search::WebSearchHandler;

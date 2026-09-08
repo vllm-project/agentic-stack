@@ -287,7 +287,7 @@ impl RequestPayload {
         CustomHandler::validate_tool_choice(self.tools.as_deref(), &tool_choice)?;
         Ok(UpstreamRequest {
             model: &self.model,
-            input: crate::tool::ShellHandler::model_input(self.input.model_input())?,
+            input: self.input.model_input(),
             stream,
             instructions: self.instructions.as_deref(),
             tools,
@@ -414,6 +414,8 @@ impl From<&ResponsesInput> for Vec<InputItem> {
                 .iter()
                 .filter_map(|item| match item {
                     InputItem::Unknown => None,
+                    InputItem::ShellCall(call) => Some(InputItem::FunctionCall(call.clone().into())),
+                    InputItem::ShellCallOutput(output) => Some(InputItem::FunctionCallOutput(output.clone().into())),
                     InputItem::CustomToolCall(call) => Some(InputItem::FunctionCall(call.clone().into())),
                     InputItem::CustomToolCallOutput(output) => {
                         Some(InputItem::FunctionCallOutput(output.clone().into()))
@@ -438,6 +440,8 @@ impl From<ResponsesInput> for Vec<InputItem> {
                 .into_iter()
                 .filter_map(|item| match item {
                     InputItem::Unknown => None,
+                    InputItem::ShellCall(call) => Some(InputItem::FunctionCall(call.into())),
+                    InputItem::ShellCallOutput(output) => Some(InputItem::FunctionCallOutput(output.into())),
                     InputItem::CustomToolCall(call) => Some(InputItem::FunctionCall(call.into())),
                     InputItem::CustomToolCallOutput(output) => Some(InputItem::FunctionCallOutput(output.into())),
                     item => Some(item),

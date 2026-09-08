@@ -106,26 +106,11 @@ impl InOutItem {
     /// Internal items are removed later by `ResponsesInput::model_input`.
     #[must_use]
     pub fn into_input_items(history: Vec<InOutItem>) -> Vec<InputItem> {
-        // Gateway-executed shell calls have a canonical internal function pair,
-        // just like MCP/web search. Keep the public shell item in storage but
-        // don't replay its invocation a second time on continuation.
-        let gateway_shell_ids: std::collections::HashSet<String> = history
-            .iter()
-            .filter_map(|item| match item {
-                InOutItem::Input(InputItem::FunctionCall(call))
-                    if call.name == crate::tool::shell::SHELL_FUNCTION_NAME =>
-                {
-                    Some(call.call_id.clone())
-                }
-                _ => None,
-            })
-            .collect();
         history
             .into_iter()
             .filter_map(|item| match item {
                 InOutItem::Input(item) if item.is_unknown() => None,
                 InOutItem::Input(item) => Some(item),
-                InOutItem::Output(OutputItem::ShellCall(call)) if gateway_shell_ids.contains(&call.call_id) => None,
                 InOutItem::Output(output) => output.to_input_item(),
             })
             .collect()
@@ -276,7 +261,9 @@ mod tests {
         };
 
         let inputs = InOutItem::into_input_items(vec![InOutItem::Output(OutputItem::ShellCall(call))]);
-        assert!(matches!(inputs.as_slice(), [InputItem::ShellCall(call)] if call.call_id == "call_shell"));
+        assert!(
+            matches!(inputs.as_slice(), [InputItem::FunctionCall(call)] if call.call_id == "call_shell" && call.name == "shell")
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::events::EventPayload;
+use crate::events::types::ShellCommandUpdate;
 use crate::executor::error::ExecutorError;
 use crate::tool::ToolRegistry;
 use crate::types::event::MessageStatus;
@@ -234,13 +235,30 @@ impl TryFrom<&EventPayload> for ShellCall {
 }
 
 impl ApplyDone for ShellCall {
-    fn apply_done(&mut self, payload: &EventPayload, _buffer: &mut String) {
-        let EventPayload::OutputItemDone { item, .. } = payload else {
-            return;
-        };
-        // Deserialize through the tagged enum so `type` cannot enter flattened extras.
-        if let Some(OutputItem::ShellCall(call)) = deserialize_from_value_opt(item.clone()) {
-            *self = call;
+    fn apply_done(&mut self, payload: &EventPayload, buffer: &mut String) {
+        match payload {
+            EventPayload::ShellCallCommand {
+                command_index,
+                update: ShellCommandUpdate::Done(command),
+                ..
+            } => {
+                if let Some(target) = self.action.commands.get_mut(*command_index as usize) {
+                    *target = if command.is_empty() {
+                        std::mem::take(buffer)
+                    } else {
+                        buffer.clear();
+                        command.clone()
+                    };
+                }
+            }
+            EventPayload::OutputItemDone { item, .. } => {
+                // Deserialize through the tagged enum so `type` cannot enter flattened extras.
+                if let Some(OutputItem::ShellCall(call)) = deserialize_from_value_opt(item.clone()) {
+                    *self = call;
+                    buffer.clear();
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -897,7 +915,7 @@ impl OutputItem {
             Self::Reasoning(reasoning) => Some(InputItem::Reasoning(reasoning.clone())),
             Self::FunctionCall(call) => Some(InputItem::FunctionCall(InputFunctionToolCall::from(call.clone()))),
             Self::CustomToolCall(call) => Some(InputItem::FunctionCall(call.clone().into())),
-            Self::ShellCall(call) => Some(InputItem::ShellCall(call.clone())),
+            Self::ShellCall(call) => Some(InputItem::FunctionCall(call.clone().into())),
             Self::McpListTools(list_tools) => Some(InputItem::McpListTools(list_tools.clone())),
             Self::Compaction(item) => Some(InputItem::Compaction(item.clone())),
             Self::WebSearchCall(_) | Self::McpCall(_) | Self::Unknown => None,
@@ -974,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn shell_call_round_trips_and_rehydrates_as_typed_input() {
+    fn shell_call_round_trips_and_rehydrates_as_function_input() {
         let item: OutputItem = serde_json::from_value(serde_json::json!({
             "type": "shell_call",
             "id": "sh_1",
@@ -989,11 +1007,14 @@ mod tests {
         .unwrap();
 
         assert!(item.requires_client_action(&ToolRegistry::default()));
-        let Some(InputItem::ShellCall(call)) = item.to_input_item() else {
-            panic!("shell call should rehydrate as a shell_call input item");
+        let Some(InputItem::FunctionCall(call)) = item.to_input_item() else {
+            panic!("shell call should rehydrate as a function call input item");
         };
         assert_eq!(call.call_id, "call_1");
-        assert_eq!(call.action.commands, ["pwd"]);
+        assert_eq!(call.name, "shell");
+        assert_eq!(call.id.as_deref(), Some("fc_1"));
+        let action: serde_json::Value = serde_json::from_str(&call.arguments).unwrap();
+        assert_eq!(action["commands"], serde_json::json!(["pwd"]));
 
         let serialized = serde_json::to_value(item).unwrap();
         assert_eq!(serialized["type"], "shell_call");

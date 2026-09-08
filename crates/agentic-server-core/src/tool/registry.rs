@@ -81,7 +81,6 @@ impl std::fmt::Debug for ToolEntry {
 
 impl ToolEntry {
     /// Builds a client-owned entry using the declaration-level ownership default.
-    /// Shell may instead opt into gateway execution through explicit registration.
     pub(crate) fn client(tool_type: ToolType, server_label: Option<String>) -> Self {
         debug_assert!(!tool_type.is_gateway_owned());
         Self {
@@ -94,7 +93,7 @@ impl ToolEntry {
     /// Builds a gateway-owned entry. `binding` is `None` for tool types that
     /// are gateway-owned in principle but have no executor yet.
     pub(crate) fn gateway(tool_type: ToolType, server_label: Option<String>, binding: Option<GatewayBinding>) -> Self {
-        debug_assert!(tool_type.is_gateway_owned() || tool_type == ToolType::Shell);
+        debug_assert!(tool_type.is_gateway_owned());
         Self {
             tool_type,
             server_label,
@@ -245,9 +244,9 @@ impl ToolRegistry {
                         insert_code_interpreter_entry(resolved, p);
                     })?;
                 }
-                ResponsesTool::Shell(p) => {
+                ResponsesTool::Shell(_) => {
                     insert_unique_tool_entries(&mut entries, |resolved| {
-                        insert_shell_entry(resolved, p, executors.shell_executor());
+                        insert_shell_entry(resolved);
                     })?;
                 }
                 ResponsesTool::Namespace(p) => {

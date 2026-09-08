@@ -1,14 +1,10 @@
 //! Constructed regression fixtures, not live OpenAI/vLLM recordings.
 use std::fmt::Write;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use agentic_core::executor::request::RequestContext;
 use agentic_core::executor::{ExecuteRequest, UpstreamBody, decode_upstream};
-use agentic_core::tool::shell::CancellationToken;
-use agentic_core::tool::{GatewayExecutorRegistration, ShellExecutor, ToolError};
-use agentic_core::types::io::{InputItem, OutputItem, ShellCall, ShellCallOutputContent, ShellCallStatus};
+use agentic_core::types::io::{InputItem, OutputItem, ResponsesInput, ShellCall, ShellCallStatus};
 use agentic_core::types::request_response::{RequestPayload, ResponsePayload};
 use either::Either;
 use futures::StreamExt;
@@ -86,10 +82,12 @@ fn shell_input_bytes_have_one_discriminator_and_keep_extensions() {
 }
 
 #[test]
-fn shell_history_and_choice_lower_only_at_inference_boundary() {
+fn prepared_shell_history_and_choice_match_upstream_function_tools() {
     let mut request = request(false);
     request.input = serde_json::from_value(json!([shell_item("completed"), shell_output()])).unwrap();
-    let upstream = serde_json::to_value(request.to_upstream_request(false).unwrap()).unwrap();
+    let mut prepared = request.clone();
+    prepared.input = ResponsesInput::Items(Vec::from(&request.input));
+    let upstream = serde_json::to_value(prepared.to_upstream_request(false).unwrap()).unwrap();
     assert_eq!(upstream["tool_choice"], json!({"type": "function", "name": "shell"}));
     assert_eq!(upstream["tools"][0]["name"], "shell");
     assert_eq!(upstream["input"][0]["type"], "function_call");
@@ -215,74 +213,245 @@ async fn client_shell_continuation_blocking_and_streaming() {
     }
 }
 
-#[derive(Default)]
-struct SandboxAdapter {
-    calls: Mutex<Vec<ShellCall>>,
-}
-
-impl ShellExecutor for SandboxAdapter {
-    fn execute(
-        &self,
-        call: ShellCall,
-        cancellation: CancellationToken,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<ShellCallOutputContent>, ToolError>> + Send + '_>> {
-        Box::pin(async move {
-            assert!(!cancellation.is_cancelled());
-            assert_eq!(call.action.commands, ["pwd"]);
-            assert_eq!(call.action.timeout_ms, Some(1000));
-            assert_eq!(call.action.max_output_length, Some(128));
-            self.calls.lock().unwrap().push(call);
-            Ok(serde_json::from_value(shell_output()["output"].clone()).unwrap())
-        })
+#[test]
+fn recorded_shell_streams_replay_strictly() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cassettes/shell");
+    for (provider, model) in [("openai-reference", "gpt-5.6"), ("gateway", "Qwen-Qwen3.5-35B-A3B-FP8")] {
+        for scenario in ["success", "nonzero-exit", "timeout", "multiple-commands"] {
+            let path = root.join(format!("shell-{provider}-{scenario}-{model}-streaming.yaml"));
+            let cassette = support::load_cassette(path.to_str().unwrap());
+            assert_eq!(cassette.turns.len(), 2);
+            for (index, turn) in cassette.turns.iter().enumerate() {
+                let wire = turn.response.sse.as_ref().unwrap().join("");
+                let response = decode_upstream(&context(), UpstreamBody::Sse(&wire))
+                    .unwrap_or_else(|error| panic!("{} turn {index}: {error}", path.display()));
+                if index == 0 {
+                    let call = response
+                        .output
+                        .iter()
+                        .find_map(|item| match item {
+                            OutputItem::ShellCall(call) => Some(call),
+                            _ => None,
+                        })
+                        .expect("shell call");
+                    assert_eq!(call.status, Some(ShellCallStatus::Completed));
+                    let expected_commands = match scenario {
+                        "multiple-commands" => 3..=4,
+                        "nonzero-exit" => 1..=2,
+                        _ => 1..=1,
+                    };
+                    assert!(expected_commands.contains(&call.action.commands.len()));
+                } else {
+                    assert!(!support::output_text(&response).is_empty());
+                }
+            }
+        }
     }
 }
 
-#[tokio::test]
-async fn external_shell_executor_completes_two_rounds_and_rehydrates() {
-    for stream in [false, true] {
-        let fixture = support::TestFixture::new_with_responses(vec![
-            model_response(stream, true),
-            model_response(stream, false),
-            model_response(stream, false),
-        ])
-        .await;
-        let adapter = Arc::new(SandboxAdapter::default());
-        let ctx = agentic_core::executor::ExecutionContext::new(
-            fixture.exec_ctx.conv_handler.clone(),
-            fixture.exec_ctx.resp_handler.clone(),
-            fixture.exec_ctx.client.clone(),
-            fixture.exec_ctx.llm_base_url.clone(),
-        )
-        .with_gateway_executor(GatewayExecutorRegistration::Shell(adapter.clone()));
-        let ctx = Arc::new(ctx);
-        let first = run(request(stream), ctx.clone()).await;
-        assert_eq!(support::output_text(&first), "sandbox checked");
-        assert_eq!(adapter.calls.lock().unwrap().len(), 1);
+fn command_lifecycle() -> Vec<Value> {
+    let item = shell_item("completed");
+    let mut events = lifecycle(&item);
+    events[2]["item"]["action"] = json!({"commands": [], "timeout_ms": null, "max_output_length": null});
+    events.splice(3..3, [
+        json!({"type": "response.shell_call_command.added", "output_index": 0, "command_index": 0, "command": ""}),
+        json!({"type": "response.shell_call_command.delta", "output_index": 0, "command_index": 0, "delta": "pw"}),
+        json!({"type": "response.shell_call_command.delta", "output_index": 0, "command_index": 0, "delta": "d"}),
+        json!({"type": "response.shell_call_command.done", "output_index": 0, "command_index": 0, "command": "pwd"}),
+    ]);
+    events
+}
+
+#[test]
+fn shell_command_stream_validates_indices_order_and_final_commands() {
+    let events = command_lifecycle();
+    decode_upstream(&context(), UpstreamBody::Sse(&sse(&events))).unwrap();
+    for failure in [
+        "index",
+        "item-id",
+        "command-index",
+        "missing-index",
+        "negative-index",
+        "string-index",
+        "missing-delta",
+        "before-added",
+        "duplicate-added",
+        "duplicate-done",
+        "after-done",
+        "unfinished",
+        "contradict-done",
+        "contradict-item",
+        "wrong-kind",
+    ] {
+        let mut bad = events.clone();
+        match failure {
+            "index" => bad[4]["output_index"] = json!(1),
+            "item-id" => bad[4]["item_id"] = json!("wrong"),
+            "command-index" => bad[4]["command_index"] = json!(1),
+            "missing-index" => {
+                bad[4].as_object_mut().unwrap().remove("command_index");
+            }
+            "negative-index" => bad[4]["command_index"] = json!(-1),
+            "string-index" => bad[4]["command_index"] = json!("0"),
+            "missing-delta" => {
+                bad[4].as_object_mut().unwrap().remove("delta");
+            }
+            "before-added" => {
+                bad.remove(3);
+            }
+            "duplicate-added" => bad.insert(4, events[3].clone()),
+            "duplicate-done" => bad.insert(7, events[6].clone()),
+            "after-done" => bad.insert(7, events[4].clone()),
+            "unfinished" => {
+                bad.remove(6);
+            }
+            "contradict-done" => bad[6]["command"] = json!("other"),
+            "contradict-item" => bad[7]["item"]["action"]["commands"] = json!(["other"]),
+            "wrong-kind" => bad[2]["item"] = json!({"type":"message","id":"sh_1","role":"assistant","content":[]}),
+            _ => unreachable!(),
+        }
         assert!(
-            matches!(&first.output[0], OutputItem::ShellCall(call) if call.status == Some(ShellCallStatus::Completed))
+            decode_upstream(&context(), UpstreamBody::Sse(&sse(&bad))).is_err(),
+            "accepted {failure}"
         );
-        let requests = fixture.request_bodies().await;
-        assert_eq!(requests.len(), 2);
-        assert!(
-            requests[1].get("tool_choice").is_none(),
-            "auto is omitted on the upstream wire"
-        );
-        assert!(
-            requests[1]["input"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|item| item["type"] == "function_call_output")
-        );
-        let mut continuation = request(stream);
-        continuation.previous_response_id = Some(first.id);
-        run(continuation, ctx).await;
-        let requests = fixture.request_bodies().await;
-        let history = requests[2]["input"].as_array().unwrap();
+    }
+}
+
+// Compare semantic shell events; IDs, sequence numbers, and delta boundaries
+// belong to individual responses and are not provider compatibility requirements.
+fn recorded_shell_lifecycle(events: &[Value], call: &Value) -> Vec<Value> {
+    let added = events
+        .iter()
+        .find(|event| event["type"] == "response.output_item.added" && event["item"]["id"] == call["id"])
+        .expect("shell item added");
+    assert_eq!(added["item"]["status"], "in_progress");
+    assert_eq!(added["item"]["action"]["commands"], json!([]));
+    assert!(added["item"]["action"]["timeout_ms"].is_null());
+    assert!(added["item"]["action"]["max_output_length"].is_null());
+    let mut commands = Vec::<String>::new();
+    let mut trace = Vec::new();
+    for event in events {
+        let kind = event["type"].as_str().unwrap();
+        if kind.starts_with("response.shell_call_command.") {
+            assert_eq!(event["output_index"], added["output_index"]);
+            let index = usize::try_from(event["command_index"].as_u64().unwrap()).unwrap();
+            match kind {
+                "response.shell_call_command.added" => {
+                    assert_eq!(index, commands.len());
+                    assert_eq!(event["command"], "");
+                    commands.push(String::new());
+                }
+                "response.shell_call_command.delta" => {
+                    commands[index].push_str(event["delta"].as_str().unwrap());
+                    continue;
+                }
+                "response.shell_call_command.done" => assert_eq!(event["command"], commands[index]),
+                _ => panic!("unexpected shell event: {kind}"),
+            }
+            trace.push(json!({"type": kind, "command_index": index, "command": event["command"]}));
+        } else if event["item"]["id"] == call["id"] {
+            assert_eq!(event["output_index"], added["output_index"]);
+            assert_eq!(event["item"]["call_id"], call["call_id"]);
+            if kind == "response.output_item.done" {
+                assert_eq!(event["item"]["action"], call["action"]);
+                assert_eq!(event["item"]["status"], "completed");
+            }
+            trace.push(json!({"type": kind, "status": event["item"]["status"], "action": event["item"]["action"]}));
+        }
+    }
+    assert_eq!(json!(commands), call["action"]["commands"]);
+    assert_eq!(trace.first().unwrap()["type"], "response.output_item.added");
+    assert_eq!(trace.last().unwrap()["type"], "response.output_item.done");
+    trace
+}
+
+fn recorded_shell_contract(provider: &str, model: &str, scenario: &str, streaming: bool) -> Value {
+    let mode = if streaming { "streaming" } else { "nonstreaming" };
+    let path = format!(
+        "{}/tests/cassettes/shell/shell-{provider}-{scenario}-{model}-{mode}.yaml",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let cassette = support::load_cassette(&path);
+    assert_eq!(cassette.turns.len(), 2, "{path}");
+    let mut responses = Vec::new();
+    let mut first_events = Vec::new();
+    for (index, turn) in cassette.turns.iter().enumerate() {
+        assert_eq!(turn.request.path, "/v1/responses");
+        assert_eq!(turn.request.body.stream, streaming);
+        assert!(turn.request.body.store);
         assert_eq!(
-            history.iter().filter(|item| item["type"] == "function_call").count(),
-            1,
-            "don't replay the public shell projection twice"
+            turn.request.body.tools,
+            vec![json!({"type":"shell", "environment":{"type":"local"}})]
         );
+        let body = if streaming {
+            let chunks = turn.response.sse.as_ref().unwrap();
+            let wire = chunks.join("");
+            decode_upstream(&context(), UpstreamBody::Sse(&wire)).expect("strict shell stream replay");
+            let events = support::streamed_sse_events(chunks);
+            let completed = events
+                .iter()
+                .filter(|event| event["type"] == "response.completed")
+                .collect::<Vec<_>>();
+            assert_eq!(completed.len(), 1);
+            let body = completed[0]["response"].clone();
+            if index == 0 {
+                first_events = events;
+            }
+            body
+        } else {
+            turn.response.body.clone().unwrap()
+        };
+        assert_eq!(body["status"], "completed", "{path} turn {index}");
+        responses.push(body);
+    }
+    let calls = responses[0]["output"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["type"] == "shell_call")
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 1);
+    let call = calls[0];
+    assert!(call["id"].as_str().unwrap().starts_with("sh_"));
+    assert!(!call["call_id"].as_str().unwrap().is_empty());
+    assert_eq!(call["status"], "completed");
+    assert_eq!(call["action"]["timeout_ms"], 1000);
+    assert_eq!(call["action"]["max_output_length"], 4096);
+    let continuation = &cassette.turns[1].request.body;
+    assert_eq!(
+        continuation.previous_response_id.as_deref(),
+        responses[0]["id"].as_str()
+    );
+    let input = continuation.input.as_array().unwrap();
+    assert_eq!(input.len(), 2);
+    assert_eq!(input[0]["type"], "shell_call_output");
+    assert_eq!(input[0]["call_id"], call["call_id"]);
+    assert_eq!(input[0]["max_output_length"], call["action"]["max_output_length"]);
+    assert_eq!(
+        input[0]["output"].as_array().unwrap().len(),
+        call["action"]["commands"].as_array().unwrap().len()
+    );
+    assert_eq!(input[1]["role"], "user");
+    let final_response: ResponsePayload = serde_json::from_value(responses[1].clone()).unwrap();
+    assert!(!support::output_text(&final_response).trim().is_empty());
+    assert!(!final_response.output.iter().any(|item| matches!(
+        item,
+        OutputItem::ShellCall(_) | OutputItem::FunctionCall(_) | OutputItem::CustomToolCall(_)
+    )));
+    json!({
+        "action": call["action"], "status": call["status"],
+        "output": input[0]["output"], "follow_up": input[1],
+        "lifecycle": if streaming { recorded_shell_lifecycle(&first_events, call) } else { Vec::new() }
+    })
+}
+
+#[test]
+fn recorded_gateway_shell_contract_matches_openai() {
+    for scenario in ["success", "nonzero-exit", "timeout", "multiple-commands"] {
+        for streaming in [false, true] {
+            let reference = recorded_shell_contract("openai-reference", "gpt-5.6", scenario, streaming);
+            let gateway = recorded_shell_contract("gateway", "Qwen-Qwen3.5-35B-A3B-FP8", scenario, streaming);
+            assert_eq!(gateway, reference, "{scenario}, streaming={streaming}");
+        }
     }
 }

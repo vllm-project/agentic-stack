@@ -1,0 +1,234 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'The local shell environment is Linux bash. Use the shell tool exactly
+        once with this exact action, preserving the commands array and its order:
+        {"commands": ["printf ''SHELL_OK\\n''"], "timeout_ms": 1000, "max_output_length":
+        4096}. Wait for the client to return shell_call_output before interpreting
+        the results.'
+      max_output_tokens: 4096
+      model: gpt-5.6
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - environment:
+          type: local
+        type: shell
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1788843134
+      created_at: 1788843131
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0d2fb655988faaf0006a9f947b240087d08c68a9537f3f3e15
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 4096
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqn5R-qMzrhpfY55yyGL_98KwKb54soVWwMvEcVuzUxeLAGaxmxNMZ7qtzDWHmWx1WHDxR8qhZHt7FnPZJqgJaT7GkkDihHYAFGBzLvtRmt5XKSyvBkHpfHloYXXCHOIkgmOVBXuDghceosCIQT7FRjVBSOQBrEwfE9byvQWzoF2W8CpgIgWhFB_4CZ4ENoXJpVdl-ucaIEUqfFlqDnxIfjEI7ktZDf9nBDfGxHXBsYVrlyJ_XCZ5PyZ_keVi5daXuwMeps9-qDjzQmIg6PqIPBIeNDqTnyE5KZxLJTa1liAxOt6UvijBCg-tmbbMEqI19AE-L12-mvKCFzbmRx1ZHhqzaafmDSz5zIdJ4EGXYS-O1_PLRQgMus5Dd2ffQT9BBsHaIoTseZlftGiQ_AFk_Inf3lOgSKdCQ95_a2-KpVd8OntZgfpIlNcI3miJSOAE9LB9BcZ7MeOChEDN5nBhcWVooLaY8WGBhJN2KaGbxVfTgPcZnKVHEd8DeYgZS0P3iJktA6IXKo7qyicPadQsSZeq6rIuErbI_a_S-AJdKNhouRB1UF1R-Vxa7p5ZaifLNIHohOmq_TaYpS_KzFAOgZt2gxLr1dP7s3g-DSCTimQuN5H0wHQ2kEPWAmjc8nHTQUqvjsi9jvWoLxMHPkxXRjmupSaoSt3GS5Zm97J3Sv2UFtMIgblOisWchozi6C_7-rxn9L9LnUPoe83Cp6loAnmt21mGQ17JNj-OGjIIq95_PSuoDO05VNUKYUKwPFaMhha-0KxpNKBEIl7PN4XJT51PEkm4KRo6xKXr2WgkEk9vi8kO5cOs1HcQZ90dHicWEOEcDe4rwUMefbfxbrBto9u-C1GFWOWb9DihjwpasYkJ7jPAdVkFWqbNmYsTs5j-PSXUE-zE5bjSQ-eP-ozhqhITQlUnOUvkLn3ozAoiDr48a16JI-7OsWGj-Cs7iTFPxhGqQ9KhsoBlOkryx8alUfFqfMOK5zJY4TCxsmxxB_PQF7eFzjkstBRyxdNMukZFFd1o5LyIsCoN7nUKCgetuSefmq3NixbGOF8ylQTsTnzL8N6oXC_aG0m_TWqC9LE1otg2WiVwfg4cdhVbZq_RSA77jT1SBz9VZ8RLf9rZLYw5OOr6O0tfQuRH9tsROcFasYphDG0sZPAViJmUMQX270pR-1A5JtZheZOTbD98iu_g1tyyjpXYEGxHYXEruEyNw3FwtZ8craAvDhgBGyswM8Vy_U3Bqmg_Mh0QTAIWh0AVXRlFblx10Xm7rimxG1iwaQ-_GVzQriK2h53-Qj-i2YRcDBuqiGaoZ27aLVlKCsH0x795nadIPgLm9IDQq8e1jk5zyPfSvmAzLun2CXju88XU4wQ3iND4mvXpVo0Gyu63_pOeaowHZqH1oB8G6Kf7lsY-FUFTLsYfFTT_RB_07CITmyNthyIAE0fgUgofmVlPlRLQpq2GSMWvwJ12pmBRQHAyR1C4FcOCdid9iU3c4ToZaToOTdWh_aufHk7bZad14Do8S0c54lgqQC6N58H-1M9ZzR7cVET5_OnE_LSAAKNVrImGkGuh2CbJElSnYKRXOgP9NNOy0c-lDH1HkE7EwQUiPOfbB2Ca1FQF6Rb2IU4de-CNm8sA2bltAeMbaybn8KOsgMC8osnZI_xEgZAAulq2WeOzfihip0gBc_32r3NOcJg440LieuQdRxCVeDEMzwFJ7yamzuXygNR13eF0ytGm5yEH_dV7zb0c0SgAJC8VIskSFmFE3XuP4QKU5Ik6kWFb-TAeYeF-O3c39_ABg-9cmtMnuYF1miScU6vjFgDiTaAqt8sMRfVr-Zm18fBmCPQLV938-crLhPi5tscP1PH4q
+        id: rs_0d2fb655988faaf0006a9f947c071c87d0add00f0d0c6155f6
+        summary: []
+        type: reasoning
+      - action:
+          commands:
+          - printf 'SHELL_OK\n'
+          max_output_length: 4096
+          timeout_ms: 1000
+        call_id: call_oA7WtsxOcHnQE7xCPKcFmO23
+        environment: null
+        id: sh_0d2fb655988faaf0006a9f947dbf0087d09b831815734fc46a
+        status: completed
+        type: shell_call
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: null
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - environment:
+          type: local
+        type: shell
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 314
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 0
+        output_tokens: 141
+        output_tokens_details:
+          reasoning_tokens: 102
+        total_tokens: 455
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: call_oA7WtsxOcHnQE7xCPKcFmO23
+        max_output_length: 4096
+        output:
+        - outcome:
+            exit_code: 0
+            type: exit
+          stderr: ''
+          stdout: 'SHELL_OK
+
+            '
+        type: shell_call_output
+      - content: Use the shell output above without calling any more tools. For each
+          command, report its stdout, stderr, and exit code or timeout outcome in
+          order.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: gpt-5.6
+      previous_response_id: resp_0d2fb655988faaf0006a9f947b240087d08c68a9537f3f3e15
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - environment:
+          type: local
+        type: shell
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1788843135
+      created_at: 1788843134
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0d2fb655988faaf0006a9f947ec4b887d0beab7b2312b99c97
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 4096
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content:
+        - annotations: []
+          logprobs: []
+          text: "1. `printf 'SHELL_OK\\n'`\n   - **stdout:** `SHELL_OK`\n   - **stderr:**\
+            \ *(empty)*\n   - **exit code:** `0`"
+          type: output_text
+        id: msg_0d2fb655988faaf0006a9f947f64b887d092916891b8f7c083
+        phase: final_answer
+        role: assistant
+        status: completed
+        type: message
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: resp_0d2fb655988faaf0006a9f947b240087d08c68a9537f3f3e15
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - environment:
+          type: local
+        type: shell
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 518
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 0
+        output_tokens: 43
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 561
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200

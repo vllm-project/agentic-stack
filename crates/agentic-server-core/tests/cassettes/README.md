@@ -197,6 +197,7 @@ turns:
 | `record_tool_call_cassettes.sh` | 8 tool-call cassettes (4 tool_choice modes x streaming + non-streaming) | vLLM |
 | `record_codex_cli_tool_call_cassettes.sh` | Codex function/namespace/custom-tool matrix | gateway, vLLM, and OpenAI |
 | `record_custom_tool_cassettes.sh` | Matching two-turn custom-tool flows (streaming + non-streaming) | gateway and OpenAI reference |
+| `record_shell_cassettes.sh` | Four two-turn local-shell scenarios (streaming + non-streaming) | gateway and OpenAI reference |
 | `record_mcp_cassettes.sh` | Native MCP counter tool discovery and calls (streaming + non-streaming) | gateway and OpenAI reference |
 | `record_web_search_cassettes.sh` | Matching web-search calls (streaming + non-streaming) | gateway and OpenAI reference |
 | `record_dynamo_cassettes.sh` | Stateful two-turn and client-executed function tool call cassettes (streaming + non-streaming) | NVIDIA Dynamo frontend |
@@ -291,6 +292,26 @@ bash crates/agentic-server-core/tests/cassettes/record_custom_tool_cassettes.sh
 
 Use `CUSTOM_TOOL_RECORD_SET=gateway` or `CUSTOM_TOOL_RECORD_SET=openai` to
 record only one provider.
+
+### Shell (gateway and OpenAI)
+
+See [the shell recording guide](shell/README.md) for branch build, gateway startup,
+and recording commands. Each scenario records two requests: a shell call, then
+matching structured `shell_call_output` and a follow-up user message chained with
+`previous_response_id`. The cases cover successful output, stderr with a nonzero
+exit code, timeout, and multiple commands with ordered outputs. Both streaming
+and non-streaming modes are recorded for each provider.
+
+The client command outputs are simulated by `shell/scenarios.py`; no commands are
+executed. The requests and model responses are captured live by the standard
+recorder. Each recording is written directly to its output YAML, which is retained
+if recording or validation fails. Streaming validation requires command added/delta/done
+events. Use `SHELL_RECORD_SET=gateway`, `openai`, or `all` (default).
+
+The shared recorder's `--tool-outputs` option accepts a Python `shell(action=...)`
+callback or a JSON `shell` key containing an object with `output` and optional
+`max_output_length`. It builds `shell_call_output` using the actual `call_id` and
+preserves the structured stdout/stderr/outcome entries.
 
 ### Codex custom tools (gateway, vLLM, and OpenAI)
 
