@@ -455,6 +455,45 @@ async fn test_store_false_proxies_json_to_vllm() {
     assert_eq!(body["id"], "mock_id");
 }
 
+/// Regression test for vllm-project/agentic-api#150: a structured message
+/// input item omitting the `"type": "message"` discriminant must still be
+/// accepted by the endpoint, not rejected as an untagged-enum mismatch.
+#[tokio::test]
+async fn test_structured_input_without_message_type_is_accepted() {
+    // Arrange
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture().await;
+    let (gw_url, _gateway) = spawn_gateway(test_state(&test_config(&llm_url))).await;
+
+    // Act — the exact payload reported in #150: a message item with structured
+    // `content` parts but no top-level `"type"` field.
+    let resp = reqwest::Client::new()
+        .post(format!("{gw_url}/v1/responses"))
+        .json(&serde_json::json!({
+            "model": "dummy",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "hi new"}
+                    ]
+                }
+            ],
+            "store": false,
+            "stream": false
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Assert — the gateway parses the shorthand message and forwards it upstream.
+    assert_eq!(resp.status(), 200);
+    let forwarded = requests.lock().await;
+    assert_eq!(forwarded.len(), 1);
+    assert_eq!(forwarded[0]["input"][0]["role"], "user");
+    assert_eq!(forwarded[0]["input"][0]["content"][0]["type"], "input_text");
+    assert_eq!(forwarded[0]["input"][0]["content"][0]["text"], "hi new");
+}
+
 #[tokio::test]
 async fn test_store_false_proxies_unknown_text_format_verbatim() {
     let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture_body().await;

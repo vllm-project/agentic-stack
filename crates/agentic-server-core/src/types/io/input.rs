@@ -385,6 +385,115 @@ mod tests {
     use super::*;
 
     #[test]
+    fn issue_150_structured_input_without_message_type() {
+        // The full request body from vllm-project/agentic-api#150. `ResponsesInput`
+        // models the `input` field's value, so pull that field out before
+        // deserializing, mirroring how the request struct's field is populated.
+        let body: Value = serde_json::from_str(
+            r#"{
+                "model": "dummy",
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "hi new"
+                            }
+                        ]
+                    }
+                ]
+            }"#,
+        )
+        .expect("issue payload is valid json");
+
+        let input: ResponsesInput =
+            serde_json::from_value(body["input"].clone()).expect("structured input without message type parses");
+
+        let ResponsesInput::Items(items) = input else {
+            panic!("expected ResponsesInput::Items");
+        };
+        assert_eq!(items.len(), 1);
+
+        let InputItem::Message(message) = &items[0] else {
+            panic!("expected InputItem::Message");
+        };
+        assert_eq!(message.role, "user");
+
+        let InputMessageContent::Parts(parts) = &message.content else {
+            panic!("expected structured content parts");
+        };
+        assert_eq!(parts.len(), 1);
+        let InputContent::InputText(text) = &parts[0] else {
+            panic!("expected InputContent::InputText");
+        };
+        assert_eq!(text.text, "hi new");
+    }
+
+    #[test]
+    fn issue_150_shorthand_message_mixes_with_typed_items() {
+        // A shorthand message (no `"type"` tag) alongside explicitly typed
+        // history items must all deserialize into their own `InputItem` variant.
+        let input: ResponsesInput = serde_json::from_value(serde_json::json!([
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "hi new"}
+                ]
+            },
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "lookup",
+                "arguments": "{}"
+            },
+            {
+                "type": "custom_tool_call_output",
+                "call_id": "call_1",
+                "output": "done"
+            }
+        ]))
+        .expect("shorthand message mixed with typed items parses");
+
+        let ResponsesInput::Items(items) = input else {
+            panic!("expected ResponsesInput::Items");
+        };
+        assert_eq!(items.len(), 3);
+        assert!(matches!(&items[0], InputItem::Message(message) if message.role == "user"));
+        assert!(matches!(&items[1], InputItem::FunctionCall(call) if call.name == "lookup"));
+        assert!(matches!(&items[2], InputItem::CustomToolCallOutput(output) if output.call_id == "call_1"));
+    }
+
+    #[test]
+    fn issue_150_shorthand_message_with_mixed_content_parts() {
+        // Shorthand messages should support the same structured content
+        // vocabulary as explicitly typed ones, including multiple part types.
+        let input: ResponsesInput = serde_json::from_value(serde_json::json!([{
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "look at this"},
+                {"type": "input_image", "image_url": "data:image/png;base64,abc", "detail": "low"}
+            ]
+        }]))
+        .expect("shorthand message with mixed content parts parses");
+
+        let ResponsesInput::Items(items) = input else {
+            panic!("expected ResponsesInput::Items");
+        };
+        assert_eq!(items.len(), 1);
+
+        let InputItem::Message(message) = &items[0] else {
+            panic!("expected InputItem::Message");
+        };
+        let InputMessageContent::Parts(parts) = &message.content else {
+            panic!("expected structured content parts");
+        };
+        assert_eq!(parts.len(), 2);
+        assert!(matches!(&parts[0], InputContent::InputText(text) if text.text == "look at this"));
+        assert!(matches!(&parts[1], InputContent::InputImage(image) if image.detail.as_deref() == Some("low")));
+    }
+
+    #[test]
     fn function_call_input_accepts_missing_status() {
         let item: InputItem = serde_json::from_value(serde_json::json!({
             "type": "function_call",
