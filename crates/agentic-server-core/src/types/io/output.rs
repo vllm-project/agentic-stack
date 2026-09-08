@@ -479,7 +479,15 @@ impl utoipa::PartialSchema for McpCallError {
                 )),
             )
             .item(utoipa::openapi::Ref::from_schema_name("McpToolExecutionError"))
-            .item(utoipa::openapi::ObjectBuilder::new().schema_type(utoipa::openapi::schema::SchemaType::AnyValue))
+            .item(
+                utoipa::openapi::ObjectBuilder::new().schema_type(utoipa::openapi::schema::SchemaType::from_iter([
+                    utoipa::openapi::schema::Type::Object,
+                    utoipa::openapi::schema::Type::Number,
+                    utoipa::openapi::schema::Type::Integer,
+                    utoipa::openapi::schema::Type::Boolean,
+                    utoipa::openapi::schema::Type::Array,
+                ])),
+            )
             .into()
     }
 }

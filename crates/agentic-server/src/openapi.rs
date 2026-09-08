@@ -452,10 +452,7 @@ mod tests {
             "CodexModelsResponse",
             &serde_json::json!({"models": [{"slug": "m1", "display_name": "Model One"}]}),
         );
-        validate(
-            "CodexModelsResponse",
-            &serde_json::json!({"models": []}),
-        );
+        validate("CodexModelsResponse", &serde_json::json!({"models": []}));
 
         // -- CountTokensRequest: max_tokens not required --
         validate(
@@ -500,13 +497,15 @@ mod tests {
         }
 
         // -- McpCallError: typed, string, and arbitrary forms --
+        // null is NOT included: McpCallError only appears as Option<McpCallError>
+        // on the wire, so null means None (no error), not Unknown(null).
         let mcp_errors = vec![
             serde_json::json!("plain error string"),
             serde_json::json!({"type": "tool_execution_error", "content": [{"type": "text", "text": "err"}]}),
             serde_json::json!({"unexpected_key": "arbitrary object"}),
             serde_json::json!(42),
             serde_json::json!([1, 2, 3]),
-            serde_json::json!(null),
+            serde_json::json!(true),
         ];
         for fixture in &mcp_errors {
             validate("McpCallError", fixture);
@@ -567,6 +566,320 @@ mod tests {
             let _: agentic_core::types::tools::ResponsesTool =
                 serde_json::from_value(fixture).expect("alias must deserialize");
         }
+
+        // -- OutputItem: nullable fields present from real vLLM fixtures --
+        let reasoning_nulls = serde_json::json!({
+            "type": "reasoning", "id": "rs_abc", "summary": [],
+            "content": [{"text": "Let me think...", "type": "reasoning_text"}],
+            "encrypted_content": null, "status": null
+        });
+        validate("OutputItem", &reasoning_nulls);
+        let _: agentic_core::types::io::OutputItem =
+            serde_json::from_value(reasoning_nulls).expect("serde must accept reasoning with nulls");
+
+        validate(
+            "OutputItem",
+            &serde_json::json!({
+                "type": "custom_tool_call", "id": "ctc_1", "call_id": "call_1",
+                "name": "apply_patch", "input": "patch"
+            }),
+        );
+        validate(
+            "OutputItem",
+            &serde_json::json!({
+                "type": "function_call", "id": "fc_1", "call_id": "call_1",
+                "name": "run", "namespace": "mcp__shell",
+                "arguments": "{\"cmd\":\"pwd\"}", "status": "completed"
+            }),
+        );
+        validate(
+            "OutputItem",
+            &serde_json::json!({
+                "type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+                "content": [{"annotations": [], "text": "hello", "type": "output_text"}]
+            }),
+        );
+        validate(
+            "OutputItem",
+            &serde_json::json!({
+                "type": "mcp_call", "id": "mcp_1", "server_label": "counter",
+                "name": "increment", "arguments": "{}", "status": "completed",
+                "output": "1", "approval_request_id": null, "error": null
+            }),
+        );
+
+        // -- ResponsesTool: full field sets from codebase fixtures --
+        let mcp_full = serde_json::json!({
+            "type": "mcp", "server_label": "repo",
+            "server_url": "http://localhost:9001/mcp",
+            "headers": {"X-Request-ID": "request-1"},
+            "authorization": "token",
+            "allowed_tools": ["read_file"],
+            "require_approval": "never"
+        });
+        validate("ResponsesTool", &mcp_full);
+        let _: agentic_core::types::tools::ResponsesTool =
+            serde_json::from_value(mcp_full).expect("serde must accept MCP with full fields");
+
+        let fn_full = serde_json::json!({
+            "type": "function", "name": "get_weather",
+            "description": "Get weather for a city",
+            "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
+            "x-extra": "kept"
+        });
+        validate("ResponsesTool", &fn_full);
+        let _: agentic_core::types::tools::ResponsesTool =
+            serde_json::from_value(fn_full).expect("serde must accept function with extras");
+
+        let custom_fmt = serde_json::json!({
+            "type": "custom", "name": "apply_patch", "description": "Apply a patch.",
+            "format": {"type": "grammar", "syntax": "lark", "definition": "start: patch"}
+        });
+        validate("ResponsesTool", &custom_fmt);
+        let _: agentic_core::types::tools::ResponsesTool =
+            serde_json::from_value(custom_fmt).expect("serde must accept custom with format");
+
+        let ns_tool = serde_json::json!({
+            "type": "namespace", "name": "mcp__shell",
+            "tools": [{"type": "function", "name": "run", "parameters": {"type": "object"}}]
+        });
+        validate("ResponsesTool", &ns_tool);
+        let _: agentic_core::types::tools::ResponsesTool =
+            serde_json::from_value(ns_tool).expect("serde must accept namespace with tools");
+
+        validate(
+            "ResponsesTool",
+            &serde_json::json!({"type": "file_search", "vector_store_ids": ["vs_abc"]}),
+        );
+
+        // -- InputItem: structured custom tool output --
+        let structured_output = serde_json::json!({
+            "type": "custom_tool_call_output", "call_id": "call_1",
+            "output": [
+                {"type": "input_text", "text": "diagram"},
+                {"type": "input_image", "image_url": "data:image/png;base64,abc", "detail": "low"}
+            ]
+        });
+        validate("InputItem", &structured_output);
+        let _: agentic_core::types::io::InputItem =
+            serde_json::from_value(structured_output).expect("serde must accept structured output");
+
+        // -- RequestPayload: reasoning and text configurations --
+        let with_reasoning = serde_json::json!({
+            "model": "m", "input": "hello",
+            "reasoning": {"effort": "high", "generate_summary": "concise"}
+        });
+        validate("RequestPayload", &with_reasoning);
+        let _: agentic_core::types::request_response::RequestPayload =
+            serde_json::from_value(with_reasoning).expect("serde must accept reasoning config");
+
+        let with_text = serde_json::json!({
+            "model": "m", "input": "hello",
+            "text": {
+                "format": {"type": "json_schema", "name": "weather",
+                    "schema": {"type": "object", "properties": {"city": {"type": "string"}}}},
+                "verbosity": "low"
+            }
+        });
+        validate("RequestPayload", &with_text);
+        let _: agentic_core::types::request_response::RequestPayload =
+            serde_json::from_value(with_text).expect("serde must accept text config");
+
+        // -- MessagesRequest: output_config --
+        let msg_with_config = serde_json::json!({
+            "model": "m", "max_tokens": 1,
+            "messages": [{"role": "user", "content": "hi"}],
+            "output_config": {"effort": "high", "format": {"type": "json"}}
+        });
+        validate("MessagesRequest", &msg_with_config);
+        let _: agentic_core::types::messages::MessagesRequest =
+            serde_json::from_value(msg_with_config).expect("serde must accept output_config");
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn option_fields_accept_explicit_null_in_every_component_schema() {
+        let spec = ApiDoc::openapi();
+        let spec_json = serde_json::to_value(&spec).expect("spec must serialize");
+        let schemas = spec_json["components"]["schemas"]
+            .as_object()
+            .expect("schemas must exist");
+
+        let mut failures: Vec<String> = Vec::new();
+        let mut check = |schema_name: &str, fixture: &serde_json::Value| {
+            let wrapper = serde_json::json!({
+                "components": { "schemas": schemas },
+                "$ref": format!("#/components/schemas/{schema_name}")
+            });
+            let validator = jsonschema::validator_for(&wrapper)
+                .unwrap_or_else(|e| panic!("failed to compile schema for {schema_name}: {e}"));
+            let errors: Vec<String> = validator
+                .iter_errors(fixture)
+                .map(|e| format!("    {} at {}", e, e.instance_path))
+                .collect();
+            if !errors.is_empty() {
+                failures.push(format!(
+                    "  {schema_name}:\n{}\n    fixture: {}",
+                    errors.join("\n"),
+                    serde_json::to_string(fixture).unwrap()
+                ));
+            }
+        };
+
+        // -- McpCall: all four Option fields --
+        check(
+            "McpCall",
+            &serde_json::json!({
+                "id": "mcp_1", "server_label": "s", "name": "n", "arguments": "{}",
+                "status": null, "approval_request_id": null, "output": null, "error": null
+            }),
+        );
+
+        // -- ReasoningOutput: encrypted_content and status --
+        check(
+            "ReasoningOutput",
+            &serde_json::json!({
+                "id": "r1", "content": [], "summary": [],
+                "encrypted_content": null, "status": null
+            }),
+        );
+
+        // -- CustomToolCall: status --
+        check(
+            "CustomToolCall",
+            &serde_json::json!({
+                "id": "ct1", "call_id": "c1", "name": "t", "input": "d", "status": null
+            }),
+        );
+
+        // -- FunctionToolCall: namespace --
+        check(
+            "FunctionToolCall",
+            &serde_json::json!({
+                "id": "fc1", "call_id": "c1", "name": "f", "arguments": "{}", "status": "completed",
+                "namespace": null
+            }),
+        );
+
+        // -- InputMessage: id and status --
+        check(
+            "InputMessage",
+            &serde_json::json!({
+                "role": "user", "content": "hi", "id": null, "status": null
+            }),
+        );
+
+        // -- CompactionItem: id --
+        check(
+            "CompactionItem",
+            &serde_json::json!({
+                "encrypted_content": "enc", "id": null
+            }),
+        );
+
+        // -- IncompleteDetails: reason --
+        check("IncompleteDetails", &serde_json::json!({"reason": null}));
+
+        // -- InputImageContent: all fields optional --
+        check(
+            "InputImageContent",
+            &serde_json::json!({
+                "file_id": null, "image_url": null, "detail": null
+            }),
+        );
+
+        // -- InputFileContent: all fields optional --
+        check(
+            "InputFileContent",
+            &serde_json::json!({
+                "file_data": null, "file_id": null, "file_url": null,
+                "filename": null, "detail": null
+            }),
+        );
+
+        // -- WebSearchSource: title --
+        check(
+            "WebSearchSource",
+            &serde_json::json!({"url": "http://x", "title": null}),
+        );
+
+        // -- McpToolExecutionErrorContent: annotations and meta --
+        check(
+            "McpToolExecutionErrorContent",
+            &serde_json::json!({
+                "type": "text", "text": "err", "annotations": null, "meta": null
+            }),
+        );
+
+        // -- FunctionToolParam: description, parameters, strict, defer_loading --
+        check(
+            "FunctionToolParam",
+            &serde_json::json!({
+                "name": "f", "description": null, "parameters": null,
+                "strict": null, "defer_loading": null
+            }),
+        );
+
+        // -- CustomToolParam: description and format --
+        check(
+            "CustomToolParam",
+            &serde_json::json!({
+                "name": "c", "description": null, "format": null
+            }),
+        );
+
+        // -- McpToolParam: all optional fields --
+        check(
+            "McpToolParam",
+            &serde_json::json!({
+                "server_label": "s", "server_url": null, "connector_id": null,
+                "headers": null, "authorization": null,
+                "allowed_tools": null, "require_approval": null
+            }),
+        );
+
+        // -- WebSearchToolParam: all optional fields --
+        check(
+            "WebSearchToolParam",
+            &serde_json::json!({
+                "search_context_size": null, "filters": null, "user_location": null
+            }),
+        );
+
+        // -- FileSearchToolParam: vector_store_ids --
+        check("FileSearchToolParam", &serde_json::json!({"vector_store_ids": null}));
+
+        // -- ReasoningConfig: all optional fields --
+        check(
+            "ReasoningConfig",
+            &serde_json::json!({
+                "context": null, "effort": null, "generate_summary": null,
+                "mode": null, "summary": null
+            }),
+        );
+
+        // -- ResponseTextConfig: format and verbosity --
+        check(
+            "ResponseTextConfig",
+            &serde_json::json!({
+                "format": null, "verbosity": null
+            }),
+        );
+
+        // -- McpCall with non-null status (also test valid enum value) --
+        check(
+            "McpCall",
+            &serde_json::json!({
+                "id": "mcp_2", "server_label": "s", "name": "n", "arguments": "{}",
+                "status": "completed", "output": "ok", "approval_request_id": null, "error": null
+            }),
+        );
+
+        assert!(
+            failures.is_empty(),
+            "Optional fields that reject explicit null:\n{}",
+            failures.join("\n\n")
+        );
     }
 
     #[test]
