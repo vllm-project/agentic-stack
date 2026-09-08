@@ -109,6 +109,11 @@ import re
 import sys
 import urllib.request
 
+if "--version" in sys.argv:
+    # The Codex launcher asks the harness binary for the client version it reports to the gateway.
+    print("codex-cli 0.0.0-e2e")
+    raise SystemExit(0)
+
 def post(url, body):
     request = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(request) as response:
@@ -122,6 +127,11 @@ model = "test-model"
 if mode == "codex":
     config = open(os.path.join(os.environ["CODEX_HOME"], "config.toml")).read()
     base = re.search(r'base_url = "([^"]+)"', config).group(1)
+    catalog = json.load(open(os.path.join(os.environ["CODEX_HOME"], "model_catalog.json")))
+    entry = catalog["models"][0]
+    assert entry["slug"] == model, entry
+    # The mock upstream advertises no capabilities, so the gateway resolves text-only.
+    assert entry["input_modalities"] == ["text"], entry
     first = post(base + "/responses", {"model": model, "input": "Remember APPLE", "store": True, "stream": False})
     second = post(base + "/responses", {"model": model, "input": "What word?", "previous_response_id": first["id"], "store": True, "stream": False})
     assert second["id"], second

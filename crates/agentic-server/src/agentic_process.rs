@@ -6,8 +6,10 @@ use serde::Deserialize;
 use tokio::time::{Instant, sleep};
 
 use crate::{
-    agentic_cli::{CommonOptions, SourceOptions},
+    agentic_cli::{CommonOptions, Harness, HarnessOptions, SourceOptions},
+    agentic_harness::HarnessEnv,
     agentic_output::redact_url,
+    model_capabilities::{CodexCatalogCapabilities, InputModalities},
 };
 
 /// Reasoning effort passed to Claude Code unless `AGENTIC_CLAUDE_EFFORT` overrides it.
@@ -18,6 +20,21 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "medium";
 const CLAUDE_EFFORT_ENV: &str = "AGENTIC_CLAUDE_EFFORT";
 const PLACEHOLDER_MODEL: &str = "agentic-api";
 const CLAUDE_TOOLS: &str = "Bash,Edit,Read,WebSearch";
+/// Operator-provided Codex version, used instead of probing the Codex binary.
+const CODEX_CLIENT_VERSION_ENV: &str = "AGENTIC_CODEX_CLIENT_VERSION";
+/// Bound on the `codex --version` probe.
+const CODEX_VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Upper bound on the catalog payload the launcher reads from a gateway.
+const MAX_CATALOG_BYTES: usize = 1024 * 1024;
+/// How long a served, non-empty catalog may keep omitting the selected model.
+///
+/// A catalog that already lists other models proves the upstream is warm, so a missing model
+/// is a configuration error rather than a cold start and must not consume the whole budget.
+const CATALOG_MODEL_GRACE: Duration = Duration::from_secs(10);
+/// Readiness budget for a gateway the launcher did not start.
+const ATTACHED_GATEWAY_TIMEOUT: Duration = Duration::from_secs(30);
+/// Readiness poll interval for a gateway the launcher did not start.
+const ATTACHED_GATEWAY_INTERVAL: Duration = Duration::from_millis(250);
 
 #[must_use]
 pub fn server_args(source: &SourceOptions, common: &CommonOptions) -> Vec<OsString> {
@@ -61,6 +78,18 @@ pub fn claude_effort() -> String {
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| DEFAULT_CLAUDE_EFFORT.to_owned())
+}
+
+const fn harness_binary_names(harness: Harness) -> (&'static str, &'static str) {
+    match harness {
+        Harness::Codex => ("codex", "AGENTIC_CODEX_BIN"),
+        Harness::Claude => ("claude", "AGENTIC_CLAUDE_BIN"),
+    }
+}
+
+fn harness_binary(harness: Harness) -> OsString {
+    let (binary_name, override_name) = harness_binary_names(harness);
+    std::env::var_os(override_name).unwrap_or_else(|| binary_name.into())
 }
 
 fn harness_launch_args(
@@ -230,6 +259,393 @@ pub async fn wait_for_gateway(
     }
 }
 
+/// The Codex model the launcher runs and the input modalities the gateway resolved for it.
+#[derive(Debug)]
+struct CodexModelSelection {
+    model: String,
+    input_modalities: InputModalities,
+}
+
+/// The model a harness will run, with the metadata that harness needs to configure it.
+#[derive(Debug)]
+enum HarnessModel {
+    Codex(CodexModelSelection),
+    Claude(String),
+}
+
+/// The polling budget for one catalog resolution.
+#[derive(Clone, Copy, Debug)]
+struct CatalogBudget {
+    /// Overall wall-clock budget for resolving the catalog.
+    timeout: Duration,
+    /// Delay between attempts, unless the gateway asks for a longer one.
+    interval: Duration,
+    /// How long a served, non-empty catalog may keep omitting the selected model.
+    missing_grace: Duration,
+}
+
+/// Why one catalog attempt failed, and whether another attempt could succeed.
+enum CatalogAttempt {
+    Resolved(CodexModelSelection),
+    /// The gateway or its upstream may still be warming up.
+    Transient(Error, Option<Duration>),
+    /// Another attempt cannot change the result.
+    Permanent(Error),
+    /// The catalog is served and lists models, but not the selected one.
+    ModelMissing(Error),
+}
+
+enum BodyError {
+    TooLarge,
+    Transport(reqwest::Error),
+}
+
+/// Statuses a warming gateway can return before it can serve its catalog.
+fn is_transient_status(status: reqwest::StatusCode) -> bool {
+    status.is_server_error()
+        || matches!(
+            status,
+            reqwest::StatusCode::REQUEST_TIMEOUT
+                | reqwest::StatusCode::TOO_EARLY
+                | reqwest::StatusCode::TOO_MANY_REQUESTS
+        )
+}
+
+/// `Retry-After` expressed in whole seconds; the HTTP-date form is not honored.
+fn retry_after(response: &reqwest::Response) -> Option<Duration> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_secs)
+}
+
+/// Read a catalog response without trusting the gateway to bound it.
+async fn read_bounded_body(mut response: reqwest::Response) -> Result<Vec<u8>, BodyError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
+    {
+        return Err(BodyError::TooLarge);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(BodyError::Transport)? {
+        if body.len() + chunk.len() > MAX_CATALOG_BYTES {
+            return Err(BodyError::TooLarge);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+/// The models a catalog advertises, for an error message that names the alternatives.
+fn advertised_models(catalog: &CodexCatalogCapabilities) -> String {
+    const LISTED: usize = 5;
+    let listed = catalog
+        .models
+        .iter()
+        .take(LISTED)
+        .map(|entry| entry.slug.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if catalog.models.len() > LISTED {
+        format!("{listed}, ...")
+    } else {
+        listed
+    }
+}
+
+/// Resolve the Codex CLI version the gateway catalog is requested for.
+///
+/// The gateway only transforms its model list when a client version is present, and Codex
+/// reports its own version, so the launcher asks the same binary it is about to run instead of
+/// inventing a value. [`CODEX_CLIENT_VERSION_ENV`] skips the probe where it cannot run.
+///
+/// # Errors
+///
+/// Returns a configuration error when the Codex binary cannot be run or reports no version.
+async fn codex_client_version() -> Result<String, Error> {
+    if let Some(version) = std::env::var(CODEX_CLIENT_VERSION_ENV)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(version);
+    }
+    let binary = harness_binary(Harness::Codex);
+    let display_binary = binary.to_string_lossy().into_owned();
+    let mut command = tokio::process::Command::new(&binary);
+    command
+        .arg("--version")
+        .kill_on_drop(true)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    let output = tokio::time::timeout(CODEX_VERSION_PROBE_TIMEOUT, command.output())
+        .await
+        .map_err(|_| {
+            Error::Config(format!(
+                "{display_binary} --version timed out after {}s; set {CODEX_CLIENT_VERSION_ENV} to skip the probe",
+                CODEX_VERSION_PROBE_TIMEOUT.as_secs()
+            ))
+        })?
+        .map_err(|error| {
+            Error::Config(format!(
+                "failed to run {display_binary} --version: {error}; install Codex or set AGENTIC_CODEX_BIN"
+            ))
+        })?;
+    if !output.status.success() {
+        return Err(Error::Config(format!(
+            "{display_binary} --version failed with {}; set {CODEX_CLIENT_VERSION_ENV} to skip the probe",
+            output.status
+        )));
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .and_then(|line| line.split_whitespace().next_back())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            Error::Config(format!(
+                "could not read a version from {display_binary} --version; set {CODEX_CLIENT_VERSION_ENV} to provide it"
+            ))
+        })
+}
+
+/// Ask the gateway once for the model catalog and select the requested model.
+async fn catalog_attempt(
+    client: &Client,
+    catalog_url: &str,
+    display_url: &str,
+    client_version: &str,
+    requested_model: Option<&str>,
+    api_key: Option<&str>,
+) -> CatalogAttempt {
+    let mut request = client.get(catalog_url).query(&[("client_version", client_version)]);
+    if let Some(api_key) = api_key {
+        request = request.bearer_auth(api_key);
+    }
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            return CatalogAttempt::Transient(
+                Error::Config(format!(
+                    "failed to reach the gateway model catalog at {display_url}: {}",
+                    error.without_url()
+                )),
+                None,
+            );
+        }
+    };
+
+    let status = response.status();
+    if !status.is_success() {
+        let retry_after = retry_after(&response);
+        let message = format!("the gateway model catalog at {display_url} returned HTTP {status}");
+        return if matches!(
+            status,
+            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+        ) {
+            CatalogAttempt::Permanent(Error::Config(format!(
+                "{message}; pass --api-key if the gateway requires authentication"
+            )))
+        } else if is_transient_status(status) {
+            CatalogAttempt::Transient(Error::Config(message), retry_after)
+        } else {
+            CatalogAttempt::Permanent(Error::Config(message))
+        };
+    }
+
+    let body = match read_bounded_body(response).await {
+        Ok(body) => body,
+        Err(BodyError::TooLarge) => {
+            return CatalogAttempt::Permanent(Error::Config(format!(
+                "the gateway model catalog at {display_url} is larger than {MAX_CATALOG_BYTES} bytes"
+            )));
+        }
+        Err(BodyError::Transport(error)) => {
+            return CatalogAttempt::Transient(
+                Error::Config(format!(
+                    "failed to read the gateway model catalog at {display_url}: {}",
+                    error.without_url()
+                )),
+                None,
+            );
+        }
+    };
+
+    let catalog: CodexCatalogCapabilities = match serde_json::from_slice(&body) {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            return CatalogAttempt::Permanent(Error::Config(format!(
+                "the gateway model catalog at {display_url} is not a Codex model catalog: {error}"
+            )));
+        }
+    };
+    if catalog.models.is_empty() {
+        return CatalogAttempt::Transient(
+            Error::Config(format!("the gateway model catalog at {display_url} lists no models")),
+            None,
+        );
+    }
+    let Some(entry) = catalog.select(requested_model) else {
+        return CatalogAttempt::ModelMissing(Error::Config(format!(
+            "the gateway model catalog at {display_url} does not list model {:?}; it serves: {}",
+            requested_model.unwrap_or_default(),
+            advertised_models(&catalog)
+        )));
+    };
+    if requested_model.is_none() && catalog.models.len() > 1 {
+        eprintln!(
+            "gateway serves {} models; using {}. Pass --model to choose another.",
+            catalog.models.len(),
+            entry.slug
+        );
+    }
+    CatalogAttempt::Resolved(CodexModelSelection {
+        model: entry.slug.clone(),
+        input_modalities: entry.input_modalities,
+    })
+}
+
+/// Resolve the Codex model and its input modalities from one gateway catalog snapshot.
+///
+/// Selecting the model and reading its capabilities from the same response keeps the isolated
+/// Codex catalog consistent with what the gateway serves over HTTP. Transient failures are
+/// retried until `timeout` expires, because a gateway can answer `/health` before its upstream
+/// can list models; authentication failures and undecodable catalogs are reported immediately.
+///
+/// # Errors
+///
+/// Returns a configuration error when the catalog cannot be fetched within `timeout`, the
+/// gateway rejects the request, or the catalog does not list the selected model.
+async fn resolve_codex_selection(
+    client: &Client,
+    gateway_url: &str,
+    requested_model: Option<&str>,
+    api_key: Option<&str>,
+    timeout: Duration,
+    interval: Duration,
+) -> Result<CodexModelSelection, Error> {
+    let client_version = codex_client_version().await?;
+    catalog_selection(
+        client,
+        gateway_url,
+        &client_version,
+        requested_model,
+        api_key,
+        CatalogBudget {
+            timeout,
+            interval,
+            missing_grace: CATALOG_MODEL_GRACE,
+        },
+    )
+    .await
+}
+
+/// Poll the gateway catalog for `requested_model` until it resolves or the budget expires.
+async fn catalog_selection(
+    client: &Client,
+    gateway_url: &str,
+    client_version: &str,
+    requested_model: Option<&str>,
+    api_key: Option<&str>,
+    budget: CatalogBudget,
+) -> Result<CodexModelSelection, Error> {
+    let base = gateway_url.trim_end_matches('/');
+    let catalog_url = format!("{base}/v1/models");
+    let display_url = redact_url(base);
+    let deadline = Instant::now() + budget.timeout;
+    // Set on the first miss rather than up front: a slow warm-up must not consume the grace a
+    // served catalog is owed once it starts answering.
+    let mut missing_deadline = None;
+    let mut last_error = None;
+
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let Ok(attempt) = tokio::time::timeout(
+            remaining,
+            catalog_attempt(
+                client,
+                &catalog_url,
+                &display_url,
+                client_version,
+                requested_model,
+                api_key,
+            ),
+        )
+        .await
+        else {
+            break;
+        };
+
+        let delay = match attempt {
+            CatalogAttempt::Resolved(selection) => return Ok(selection),
+            CatalogAttempt::Permanent(error) => return Err(error),
+            CatalogAttempt::ModelMissing(error) => {
+                let now = Instant::now();
+                if now >= *missing_deadline.get_or_insert((now + budget.missing_grace).min(deadline)) {
+                    return Err(error);
+                }
+                last_error = Some(error);
+                budget.interval
+            }
+            CatalogAttempt::Transient(error, retry_after) => {
+                last_error = Some(error);
+                retry_after.unwrap_or(budget.interval)
+            }
+        };
+
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        sleep(delay.min(deadline - now)).await;
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        Error::Config(format!(
+            "the gateway model catalog at {display_url} did not become available"
+        ))
+    }))
+}
+
+/// Resolve the model each harness will run.
+///
+/// Codex reads its model and capabilities from the gateway catalog; Claude Code keeps using the
+/// upstream model listing, which needs no capability metadata.
+///
+/// # Errors
+///
+/// Returns a configuration error when no model can be resolved.
+async fn resolve_harness_model(
+    client: &Client,
+    harness: Harness,
+    gateway_url: &str,
+    options: &HarnessOptions,
+) -> Result<HarnessModel, Error> {
+    match harness {
+        Harness::Codex => Ok(HarnessModel::Codex(
+            resolve_codex_selection(
+                client,
+                gateway_url,
+                options.source.model.as_deref(),
+                options.common.api_key.as_deref(),
+                Duration::from_secs_f64(options.common.llm_ready_timeout_s),
+                Duration::from_secs_f64(options.common.llm_ready_interval_s),
+            )
+            .await?,
+        )),
+        Harness::Claude => Ok(HarnessModel::Claude(
+            resolve_model(client, &options.source, options.common.api_key.as_deref()).await?,
+        )),
+    }
+}
+
 /// Run one gateway-plus-harness session and return the harness exit status.
 ///
 /// # Errors
@@ -269,17 +685,16 @@ pub async fn run_session(
         return Err(error);
     }
 
-    let model = match resolve_model(&client, &options.source, options.common.api_key.as_deref()).await {
-        Ok(model) => model,
+    let harness_model = match resolve_harness_model(&client, harness, &gateway_url, &options).await {
+        Ok(harness_model) => harness_model,
         Err(error) => {
             cleanup(&mut server, session_root.path()).await;
             return Err(error);
         }
     };
     let harness_env = match harness_environment(
-        harness,
+        &harness_model,
         &gateway_url,
-        &model,
         &options,
         session_root.path(),
         &claude_state_root,
@@ -334,25 +749,25 @@ fn start_server(
 }
 
 fn harness_environment(
-    harness: crate::agentic_cli::Harness,
+    harness_model: &HarnessModel,
     gateway_url: &str,
-    model: &str,
-    options: &crate::agentic_cli::HarnessOptions,
+    options: &HarnessOptions,
     session_root: &Path,
     claude_state_root: &Path,
-) -> Result<crate::agentic_harness::HarnessEnv, Error> {
+) -> Result<HarnessEnv, Error> {
     let inherited_auth_token = std::env::var("ANTHROPIC_AUTH_TOKEN")
         .ok()
         .filter(|value| !value.trim().is_empty());
-    let mut environment = match harness {
-        crate::agentic_cli::Harness::Codex => crate::agentic_harness::prepare_codex_home(
+    let mut environment = match harness_model {
+        HarnessModel::Codex(selection) => crate::agentic_harness::prepare_codex_home(
             session_root,
             gateway_url,
-            model,
+            &selection.model,
+            selection.input_modalities,
             options.common.api_key.as_deref(),
         )
         .map_err(Error::from),
-        crate::agentic_cli::Harness::Claude => crate::agentic_harness::prepare_claude_home_with_state(
+        HarnessModel::Claude(model) => crate::agentic_harness::prepare_claude_home_with_state(
             session_root,
             claude_state_root,
             gateway_url,
@@ -362,7 +777,7 @@ fn harness_environment(
         )
         .map_err(Error::from),
     }?;
-    if matches!(harness, crate::agentic_cli::Harness::Claude) {
+    if matches!(harness_model, HarnessModel::Claude(_)) {
         // Claude Code gives CLAUDE_CODE_EFFORT_LEVEL precedence over --effort, so set both
         // to keep an inherited `high` from reaching the Qwen chat template.
         environment
@@ -378,15 +793,8 @@ fn spawn_harness(
     passthrough: &[String],
     harness_env: &crate::agentic_harness::HarnessEnv,
 ) -> Result<tokio::process::Child, Error> {
-    let binary_name = match harness {
-        crate::agentic_cli::Harness::Codex => "codex",
-        crate::agentic_cli::Harness::Claude => "claude",
-    };
-    let override_name = match harness {
-        crate::agentic_cli::Harness::Codex => "AGENTIC_CODEX_BIN",
-        crate::agentic_cli::Harness::Claude => "AGENTIC_CLAUDE_BIN",
-    };
-    let binary = std::env::var_os(override_name).unwrap_or_else(|| binary_name.into());
+    let (binary_name, override_name) = harness_binary_names(harness);
+    let binary = harness_binary(harness);
     let mut harness_command = build_harness_command(&binary, harness, yolo, passthrough, harness_env);
     harness_command
         .spawn()
@@ -420,18 +828,22 @@ fn build_harness_command(
 }
 
 fn prepare_attached_harness_environment(
-    harness: crate::agentic_cli::Harness,
+    harness_model: &HarnessModel,
     session_root: &Path,
     claude_state_root: &Path,
     gateway_url: &str,
-    model: &str,
     api_key: Option<&str>,
-) -> Result<crate::agentic_harness::HarnessEnv, Error> {
-    match harness {
-        crate::agentic_cli::Harness::Codex => {
-            crate::agentic_harness::prepare_codex_home(session_root, gateway_url, model, api_key).map_err(Error::from)
-        }
-        crate::agentic_cli::Harness::Claude => crate::agentic_harness::prepare_claude_home_with_state(
+) -> Result<HarnessEnv, Error> {
+    match harness_model {
+        HarnessModel::Codex(selection) => crate::agentic_harness::prepare_codex_home(
+            session_root,
+            gateway_url,
+            &selection.model,
+            selection.input_modalities,
+            api_key,
+        )
+        .map_err(Error::from),
+        HarnessModel::Claude(model) => crate::agentic_harness::prepare_claude_home_with_state(
             session_root,
             claude_state_root,
             gateway_url,
@@ -463,20 +875,33 @@ pub async fn run_attached_harness(
         wait_for_gateway(
             &client,
             &options.gateway_url,
-            Duration::from_secs(30),
-            Duration::from_millis(250),
+            ATTACHED_GATEWAY_TIMEOUT,
+            ATTACHED_GATEWAY_INTERVAL,
             false,
         )
         .await?;
+        let harness_model = match harness {
+            Harness::Codex => HarnessModel::Codex(
+                resolve_codex_selection(
+                    &client,
+                    &options.gateway_url,
+                    Some(&options.model),
+                    options.api_key.as_deref(),
+                    ATTACHED_GATEWAY_TIMEOUT,
+                    ATTACHED_GATEWAY_INTERVAL,
+                )
+                .await?,
+            ),
+            Harness::Claude => HarnessModel::Claude(options.model.clone()),
+        };
         let mut harness_env = prepare_attached_harness_environment(
-            harness,
+            &harness_model,
             session_root.path(),
             &claude_state_root,
             &options.gateway_url,
-            &options.model,
             options.api_key.as_deref(),
         )?;
-        if matches!(harness, crate::agentic_cli::Harness::Claude) {
+        if matches!(harness, Harness::Claude) {
             harness_env
                 .environment
                 .insert("CLAUDE_CODE_EFFORT_LEVEL".to_owned(), claude_effort());
@@ -554,8 +979,307 @@ fn gateway_client() -> Result<Client, Error> {
 mod tests {
     use std::ffi::OsString;
 
-    use super::{DEFAULT_CLAUDE_EFFORT, harness_launch_args, server_args};
+    use super::{CodexModelSelection, DEFAULT_CLAUDE_EFFORT, HarnessModel, harness_launch_args, server_args};
     use crate::agentic_cli::{CommonOptions, Harness, SourceOptions};
+    use crate::model_capabilities::InputModalities;
+
+    /// A gateway that answers catalog requests from a scripted queue and records what it was asked.
+    struct MockGateway {
+        url: String,
+        requests: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl MockGateway {
+        fn request_count(&self) -> usize {
+            self.requests.lock().expect("request log").len()
+        }
+
+        fn first_request(&self) -> String {
+            self.requests
+                .lock()
+                .expect("request log")
+                .first()
+                .cloned()
+                .unwrap_or_default()
+        }
+    }
+
+    /// Serve `responses` in order, repeating the last one once the queue is exhausted.
+    async fn spawn_mock_gateway(responses: Vec<(&'static str, String)>) -> MockGateway {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = std::sync::Arc::clone(&requests);
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            let mut served = 0;
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buffer = [0_u8; 4096];
+                let read = socket.read(&mut buffer).await.unwrap_or_default();
+                recorded
+                    .lock()
+                    .expect("request log")
+                    .push(String::from_utf8_lossy(&buffer[..read]).into_owned());
+                let (status, body) = responses
+                    .get(served)
+                    .or_else(|| responses.last())
+                    .cloned()
+                    .unwrap_or(("200 OK", String::new()));
+                served += 1;
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        MockGateway {
+            url: format!("http://{address}"),
+            requests,
+        }
+    }
+
+    fn catalog_body() -> String {
+        r#"{"models":[
+            {"slug":"first-model","input_modalities":["text"]},
+            {"slug":"vision-model","input_modalities":["text","image"]}
+        ]}"#
+        .to_owned()
+    }
+
+    async fn select(
+        gateway: &MockGateway,
+        requested_model: Option<&str>,
+        api_key: Option<&str>,
+    ) -> Result<super::CodexModelSelection, agentic_core::error::Error> {
+        super::catalog_selection(
+            &reqwest::Client::new(),
+            &gateway.url,
+            "9.9.9",
+            requested_model,
+            api_key,
+            super::CatalogBudget {
+                timeout: std::time::Duration::from_millis(400),
+                interval: std::time::Duration::from_millis(10),
+                missing_grace: super::CATALOG_MODEL_GRACE,
+            },
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_reads_the_resolved_modalities() {
+        let gateway = spawn_mock_gateway(vec![("200 OK", catalog_body())]).await;
+
+        let selection = select(&gateway, Some("vision-model"), None)
+            .await
+            .expect("the catalog lists the requested model");
+
+        assert_eq!(selection.model, "vision-model");
+        assert_eq!(selection.input_modalities, InputModalities::TextAndImage);
+        let request = gateway.first_request();
+        assert!(
+            request.starts_with("GET /v1/models?client_version=9.9.9 "),
+            "the gateway only transforms its catalog for a client version: {request}"
+        );
+        assert!(
+            !request.to_ascii_lowercase().contains("authorization:"),
+            "no credential must be sent when none is configured"
+        );
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_defaults_to_the_first_advertised_model() {
+        let gateway = spawn_mock_gateway(vec![("200 OK", catalog_body())]).await;
+
+        let selection = select(&gateway, None, None).await.expect("a catalog entry is selected");
+
+        assert_eq!(selection.model, "first-model");
+        assert_eq!(selection.input_modalities, InputModalities::Text);
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_sends_the_configured_credential() {
+        let gateway = spawn_mock_gateway(vec![("200 OK", catalog_body())]).await;
+
+        select(&gateway, Some("first-model"), Some("gateway-key"))
+            .await
+            .expect("the catalog lists the requested model");
+
+        assert!(
+            gateway
+                .first_request()
+                .to_ascii_lowercase()
+                .contains("authorization: bearer gateway-key"),
+            "the configured API key must reach a protected gateway"
+        );
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_reports_a_model_the_gateway_does_not_serve() {
+        let gateway = spawn_mock_gateway(vec![("200 OK", catalog_body())]).await;
+
+        let error = select(&gateway, Some("absent-model"), None)
+            .await
+            .expect_err("a model the gateway does not serve must fail");
+        let message = error.to_string();
+
+        assert!(message.contains("absent-model"), "{message}");
+        assert!(message.contains("first-model, vision-model"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_does_not_retry_rejected_credentials() {
+        let gateway = spawn_mock_gateway(vec![("401 Unauthorized", "{}".to_owned())]).await;
+
+        let error = select(&gateway, Some("first-model"), None)
+            .await
+            .expect_err("a rejected credential must fail");
+        let message = error.to_string();
+
+        assert!(message.contains("401"), "{message}");
+        assert!(message.contains("--api-key"), "{message}");
+        assert_eq!(
+            gateway.request_count(),
+            1,
+            "authentication failures must not be retried"
+        );
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_retries_a_warming_gateway() {
+        let gateway = spawn_mock_gateway(vec![
+            ("503 Service Unavailable", "{}".to_owned()),
+            ("200 OK", catalog_body()),
+        ])
+        .await;
+
+        let selection = select(&gateway, Some("vision-model"), None)
+            .await
+            .expect("a warming gateway must be retried");
+
+        assert_eq!(selection.input_modalities, InputModalities::TextAndImage);
+        assert_eq!(gateway.request_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_retries_an_empty_catalog() {
+        let gateway = spawn_mock_gateway(vec![
+            ("200 OK", r#"{"models":[]}"#.to_owned()),
+            ("200 OK", catalog_body()),
+        ])
+        .await;
+
+        let selection = select(&gateway, None, None)
+            .await
+            .expect("an upstream that is still loading must be retried");
+
+        assert_eq!(selection.model, "first-model");
+        assert_eq!(gateway.request_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_starts_the_missing_model_grace_at_the_first_miss() {
+        let warming = ("503 Service Unavailable", "{}".to_owned());
+        let without_the_model = (
+            "200 OK",
+            r#"{"models":[{"slug":"other-model","input_modalities":["text"]}]}"#.to_owned(),
+        );
+        let gateway = spawn_mock_gateway(vec![
+            warming.clone(),
+            warming.clone(),
+            warming.clone(),
+            warming.clone(),
+            warming.clone(),
+            warming,
+            without_the_model,
+            ("200 OK", catalog_body()),
+        ])
+        .await;
+
+        // Warm-up alone outlasts the grace: six retries at 30ms exceed the 150ms window, so a
+        // grace anchored at the first attempt would already have expired by the first miss.
+        let selection = super::catalog_selection(
+            &reqwest::Client::new(),
+            &gateway.url,
+            "9.9.9",
+            Some("vision-model"),
+            None,
+            super::CatalogBudget {
+                timeout: std::time::Duration::from_secs(3),
+                interval: std::time::Duration::from_millis(30),
+                missing_grace: std::time::Duration::from_millis(150),
+            },
+        )
+        .await
+        .expect("a slow warm-up must not consume the model-missing grace");
+
+        assert_eq!(selection.model, "vision-model");
+        assert_eq!(selection.input_modalities, InputModalities::TextAndImage);
+        assert_eq!(
+            gateway.request_count(),
+            8,
+            "every warm-up response, the miss, and the successful catalog must each be requested"
+        );
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_rejects_an_undecodable_catalog() {
+        let gateway = spawn_mock_gateway(vec![("200 OK", "not a catalog".to_owned())]).await;
+
+        let error = select(&gateway, Some("first-model"), None)
+            .await
+            .expect_err("an undecodable catalog must fail");
+
+        assert!(error.to_string().contains("not a Codex model catalog"), "{error}");
+        assert_eq!(gateway.request_count(), 1, "an undecodable catalog must not be retried");
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_rejects_an_oversized_catalog() {
+        let oversized = format!(
+            r#"{{"models":[{{"slug":"{}","input_modalities":["text"]}}]}}"#,
+            "x".repeat(super::MAX_CATALOG_BYTES + 1)
+        );
+        let gateway = spawn_mock_gateway(vec![("200 OK", oversized)]).await;
+
+        let error = select(&gateway, Some("first-model"), None)
+            .await
+            .expect_err("an oversized catalog must fail");
+
+        assert!(error.to_string().contains("larger than"), "{error}");
+        assert_eq!(gateway.request_count(), 1, "an oversized catalog must not be retried");
+    }
+
+    #[tokio::test]
+    async fn catalog_selection_redacts_gateway_credentials_when_unreachable() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        drop(listener);
+
+        let error = super::catalog_selection(
+            &reqwest::Client::new(),
+            &format!("http://agentic:gateway-secret@{address}"),
+            "9.9.9",
+            Some("first-model"),
+            None,
+            super::CatalogBudget {
+                timeout: std::time::Duration::from_millis(50),
+                interval: std::time::Duration::from_millis(10),
+                missing_grace: super::CATALOG_MODEL_GRACE,
+            },
+        )
+        .await
+        .expect_err("an unreachable gateway must fail");
+        let message = error.to_string();
+
+        assert!(!message.contains("gateway-secret"), "{message}");
+        assert!(message.contains("[REDACTED]"), "{message}");
+    }
 
     #[test]
     fn integrated_mode_builds_server_arguments() {
@@ -672,9 +1396,8 @@ mod tests {
         let root = std::env::temp_dir().join(format!("agentic-api-effort-test-{}", std::process::id()));
         let state_root = std::env::temp_dir().join(format!("agentic-api-state-test-{}", std::process::id()));
         let environment = super::harness_environment(
-            Harness::Claude,
+            &HarnessModel::Claude("served-discovered".to_owned()),
             "http://127.0.0.1:3000",
-            "served-discovered",
             &options,
             &root,
             &state_root,
@@ -710,9 +1433,8 @@ mod tests {
                 harness_args: Vec::new(),
             };
             let environment = super::harness_environment(
-                Harness::Claude,
+                &HarnessModel::Claude("served-discovered".to_owned()),
                 "http://127.0.0.1:3000",
-                "served-discovered",
                 &options,
                 settings_root.path(),
                 state_root.path(),
@@ -762,11 +1484,13 @@ mod tests {
     fn attached_codex_uses_an_isolated_responses_provider() {
         let root = std::env::temp_dir().join(format!("agentic-api-attached-codex-test-{}", std::process::id()));
         let environment = super::prepare_attached_harness_environment(
-            Harness::Codex,
+            &HarnessModel::Codex(CodexModelSelection {
+                model: "Qwen/Qwen3-8B".to_owned(),
+                input_modalities: InputModalities::TextAndImage,
+            }),
             &root,
             &root,
             "http://127.0.0.1:9000",
-            "Qwen/Qwen3-8B",
             None,
         )
         .expect("Codex environment");
@@ -780,6 +1504,14 @@ mod tests {
         assert!(config.contains("model = \"Qwen/Qwen3-8B\""));
         assert!(config.contains("base_url = \"http://127.0.0.1:9000/v1\""));
         assert!(config.contains("wire_api = \"responses\""));
+        let catalog: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(root.join("model_catalog.json")).expect("Codex catalog"))
+                .expect("valid catalog JSON");
+        assert_eq!(
+            catalog["models"][0]["input_modalities"],
+            serde_json::json!(["text", "image"]),
+            "the attached launcher must write the modalities the gateway resolved"
+        );
 
         std::fs::remove_dir_all(root).expect("cleanup");
     }
@@ -789,11 +1521,10 @@ mod tests {
         let session_root = tempfile::tempdir().expect("session root");
         let state_root = tempfile::tempdir().expect("state root");
         let environment = super::prepare_attached_harness_environment(
-            Harness::Claude,
+            &HarnessModel::Claude("Qwen/Qwen3-8B".to_owned()),
             session_root.path(),
             state_root.path(),
             "http://127.0.0.1:9000",
-            "Qwen/Qwen3-8B",
             None,
         )
         .expect("Claude environment");
@@ -811,11 +1542,10 @@ mod tests {
             let session_root = tempfile::tempdir().expect("session root");
             let state_root = tempfile::tempdir().expect("state root");
             let environment = super::prepare_attached_harness_environment(
-                Harness::Claude,
+                &HarnessModel::Claude("Qwen/Qwen3-8B".to_owned()),
                 session_root.path(),
                 state_root.path(),
                 "http://127.0.0.1:9000",
-                "Qwen/Qwen3-8B",
                 None,
             )
             .expect("Claude environment");
@@ -1243,9 +1973,8 @@ mod tests {
         };
         let root = std::env::temp_dir().join(format!("agentic-api-yolo-test-{}", std::process::id()));
         let environment = super::harness_environment(
-            Harness::Claude,
+            &HarnessModel::Claude("served-test".to_owned()),
             "http://127.0.0.1:3000",
-            "served-test",
             &options,
             &root,
             &root,

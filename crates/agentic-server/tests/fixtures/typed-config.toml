@@ -12,3 +12,6 @@ allowed_hosts = ["mcp.example.com"]
 url = "https://mcp.example.com/mcp"
 allowed_tools = ["say_hello", "sum"]
 require_approval = "never"
+
+[models."Qwen/Qwen3-VL-8B-Instruct"]
+input_modalities = ["text", "image"]

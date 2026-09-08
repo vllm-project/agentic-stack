@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -6,6 +6,7 @@ use std::path::Path;
 use agentic_core::McpServerEntry;
 use agentic_core::config::CONFIG_FILE_NAME;
 use agentic_core::error::Error;
+use agentic_server::model_capabilities::{InputModalities, ModelCapabilities};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -62,6 +63,20 @@ impl MessagesGatewayFileConfig {
     }
 }
 
+/// Per-model overrides for capabilities the gateway cannot infer from upstream metadata.
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct ModelFileConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_modalities: Option<InputModalities>,
+}
+
+impl ModelFileConfig {
+    fn is_empty(&self) -> bool {
+        self.input_modalities.is_none()
+    }
+}
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct FileConfig {
@@ -77,6 +92,8 @@ pub(crate) struct FileConfig {
     pub tools: ToolsFileConfig,
     #[serde(skip_serializing_if = "MessagesGatewayFileConfig::is_empty")]
     pub messages_gateway: MessagesGatewayFileConfig,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub models: BTreeMap<String, ModelFileConfig>,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub mcp_servers: HashMap<String, McpServerEntry>,
 }
@@ -179,6 +196,16 @@ impl FileConfig {
         Ok(self)
     }
 
+    /// Build the capability resolver from the configured per-model overrides.
+    pub(crate) fn model_capabilities(&self) -> ModelCapabilities {
+        ModelCapabilities::new(
+            self.models
+                .iter()
+                .filter_map(|(model_id, model)| Some((model_id.clone(), model.input_modalities?)))
+                .collect(),
+        )
+    }
+
     fn validate(&self, path: &Path) -> Result<(), Error> {
         if self
             .web_search
@@ -196,6 +223,20 @@ impl FileConfig {
                 "configuration file {} contains an empty MCP allowed host: {host:?}",
                 path.display()
             )));
+        }
+        for (model_id, model) in &self.models {
+            if model_id.trim().is_empty() {
+                return Err(Error::Config(format!(
+                    "configuration file {} contains an empty model ID",
+                    path.display()
+                )));
+            }
+            if model.is_empty() {
+                return Err(Error::Config(format!(
+                    "configuration file {} contains no settings for model {model_id:?}; set input_modalities",
+                    path.display()
+                )));
+            }
         }
         if let Some(label) = self.mcp_servers.keys().find(|label| label.trim().is_empty()) {
             return Err(Error::Config(format!(
@@ -234,6 +275,7 @@ mod tests {
     use std::fs;
 
     use agentic_core::McpServerEntry;
+    use agentic_server::model_capabilities::{InputModalities, UpstreamCapabilities};
     use tempfile::tempdir;
 
     use super::{FileConfig, McpFileConfig, WebSearchFileConfig};
@@ -271,6 +313,7 @@ mod tests {
         assert!(contents.contains("allowed_hosts = [\"mcp.example.com\"]"));
         assert!(!contents.contains("YOU_API_KEY ="));
         assert!(!contents.contains("[mcp_servers]"));
+        assert!(!contents.contains("[models"));
 
         #[cfg(unix)]
         {
@@ -303,6 +346,123 @@ mod tests {
             Some(["say_hello".to_owned(), "sum".to_owned()].as_slice())
         );
         assert_eq!(config.mcp_servers["remote"].require_approval(), Some("never"));
+        assert_eq!(
+            config.models["Qwen/Qwen3-VL-8B-Instruct"].input_modalities,
+            Some(InputModalities::TextAndImage)
+        );
+    }
+
+    #[test]
+    fn model_overrides_take_precedence_over_upstream_metadata() {
+        let home = tempdir().expect("temp home");
+        fs::write(
+            home.path().join("config.toml"),
+            concat!(
+                "[models.\"vision-model\"]\ninput_modalities = [\"text\", \"image\"]\n\n",
+                "[models.\"pinned-text-model\"]\ninput_modalities = [\"text\"]\n",
+            ),
+        )
+        .expect("write config");
+
+        let capabilities = FileConfig::load(home.path())
+            .expect("per-model overrides must parse")
+            .expect("existing config")
+            .model_capabilities();
+        let advertises_image = UpstreamCapabilities {
+            image: true,
+            reasoning: false,
+        };
+
+        assert_eq!(
+            capabilities.resolve("vision-model", UpstreamCapabilities::default()),
+            InputModalities::TextAndImage
+        );
+        assert_eq!(
+            capabilities.resolve("pinned-text-model", advertises_image),
+            InputModalities::Text
+        );
+        assert_eq!(
+            capabilities.resolve("unconfigured-model", advertises_image),
+            InputModalities::TextAndImage
+        );
+        assert_eq!(
+            capabilities.resolve("unconfigured-model", UpstreamCapabilities::default()),
+            InputModalities::Text
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_input_modality() {
+        let home = tempdir().expect("temp home");
+        fs::write(
+            home.path().join("config.toml"),
+            "[models.\"vision-model\"]\ninput_modalities = [\"text\", \"video\"]\n",
+        )
+        .expect("write config");
+
+        let error = FileConfig::load(home.path()).expect_err("an unknown modality must fail");
+        let message = error.to_string();
+
+        assert!(message.contains("config.toml"), "{message}");
+        assert!(message.contains("video"), "{message}");
+        assert!(message.contains("image"), "{message}");
+    }
+
+    #[test]
+    fn rejects_unusable_input_modality_lists() {
+        for (modalities, expected) in [
+            ("[]", "at least one modality"),
+            ("[\"image\"]", "must include \"text\""),
+            ("[\"text\", \"text\"]", "more than once"),
+        ] {
+            let home = tempdir().expect("temp home");
+            fs::write(
+                home.path().join("config.toml"),
+                format!("[models.\"a-model\"]\ninput_modalities = {modalities}\n"),
+            )
+            .expect("write config");
+
+            let error = FileConfig::load(home.path()).expect_err("an unusable modality list must fail");
+            assert!(error.to_string().contains(expected), "{modalities}: {error}");
+        }
+    }
+
+    #[test]
+    fn rejects_empty_model_id() {
+        let home = tempdir().expect("temp home");
+        fs::write(
+            home.path().join("config.toml"),
+            "[models.\"  \"]\ninput_modalities = [\"text\"]\n",
+        )
+        .expect("write config");
+
+        let error = FileConfig::load(home.path()).expect_err("an empty model ID must fail");
+        assert!(error.to_string().contains("empty model ID"), "{error}");
+    }
+
+    #[test]
+    fn rejects_model_section_without_settings() {
+        let home = tempdir().expect("temp home");
+        fs::write(home.path().join("config.toml"), "[models.\"a-model\"]\n").expect("write config");
+
+        let error = FileConfig::load(home.path()).expect_err("an empty model section must fail");
+        let message = error.to_string();
+
+        assert!(message.contains("no settings for model \"a-model\""), "{message}");
+        assert!(message.contains("input_modalities"), "{message}");
+    }
+
+    #[test]
+    fn rejects_unknown_model_setting() {
+        let home = tempdir().expect("temp home");
+        fs::write(
+            home.path().join("config.toml"),
+            "[models.\"a-model\"]\noutput_modalities = [\"text\"]\n",
+        )
+        .expect("write config");
+
+        let error = FileConfig::load(home.path()).expect_err("an unknown model setting must fail");
+        assert!(error.to_string().contains("unknown field"), "{error}");
     }
 
     #[test]

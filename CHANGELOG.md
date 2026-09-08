@@ -4,6 +4,13 @@ All notable changes to Agentic API are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added typed per-model input-modality overrides to `config.toml`
+  (`[models."<served-model-id>"] input_modalities = ["text", "image"]`), validated at startup:
+  unknown modality names, empty lists, duplicates, and image-only lists are rejected with the
+  offending file and line (#252).
+
 ### Changed
 
 - Forwarded `parallel_tool_calls` as the model-generation preference for typed
@@ -15,9 +22,22 @@ All notable changes to Agentic API are documented here.
   list-tools emission on later turns.
 - Clarified Codex tool execution roles by replacing ambiguous ownership language
   with the preferred client-executed and gateway-executed terminology.
+- Modeled the Codex model catalog and the upstream model listing as typed Rust structs instead of
+  untyped JSON, and reported an undecodable upstream `/v1/models` payload as `502` rather than
+  serving it as an empty catalog (#252).
+- `agentic run codex` and `agentic harness codex` now resolve the model and its input modalities
+  from a single gateway catalog snapshot before writing an isolated Codex home, retrying a warming
+  gateway and failing with an actionable error when the catalog cannot be fetched or does not list
+  the selected model. A gateway behind OIDC now requires `--api-key` for `agentic harness codex`.
+  `agentic_harness::prepare_codex_home` requires the resolved modalities and is no longer public
+  (#252).
 
 ### Fixed
 
+- Resolved Codex image capabilities consistently: the HTTP model catalog and both launcher modes
+  now advertise the same resolved `input_modalities`, so a vision-capable model no longer has image
+  content stripped client-side because an isolated catalog hardcoded `["text"]`. Existing persistent
+  Codex session homes must be regenerated to pick this up (#252).
 - Rejected split-execution responses with missing, reused, or unstable tool call IDs before persistence, keeping the
   reserved response ID available for a corrected retry.
 - Hardened split execution with atomic duplicate persistence, strict relayed-response validation, independent secret

@@ -374,7 +374,15 @@ async fn main() -> Result<(), server::ServerError> {
                 file_config = generated_file_config(base.clone()).create_or_load(&agentic_home)?;
             }
             let config = build_config(normalize_base_url(&base), &common, &file_config)?;
-            server::run(config, &common.gateway_host, common.gateway_port, oidc_config).await
+            let model_capabilities = file_config.model_capabilities();
+            server::run(
+                config,
+                model_capabilities,
+                &common.gateway_host,
+                common.gateway_port,
+                oidc_config,
+            )
+            .await
         }
         Some(Commands::Serve { model, port, llm_args }) => {
             if llm_api_base.is_some() {
@@ -396,7 +404,16 @@ async fn main() -> Result<(), server::ServerError> {
             args.push("--port".to_owned());
             args.push(port.to_string());
             args.extend(llm_args);
-            server::run_with_llm(config, &common.gateway_host, common.gateway_port, args, oidc_config).await
+            let model_capabilities = file_config.model_capabilities();
+            server::run_with_llm(
+                config,
+                model_capabilities,
+                &common.gateway_host,
+                common.gateway_port,
+                args,
+                oidc_config,
+            )
+            .await
         }
     }
 }

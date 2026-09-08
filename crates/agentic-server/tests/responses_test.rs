@@ -210,6 +210,7 @@ async fn storage_backed_state(llm_url: &str) -> StorageBackedState {
         llm_api_base: config.llm_api_base,
         skip_llm_ready_check: config.skip_llm_ready_check,
         openai_api_key: config.openai_api_key,
+        model_capabilities: std::sync::Arc::default(),
     };
     StorageBackedState { state, pool, _db: db }
 }

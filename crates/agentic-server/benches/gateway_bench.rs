@@ -181,6 +181,7 @@ async fn spawn_gateway(llm_url: &str) -> (Arc<reqwest::Client>, String) {
         llm_api_base: config.llm_api_base,
         skip_llm_ready_check: config.skip_llm_ready_check,
         openai_api_key: config.openai_api_key,
+        model_capabilities: std::sync::Arc::default(),
     };
 
     let router = build_router(state, &ServerConfig::from_env());
