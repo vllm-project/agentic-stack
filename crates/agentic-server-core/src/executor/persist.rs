@@ -133,6 +133,7 @@ async fn validate_output_call_ids(
         let (item_type, call_id) = match item {
             OutputItem::FunctionCall(call) => ("function_call", call.call_id.as_str()),
             OutputItem::CustomToolCall(call) => ("custom_tool_call", call.call_id.as_str()),
+            OutputItem::ShellCall(call) => ("shell_call", call.call_id.as_str()),
             _ => continue,
         };
         if call_id.is_empty() {
@@ -172,6 +173,7 @@ fn stored_call_id(item: &InOutItem) -> Option<&str> {
         InOutItem::Input(item) => input_call_id(item),
         InOutItem::Output(OutputItem::FunctionCall(call)) => Some(&call.call_id),
         InOutItem::Output(OutputItem::CustomToolCall(call)) => Some(&call.call_id),
+        InOutItem::Output(OutputItem::ShellCall(call)) => Some(&call.call_id),
         InOutItem::Output(_) => None,
     }
 }
@@ -180,6 +182,7 @@ fn input_call_id(item: &InputItem) -> Option<&str> {
     match item {
         InputItem::FunctionCall(call) => Some(&call.call_id),
         InputItem::CustomToolCall(call) => Some(&call.call_id),
+        InputItem::ShellCall(call) => Some(&call.call_id),
         _ => None,
     }
 }

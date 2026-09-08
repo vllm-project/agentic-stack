@@ -193,7 +193,13 @@ pub(super) async fn fetch_stream_payload(
         exec_ctx.streaming_timeout,
     ));
     let mut acc = ResponseAccumulator::new(ctx.response_id.clone(), ctx.conversation_id.clone());
-    let mut function_sse = FunctionSseTranslator::new(registry.tool_type_map());
+    let tool_types = registry.tool_type_map();
+    let gateway_names = tool_types
+        .keys()
+        .filter(|name| registry.is_gateway_owned_name(name))
+        .cloned()
+        .collect();
+    let mut function_sse = FunctionSseTranslator::new(tool_types).with_gateway_names(gateway_names);
     let mut defer_from_output_index = None;
     let mut deferred_events = Vec::new();
     let mut deferred_bytes = 0;
@@ -373,7 +379,7 @@ fn emit_mcp_discovery_lifecycle(
         .mcp_list_tool_items()
         .map(crate::tool::mcp::handler::list_tools_output_item)
         .collect::<Vec<_>>();
-    let public_output = public_output_items(&discovered_output, registry, &[]);
+    let public_output = public_output_items(&discovered_output, registry, &[])?;
     let event_plans = mcp_list_tools_event_plans(&public_output, 0);
 
     emit_gateway_start_events(&event_plans, stream_accumulator, stream_sender)?;

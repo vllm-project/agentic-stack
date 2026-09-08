@@ -681,26 +681,26 @@ def _inject_tools(
 
 
 def _extract_tool_calls(response_data: dict | None) -> list[dict]:
-    """Extract client-owned function and custom tool calls from a response."""
+    """Extract client-executed function, custom, and shell calls from a response."""
     if not response_data:
         return []
     output = response_data.get("output", [])
     return [
         item
         for item in output
-        if item.get("type") in {"function_call", "custom_tool_call"}
+        if item.get("type") in {"function_call", "custom_tool_call", "shell_call"}
     ]
 
 
 def _build_tool_output_input(
     tool_calls: list[dict],
-    tool_outputs: "dict[str, str] | types.ModuleType",
+    tool_outputs: "dict[str, Any] | types.ModuleType",
     user_prompt: str | None,
 ) -> list[dict]:
     """Build tool output items followed by an optional user message.
 
     Args:
-        tool_calls: function_call or custom_tool_call items from the previous response.
+        tool_calls: function_call, custom_tool_call, or shell_call output items.
         tool_outputs: either
             - a dict mapping tool name -> fake JSON output string (loaded from a
               --tool-outputs *.json* file), matched by name only; or
@@ -714,6 +714,9 @@ def _build_tool_output_input(
               provider's behavior when the client leaves one specific pending
               call unresolved (e.g. one of two parallel calls to the same tool
               with different arguments) while resolving its sibling(s).
+            Shell calls use the key/function `shell`. Its value (or return value
+            from `shell(action=...)`) is an object containing the structured
+            `output` array and optional `max_output_length`, not a JSON string.
         user_prompt: the next user message (None for tool-output-only turns).
 
     Returns:
@@ -722,6 +725,21 @@ def _build_tool_output_input(
     input_items: list[dict] = []
     for call in tool_calls:
         call_id = call.get("call_id", "")
+        if call.get("type") == "shell_call":
+            if isinstance(tool_outputs, types.ModuleType):
+                fn = getattr(tool_outputs, "shell", None)
+                result = fn(action=call["action"]) if fn else None
+            else:
+                result = tool_outputs.get("shell")
+            if result is None:
+                continue
+            if not isinstance(result, dict) or not isinstance(result.get("output"), list):
+                raise click.UsageError("shell tool output must be an object containing an output array")
+            item = {"type": "shell_call_output", "call_id": call_id, "output": result["output"]}
+            if "max_output_length" in result:
+                item["max_output_length"] = result["max_output_length"]
+            input_items.append(item)
+            continue
         name = call.get("name", "")
         if isinstance(tool_outputs, types.ModuleType):
             fn = getattr(tool_outputs, name, None)
@@ -978,7 +996,7 @@ def run_responses(
     output_file: Path | None = None,
     tools: list | None = None,
     tool_choice: Any = None,
-    tool_outputs: dict[str, str] | None = None,
+    tool_outputs: "dict[str, Any] | types.ModuleType | None" = None,
     max_output_tokens: int | None = None,
     reasoning: dict | None = None,
     preset_input: str | list | None = None,
@@ -1014,7 +1032,7 @@ def run_responses(
         else:
             prompt = _prompt(f"Turn {turn}/{turns} — enter prompt: ")
 
-            # Inject matching function/custom output items before the user message.
+            # Inject matching function/custom/shell output items before the user message.
             pending_calls = _extract_tool_calls(last_response) if tool_outputs else []
             if pending_calls and tool_outputs:
                 input_value = _build_tool_output_input(
@@ -1210,7 +1228,9 @@ def run_responses(
     help="Path to a *.json file mapping tool names to fake output strings, or a *.py file defining "
     "one function per tool name (called with the model's actual parsed arguments; returning None "
     "omits that call's output). When provided, matching function_call_output or "
-    "custom_tool_call_output items are injected between turns (required for OpenAI Responses API).",
+    "custom_tool_call_output items are injected between turns (required for OpenAI Responses API). "
+    "Shell calls use the key/function shell (called with action=...) returning an object with "
+    "an output array and optional max_output_length for shell_call_output.",
 )
 @click.option(
     "--input-file",
@@ -1315,7 +1335,7 @@ def main(
     if parallel_tool_calls_raw is not None:
         parallel_tool_calls = parallel_tool_calls_raw == "true"
 
-    tool_outputs: "dict[str, str] | types.ModuleType | None" = None
+    tool_outputs: "dict[str, Any] | types.ModuleType | None" = None
     if tool_outputs_file:
         if tool_outputs_file.endswith(".py"):
             spec = importlib.util.spec_from_file_location("cassette_tool_outputs", tool_outputs_file)

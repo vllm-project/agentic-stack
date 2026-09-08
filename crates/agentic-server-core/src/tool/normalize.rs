@@ -8,6 +8,7 @@ use super::function::FunctionHandler;
 use super::handler::{ToolError, ToolHandler, ToolOutput};
 use super::mcp::McpHandler;
 use super::registry::ToolType;
+use super::shell::ShellHandler;
 use super::web_search::web_search_function_tool;
 
 impl ResponsesTool {
@@ -22,6 +23,7 @@ impl ResponsesTool {
             Self::Function(param) => FunctionHandler.validate(param),
             Self::Mcp(param) => McpHandler::spec_from_param(param).validate(param),
             Self::WebSearch(_) | Self::FileSearch(_) | Self::CodeInterpreter(_) | Self::Unknown => Ok(()),
+            Self::Shell(param) => ShellHandler.validate(param),
             Self::Namespace(param) => CodexNamespaceHandler.validate(param),
             Self::Custom(param) => CustomHandler.validate(param),
         }
@@ -38,6 +40,7 @@ impl ResponsesTool {
             Self::CodeInterpreter(_) => Some(ToolType::CodeInterpreter),
             Self::Namespace(_) => Some(ToolType::CodexNamespace),
             Self::Custom(_) => Some(ToolType::Custom),
+            Self::Shell(_) => Some(ToolType::Shell),
             Self::Unknown => None,
         }
     }
@@ -77,6 +80,7 @@ impl ResponsesTool {
                 tracing::debug!("code_interpreter tool skipped in normalize - handler not yet registered");
                 vec![]
             }
+            Self::Shell(param) => ShellHandler.normalize(param),
             Self::Namespace(param) => CodexNamespaceHandler.normalize(param),
             Self::Custom(param) => CustomHandler.normalize(param),
             Self::Unknown => {

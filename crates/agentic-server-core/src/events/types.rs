@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::types::io::{OutputItem, ResponseUsage};
+use crate::types::io::{OutputItem, ResponseUsage, ShellCall};
 
 /// The type of an output item received during streaming.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +12,7 @@ pub enum SSEItemType {
     WebSearchCall,
     McpCall,
     McpListTools,
+    ShellCall,
     Compaction,
     Message,
 }
@@ -26,6 +27,7 @@ impl SSEItemType {
             Self::WebSearchCall => "web_search_call",
             Self::McpCall => "mcp_call",
             Self::McpListTools => "mcp_list_tools",
+            Self::ShellCall => "shell_call",
             Self::Compaction => "compaction",
             Self::Message => "message",
         }
@@ -49,6 +51,7 @@ impl std::str::FromStr for SSEItemType {
             "web_search_call" => Ok(Self::WebSearchCall),
             "mcp_call" => Ok(Self::McpCall),
             "mcp_list_tools" => Ok(Self::McpListTools),
+            "shell_call" => Ok(Self::ShellCall),
             "compaction" => Ok(Self::Compaction),
             "message" => Ok(Self::Message),
             _ => Err(()),
@@ -67,6 +70,7 @@ impl TryFrom<&OutputItem> for SSEItemType {
             OutputItem::WebSearchCall(_) => Ok(Self::WebSearchCall),
             OutputItem::McpCall(_) => Ok(Self::McpCall),
             OutputItem::McpListTools(_) => Ok(Self::McpListTools),
+            OutputItem::ShellCall(_) => Ok(Self::ShellCall),
             OutputItem::Reasoning(_) => Ok(Self::Reasoning),
             OutputItem::Compaction(_) => Ok(Self::Compaction),
             OutputItem::Unknown => Err(()),
@@ -121,6 +125,9 @@ pub enum SSEEventType {
     FunctionCallArgumentsDone,
     CustomToolCallInputDelta,
     CustomToolCallInputDone,
+    ShellCallCommandAdded,
+    ShellCallCommandDelta,
+    ShellCallCommandDone,
 
     // Reasoning
     ReasoningTextDelta,
@@ -167,6 +174,9 @@ impl From<&str> for SSEEventType {
             "response.function_call_arguments.done" => Self::FunctionCallArgumentsDone,
             "response.custom_tool_call_input.delta" => Self::CustomToolCallInputDelta,
             "response.custom_tool_call_input.done" => Self::CustomToolCallInputDone,
+            "response.shell_call_command.added" => Self::ShellCallCommandAdded,
+            "response.shell_call_command.delta" => Self::ShellCallCommandDelta,
+            "response.shell_call_command.done" => Self::ShellCallCommandDone,
             "response.reasoning_text.delta" => Self::ReasoningTextDelta,
             "response.reasoning_text.done" => Self::ReasoningTextDone,
             "response.reasoning_part.added" => Self::ReasoningPartAdded,
@@ -211,6 +221,9 @@ impl TryFrom<SSEEventType> for &'static str {
             SSEEventType::FunctionCallArgumentsDone => Ok("response.function_call_arguments.done"),
             SSEEventType::CustomToolCallInputDelta => Ok("response.custom_tool_call_input.delta"),
             SSEEventType::CustomToolCallInputDone => Ok("response.custom_tool_call_input.done"),
+            SSEEventType::ShellCallCommandAdded => Ok("response.shell_call_command.added"),
+            SSEEventType::ShellCallCommandDelta => Ok("response.shell_call_command.delta"),
+            SSEEventType::ShellCallCommandDone => Ok("response.shell_call_command.done"),
             SSEEventType::ReasoningTextDelta => Ok("response.reasoning_text.delta"),
             SSEEventType::ReasoningTextDone => Ok("response.reasoning_text.done"),
             SSEEventType::ReasoningPartAdded => Ok("response.reasoning_part.added"),
@@ -259,6 +272,14 @@ impl WireEvent {
     }
 }
 
+/// One command's incremental lifecycle within a shell output item.
+#[derive(Debug, Clone)]
+pub enum ShellCommandUpdate {
+    Added(String),
+    Delta(String),
+    Done(String),
+}
+
 /// Typed payload extracted from an SSE event's JSON data.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -279,6 +300,8 @@ pub enum EventPayload {
         name: Option<String>,
         namespace: Option<String>,
         call_id: Option<String>,
+        /// Preserve the typed initial shell item before command events arrive.
+        shell_call: Option<Box<ShellCall>>,
     },
 
     /// `response.output_item.done`
@@ -322,6 +345,12 @@ pub enum EventPayload {
     },
 
     /// `response.custom_tool_call_input.delta`
+    ShellCallCommand {
+        item_id: String,
+        output_index: u32,
+        command_index: u32,
+        update: ShellCommandUpdate,
+    },
     CustomToolCallInputDelta {
         delta: String,
         item_id: String,
@@ -451,6 +480,9 @@ mod tests {
             SSEEventType::FunctionCallArgumentsDone,
             SSEEventType::CustomToolCallInputDelta,
             SSEEventType::CustomToolCallInputDone,
+            SSEEventType::ShellCallCommandAdded,
+            SSEEventType::ShellCallCommandDelta,
+            SSEEventType::ShellCallCommandDone,
             SSEEventType::ReasoningTextDelta,
             SSEEventType::ReasoningTextDone,
             SSEEventType::ReasoningPartAdded,

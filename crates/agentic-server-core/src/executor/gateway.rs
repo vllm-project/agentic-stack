@@ -305,20 +305,27 @@ pub(super) fn public_output_items(
     output_items: &[OutputItem],
     registry: &ToolRegistry,
     gateway_results: &[GatewayCallResult],
-) -> Vec<OutputItem> {
+) -> ExecutorResult<Vec<OutputItem>> {
     output_items
         .iter()
         .enumerate()
-        .map(|(item_index, item)| match item {
-            OutputItem::FunctionCall(call) if registry.is_client_custom_name(&call.name) => {
-                crate::tool::CustomHandler::output_item(call)
-            }
-            OutputItem::FunctionCall(call) if registry.is_gateway_owned_name(&call.name) => gateway_results
-                .iter()
-                .find(|result| result.item_index == item_index)
-                .and_then(|result| result.public_output.clone())
-                .unwrap_or_else(|| OutputItem::FunctionCall(call.clone())),
-            other => other.clone(),
+        .map(|(item_index, item)| {
+            Ok(match item {
+                OutputItem::FunctionCall(call) if registry.is_client_custom_name(&call.name) => {
+                    crate::tool::CustomHandler::output_item(call)
+                }
+                OutputItem::FunctionCall(call) if registry.is_client_shell_name(&call.name) => {
+                    crate::tool::ShellHandler::output_item(call).ok_or_else(|| {
+                        ExecutorError::ParseError("shell function call contains invalid action arguments".to_owned())
+                    })?
+                }
+                OutputItem::FunctionCall(call) if registry.is_gateway_owned_name(&call.name) => gateway_results
+                    .iter()
+                    .find(|result| result.item_index == item_index)
+                    .and_then(|result| result.public_output.clone())
+                    .unwrap_or_else(|| OutputItem::FunctionCall(call.clone())),
+                other => other.clone(),
+            })
         })
         .collect()
 }
@@ -468,6 +475,7 @@ pub(super) fn emit_gateway_start_events<'a>(
             OutputItem::Message(_)
             | OutputItem::FunctionCall(_)
             | OutputItem::CustomToolCall(_)
+            | OutputItem::ShellCall(_)
             | OutputItem::Reasoning(_)
             | OutputItem::Compaction(_)
             | OutputItem::Unknown => {}
@@ -511,7 +519,7 @@ pub(super) fn emit_gateway_completed_events<'a, T: GatewayPublicOutputSource>(
                 },
                 list_tools.id.as_str(),
             )),
-            OutputItem::Compaction(_) => None,
+            OutputItem::Compaction(_) | OutputItem::ShellCall(_) => None,
             OutputItem::Message(_)
             | OutputItem::FunctionCall(_)
             | OutputItem::CustomToolCall(_)
@@ -1169,7 +1177,8 @@ mod tests {
             )],
         );
         let discovered_output = crate::tool::mcp::handler::list_tools_output_item(&list_tools);
-        let public_output = super::public_output_items(&[discovered_output], &ToolRegistry::default(), &[]);
+        let public_output =
+            super::public_output_items(&[discovered_output], &ToolRegistry::default(), &[]).expect("public output");
         let plans = super::mcp_list_tools_event_plans(&public_output, 0);
         let (sender, mut receiver) = mpsc::unbounded_channel();
         let mut stream_accumulator = crate::executor::gateway_accumulator::GatewayStreamAccumulator::new();

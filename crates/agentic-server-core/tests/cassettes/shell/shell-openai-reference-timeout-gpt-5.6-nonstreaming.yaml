@@ -1,0 +1,230 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: 'The local shell environment is Linux bash. Use the shell tool exactly
+        once with this exact action, preserving the commands array and its order:
+        {"commands": ["sleep 2"], "timeout_ms": 1000, "max_output_length": 4096}.
+        Wait for the client to return shell_call_output before interpreting the results.'
+      max_output_tokens: 4096
+      model: gpt-5.6
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - environment:
+          type: local
+        type: shell
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1788843164
+      created_at: 1788843159
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0259cb43815e378a006a9f9497c3c887d0ace172acb518580c
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 4096
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content: []
+        encrypted_content: gAAAAABqn5ScO7ZOeFb8DdarapETwHFsT16ky6pvNx8bAyfXfNyRiqJnAao4cJnEwSiPrObNlZuz1_dAMdqiLW4uzU62jZ-eLJRwHeIAbeG2FRdAldwJ-pXU7pj6TDrEHxiwL-vpCDJhfJC7kRnGHtGkJ4XQqchKQ6zMPz5JljIQxg7AtywOsuzSZAUC-YoK2ZVdAOZg03nueL4nBsf0LrcitciDxlaLU7Eh5v510kCqBmUYbrG08702z1kx2aDDa4zDNJrHP7D7d43YCUalNT3NsiJmTJ_bl2OTrcNy0Dzi-mmiPRzuFr8frwLyOK6HEeaf4P7sSNYOjrORcowYxXOishrEd1uZ2NP7URFkl-JFhsP6CfG0GxQ277PZERAIfTxCKHNL1lRvxgUsu27P72DPmM0rimLF7z2ftaGSCb01E4k-R2qqQCb7PUt94dbhqyWKRif8Aaas2JHXV61kLBAHSOcngQ8FJteXa4oIZ3DpKFPVby0p5x7yPbRN6U8N_GHCqqEvGWdmTRpYfZmSLRN7nlyXjm0NwYoO6M9E-SwO_5IuBDqpdGG-L8RY15rE2cIRgnrLxKxKNCiTpkk57uENSEG4RDGxRke0taIoUyHY-j2S6DsLfeLeeggO1Y8npS6AMxqqWGGJ9nWO2bPZb9N0wb4rLiEQgQXIUVss4dBHI_sVuW-Id-OylEnTkpwm9r1JE-Q68P8sLrK5ODHpAFbLYN3VF1WxxURHAjl3wldPv0MpEtWLw9IyhbTQGfOVlySs6v14t17aZ3_qP7TlDiaTMHAp65HG0d-fiisI735qnPFZv8filaif8tmfFcd-qaPZlzm2IGGo-N9cUsHOzcQg5OyLy-Y8-Wl6binfd8sF8F5hD0o64jxmTDzanEwBVtGEdfoqa64aNoZTUhP8O1hXM8wu01mVUIPvubvQ7dkN4ueClBL0uQk2j6JfLhpuNJNb6WBGlTu-3n2YdbKjlUnq7zuuNh_6NZA3VfgrWgH4Xi34NOkxU3ctxLHHjeh4pSJlAnXeTGt1Nb9heMYkgC06FdTxI1UenGE8qterbrexKE7GMolvSt9P_TWaC6wtuHQO3uiDgJ3aKy9Ilf6OXlXQ0BtY0RSxxDvOHXayypX0aYZFPFR_lMhf9s_GRMIHcPjCSgE3AVI31tWZvgE6ptxtuG5eBJg3_o9ln3NvzP-dbNhljQkPSbERTcC00WId3QtH8wUOS1_7xyA0b4E8O2fPJWjnKjZ9c65Fy3DuEDKNnVBxyErOITd07MRshgBOhoYv9UHWvBkBLam2-Q1gsXQIDjSq5pJDCwvJ8UnydybE_nu3yQ0uwCMANjW6kgF1POSa6Jmv6A_yCZ3vojmLUMTAEAhm0YZGss-1APTLYRP7iteOTTzYzO4D04PZah4ML9MAn4Vub8oTQRMtNqJzP8xx3DFvhydPjrhqrW3diScscYOGbXi_aWFi8fzWWoTNmsGFhzZzI_tNfgqnknpi0rcEYLKpEhmqNLg00HNBrRR_CxOvx_LmVIXWkYFFyYiM_bTouyj4OXgTgltCw3yc9mfEhtY36wU70cQg_Hx6r_oMI0-e1lbGbEYe5HFxLt_no_P-ywt3JkSs43aph0wPkBo3RvETQZGB1TgzLzfCaIUjXAJaeyQc27ON44sQUJtb-meW154Bz5vHDkUN-6C6Y3Lgzj879iZE0EzpF3d_SQWbCB6t6SgrfVSSixBdUPzKYoWd3UMuYJyPXCwHxca4FPeSs4Gy6Keq1dHKTgTz1vwdQ1fOK_5r9Xk9KYsurEdn5zqY08XnMVdkocy-vqOIQBSWJuc7HnDQRmNJNLc3fJJw3Wvm00CC3-dcsxxYq_R2t_96nYf6JzhFLb6v6qRGqFcZg75X2H98wJ1F-sVUAitdI2aJEkcQjH3QqWuq44Q6VDTSgaO0RbxpA9FajOlMAMohbohyXEEvgkKIamiBSxW08Vept_3BVgmGSacBuuUCBwrjjz5iMohvFWj2RZ31EMXCvudlWiVl0NHJISTS10-OvcE7odYUjJIleOvAPO4M6udvaTp9vFtTUr9VY5zCV-aTFE2_QhvD_Q==
+        id: rs_0259cb43815e378a006a9f94988c9087d0a5b7b3272ca557f2
+        summary: []
+        type: reasoning
+      - action:
+          commands:
+          - sleep 2
+          max_output_length: 4096
+          timeout_ms: 1000
+        call_id: call_ybyWU3DANUnWih0yV5b3mhK1
+        environment: null
+        id: sh_0259cb43815e378a006a9f949be30487d0b470a2c59f94aa23
+        status: completed
+        type: shell_call
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: null
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - environment:
+          type: local
+        type: shell
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 309
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 0
+        output_tokens: 158
+        output_tokens_details:
+          reasoning_tokens: 123
+        total_tokens: 467
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: call_ybyWU3DANUnWih0yV5b3mhK1
+        max_output_length: 4096
+        output:
+        - outcome:
+            type: timeout
+          stderr: ''
+          stdout: ''
+        type: shell_call_output
+      - content: Use the shell output above without calling any more tools. For each
+          command, report its stdout, stderr, and exit code or timeout outcome in
+          order.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: gpt-5.6
+      previous_response_id: resp_0259cb43815e378a006a9f9497c3c887d0ace172acb518580c
+      store: true
+      stream: false
+      tool_choice: auto
+      tools:
+      - environment:
+          type: local
+        type: shell
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    body:
+      background: false
+      billing:
+        payer: developer
+      completed_at: 1788843166
+      created_at: 1788843165
+      error: null
+      frequency_penalty: 0.0
+      id: resp_0259cb43815e378a006a9f949cee4487d090a56faf0da3a0d0
+      incomplete_details: null
+      instructions: null
+      max_output_tokens: 4096
+      max_tool_calls: null
+      metadata: {}
+      model: gpt-5.6-sol
+      moderation: null
+      object: response
+      output:
+      - content:
+        - annotations: []
+          logprobs: []
+          text: "1. `sleep 2`\n   - **stdout:** *(empty)*\n   - **stderr:** *(empty)*\n\
+            \   - **outcome:** Timed out after 1000 ms."
+          type: output_text
+        id: msg_0259cb43815e378a006a9f949dd91c87d0b49249c2c56ddbbd
+        phase: final_answer
+        role: assistant
+        status: completed
+        type: message
+      parallel_tool_calls: true
+      presence_penalty: 0.0
+      previous_response_id: resp_0259cb43815e378a006a9f9497c3c887d0ace172acb518580c
+      prompt_cache_key: null
+      prompt_cache_retention: 24h
+      reasoning:
+        context: all_turns
+        effort: medium
+        mode: standard
+        summary: null
+      safety_identifier: null
+      service_tier: default
+      status: completed
+      store: true
+      temperature: 1.0
+      text:
+        format:
+          type: text
+        verbosity: medium
+      tool_choice: auto
+      tool_usage:
+        image_gen:
+          input_tokens: 0
+          input_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          output_tokens: 0
+          output_tokens_details:
+            image_tokens: 0
+            text_tokens: 0
+          total_tokens: 0
+        web_search:
+          num_requests: 0
+      tools:
+      - environment:
+          type: local
+        type: shell
+      top_logprobs: 0
+      top_p: 0.98
+      truncation: disabled
+      usage:
+        input_tokens: 522
+        input_tokens_details:
+          cache_write_tokens: 0
+          cached_tokens: 0
+        output_tokens: 44
+        output_tokens_details:
+          reasoning_tokens: 0
+        total_tokens: 566
+      user: null
+    headers:
+      content-type: application/json
+    status_code: 200

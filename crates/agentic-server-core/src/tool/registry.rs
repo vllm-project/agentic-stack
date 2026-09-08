@@ -10,6 +10,7 @@ use super::executors::GatewayExecutors;
 use super::function::insert_function_entry;
 use super::mcp::registry::insert_discovered_mcp_entry;
 use super::ownership::{GatewayBinding, ToolOwnership};
+use super::shell::insert_shell_entry;
 use super::web_search::insert_web_search_entry;
 use super::{CodexNamespaceHandler, McpHandler, NamespaceMap, ToolError, ToolOutput};
 use crate::events::WireEvent;
@@ -23,6 +24,7 @@ use crate::types::tools::{CodeInterpreterToolParam, FileSearchToolParam, Respons
 pub enum ToolType {
     Function,
     Custom,
+    Shell,
     CodexNamespace,
     Mcp,
     /// Internal routing discriminant. Serializes as `"web_search"`.
@@ -39,6 +41,7 @@ impl ToolType {
         match self {
             Self::Function => "function tool",
             Self::Custom => "custom tool",
+            Self::Shell => "shell tool",
             Self::CodexNamespace => "Codex namespace tool",
             Self::Mcp => "MCP tool",
             Self::WebSearch => "web search tool",
@@ -53,7 +56,7 @@ impl ToolType {
     /// `ToolOwnership::is_gateway` on it directly.
     #[must_use]
     pub const fn is_gateway_owned(self) -> bool {
-        !matches!(self, Self::Function | Self::Custom | Self::CodexNamespace)
+        !matches!(self, Self::Function | Self::Custom | Self::Shell | Self::CodexNamespace)
     }
 }
 
@@ -77,9 +80,7 @@ impl std::fmt::Debug for ToolEntry {
 }
 
 impl ToolEntry {
-    /// Builds a client-owned entry. `tool_type.is_gateway_owned()` is the
-    /// single source of truth for the ownership discriminant; this asserts
-    /// the caller picked the constructor matching its own tool type.
+    /// Builds a client-owned entry using the declaration-level ownership default.
     pub(crate) fn client(tool_type: ToolType, server_label: Option<String>) -> Self {
         debug_assert!(!tool_type.is_gateway_owned());
         Self {
@@ -243,6 +244,11 @@ impl ToolRegistry {
                         insert_code_interpreter_entry(resolved, p);
                     })?;
                 }
+                ResponsesTool::Shell(_) => {
+                    insert_unique_tool_entries(&mut entries, |resolved| {
+                        insert_shell_entry(resolved);
+                    })?;
+                }
                 ResponsesTool::Namespace(p) => {
                     insert_unique_tool_entries(&mut entries, |resolved| insert_namespace_entries(resolved, p))?;
                 }
@@ -357,6 +363,13 @@ impl ToolRegistry {
         self.entries
             .get(name)
             .is_some_and(|entry| entry.tool_type == ToolType::Custom)
+    }
+
+    #[must_use]
+    pub fn is_client_shell_name(&self, name: &str) -> bool {
+        self.entries
+            .get(name)
+            .is_some_and(|entry| entry.tool_type == ToolType::Shell && !entry.ownership.is_gateway())
     }
 
     /// Returns the subset of `calls` whose names map to client-owned tools

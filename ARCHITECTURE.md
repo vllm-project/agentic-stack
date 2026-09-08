@@ -468,6 +468,11 @@ reshapes the raw stream accordingly:
   later, once the call has actually executed, by `gateway.rs`.
 - **Client-owned tools** (`Function`, `CodexNamespace`) — pass through unchanged.
 
+Shell functions are restored to `shell_call` for client execution by default.
+When an application explicitly registers a shell executor, the translator instead
+suppresses those internal function frames using the registry's resolved ownership;
+the existing gateway event plan emits the shell call's added/done lifecycle.
+
 It also buffers function-call events that arrive before the call's name is known
 (bounded at 256 KiB) and replays them once the name resolves.
 
@@ -695,12 +700,22 @@ the behavioral layer — routing, handler traits, normalization, and execution.
   reused across requests, specifically for gateway tools that need **lazy, per-request
   connection setup**: MCP servers (connects and caches `McpClient`s keyed by server
   URL, falling back to connecting a fresh request-declared server) and the shared
-  `WebSearchHandler`. As of today it only has slots for `ToolType::Mcp` and
-  `ToolType::WebSearch`; `GatewayExecutorRegistration` has typed variants for those
-  supported slots. Client-owned
+  `WebSearchHandler`. It also has an optional, application-provided `ShellExecutor`
+  slot. `GatewayExecutorRegistration::Shell` is an explicit execution grant; an
+  unregistered shell declaration remains client-executed. `ShellExecutor` accepts
+  a typed call with bounded action limits and cancellation and returns typed command
+  outputs. The adapter binds into the existing gateway scheduler, not a second tool loop.
+  Client-owned
   tools (`function`, `custom`, `namespace`) never touch this file; their registry
   entries are inserted with `ToolOwnership::Client` and no `GatewayExecutors`
   involvement.
+
+Shell item history is preserved publicly in storage. At the inference boundary,
+`ShellHandler::model_input` lowers shell calls and outputs into matching function
+history, just as declarations and explicit shell selectors are normalized. For an
+opt-in gateway executor, storage additionally retains the canonical internal function
+call/output pair; rehydration omits that pair's public shell-call projection to avoid
+replaying the invocation twice. Client-executed shell history is not omitted.
 
 **To add a new tool type:**
 1. Implement `ToolHandler`, including its typed `ToolParams`, for it. If it's client-executed,

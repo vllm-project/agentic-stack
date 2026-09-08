@@ -16,6 +16,7 @@ use crate::types::io::InputItem;
 enum CallKind {
     Function,
     Custom,
+    Shell,
 }
 
 impl CallKind {
@@ -23,6 +24,7 @@ impl CallKind {
         match self {
             Self::Function => "function_call",
             Self::Custom => "custom_tool_call",
+            Self::Shell => "shell_call",
         }
     }
 
@@ -30,6 +32,7 @@ impl CallKind {
         match self {
             Self::Function => "function_call_output",
             Self::Custom => "custom_tool_call_output",
+            Self::Shell => "shell_call_output",
         }
     }
 }
@@ -61,6 +64,12 @@ pub(super) fn pending_calls(items: &[InputItem]) -> ExecutorResult<Vec<PendingCa
             }
             InputItem::CustomToolCallOutput(output) => {
                 resolve_call(&output.call_id, CallKind::Custom, &mut pending)?;
+            }
+            InputItem::ShellCall(call) => {
+                add_call(&call.call_id, CallKind::Shell, &mut seen_call_ids, &mut pending)?;
+            }
+            InputItem::ShellCallOutput(output) => {
+                resolve_call(&output.call_id, CallKind::Shell, &mut pending)?;
             }
             InputItem::Message(_)
             | InputItem::Reasoning(_)
@@ -122,7 +131,8 @@ fn resolve_call(call_id: &str, output_kind: CallKind, pending: &mut IndexMap<Str
 mod tests {
     use super::*;
     use crate::types::io::{
-        CustomToolCall, CustomToolCallOutputMessage, FunctionToolResultMessage, InputFunctionToolCall, ToolCallOutput,
+        CustomToolCall, CustomToolCallOutputMessage, FunctionToolResultMessage, InputFunctionToolCall, ShellCall,
+        ShellCallAction, ShellCallOutputMessage, ToolCallOutput,
     };
 
     fn function_call(call_id: &str) -> InputItem {
@@ -161,6 +171,32 @@ mod tests {
         })
     }
 
+    fn shell_call(call_id: &str) -> InputItem {
+        InputItem::ShellCall(ShellCall {
+            id: None,
+            call_id: call_id.to_owned(),
+            action: ShellCallAction {
+                commands: vec!["pwd".to_owned()],
+                timeout_ms: None,
+                max_output_length: None,
+                extra: std::collections::HashMap::new(),
+            },
+            status: None,
+            extra: std::collections::HashMap::new(),
+        })
+    }
+
+    fn shell_call_output(call_id: &str) -> InputItem {
+        InputItem::ShellCallOutput(ShellCallOutputMessage {
+            id: None,
+            call_id: call_id.to_owned(),
+            max_output_length: None,
+            output: Vec::new(),
+            status: None,
+            extra: std::collections::HashMap::new(),
+        })
+    }
+
     #[test]
     fn resolved_calls_are_not_pending() {
         let items = vec![function_call("call_1"), function_call_output("call_1")];
@@ -194,6 +230,12 @@ mod tests {
     }
 
     #[test]
+    fn shell_call_output_resolves_shell_call() {
+        let items = vec![shell_call("call_1"), shell_call_output("call_1")];
+        assert!(pending_calls(&items).expect("valid shell call/output pair").is_empty());
+    }
+
+    #[test]
     fn empty_items_have_no_pending_calls() {
         assert!(pending_calls(&[]).expect("empty history is valid").is_empty());
     }
@@ -207,6 +249,7 @@ mod tests {
     fn empty_and_duplicate_call_ids_are_rejected() {
         assert_invalid(&[function_call("")], "function_call call_id must not be empty");
         assert_invalid(&[custom_tool_call("")], "custom_tool_call call_id must not be empty");
+        assert_invalid(&[shell_call("")], "shell_call call_id must not be empty");
         assert_invalid(
             &[
                 function_call("call_1"),
@@ -243,6 +286,10 @@ mod tests {
         assert_invalid(
             &[function_call("call_1"), custom_tool_call_output("call_1")],
             "cannot resolve function_call call_id 'call_1'",
+        );
+        assert_invalid(
+            &[shell_call("call_1"), function_call_output("call_1")],
+            "cannot resolve shell_call call_id 'call_1'",
         );
     }
 }

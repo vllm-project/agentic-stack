@@ -19,6 +19,7 @@ pub enum ToolChoice {
     Auto,
     None,
     Required,
+    Shell,
     Function {
         namespace: Option<String>,
         name: NonEmptyToolName,
@@ -55,6 +56,11 @@ impl Serialize for ToolChoice {
             Self::Auto => serializer.serialize_str("auto"),
             Self::None => serializer.serialize_str("none"),
             Self::Required => serializer.serialize_str("required"),
+            Self::Shell => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("type", "shell")?;
+                map.end()
+            }
             Self::Function { namespace, name } => {
                 let mut map = serializer.serialize_map(Some(2 + usize::from(namespace.is_some())))?;
                 map.serialize_entry("type", "function")?;
@@ -98,6 +104,9 @@ impl<'de> Deserialize<'de> for ToolChoice {
                 )),
             },
             Value::Object(object) => {
+                if object.get("type").and_then(Value::as_str) == Some("shell") {
+                    return Ok(Self::Shell);
+                }
                 if object.get("type").and_then(Value::as_str) == Some("function") {
                     let namespace = object.get("namespace").and_then(Value::as_str).map(str::to_string);
                     let name = object
@@ -158,6 +167,11 @@ impl ToolChoice {
     #[must_use]
     pub(crate) fn normalized_for_upstream(&self) -> Self {
         match self {
+            Self::Shell => Self::Function {
+                namespace: None,
+                name: NonEmptyToolName::try_from(crate::tool::shell::SHELL_FUNCTION_NAME)
+                    .expect("shell is a non-empty tool name"),
+            },
             Self::Custom { name } => Self::Function {
                 namespace: None,
                 name: name.clone(),

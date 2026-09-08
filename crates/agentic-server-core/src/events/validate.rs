@@ -49,7 +49,7 @@ pub(crate) fn validate_frame(frame: &EventFrame) -> Result<ValidatedFrame<'_>, E
         SSEEventType::Other => Ok(ValidatedFrame { item: None }),
         event_type => {
             let output_index = required_output_index(frame, event_name)?;
-            let item_id = required_str(&frame.wire.rest, "item_id", event_name)?;
+            let item_id = validate_event_item_id(frame, event_name)?;
             validate_event_fields(&frame.wire.rest, event_type, event_name)?;
             let item_type = expected_item_type(event_type).ok_or_else(|| {
                 invalid(format!(
@@ -80,6 +80,9 @@ fn expected_item_type(event_type: SSEEventType) -> Option<SSEItemType> {
         SSEEventType::CustomToolCallInputDelta | SSEEventType::CustomToolCallInputDone => {
             Some(SSEItemType::CustomToolCall)
         }
+        SSEEventType::ShellCallCommandAdded
+        | SSEEventType::ShellCallCommandDelta
+        | SSEEventType::ShellCallCommandDone => Some(SSEItemType::ShellCall),
         SSEEventType::ReasoningTextDelta
         | SSEEventType::ReasoningTextDone
         | SSEEventType::ReasoningPartAdded
@@ -192,12 +195,30 @@ fn validate_output_item<'a>(
     })
 }
 
+fn validate_event_item_id<'a>(frame: &'a EventFrame, event_name: &str) -> Result<&'a str, EventError> {
+    if matches!(
+        frame.event_type,
+        SSEEventType::ShellCallCommandAdded | SSEEventType::ShellCallCommandDelta | SSEEventType::ShellCallCommandDone
+    ) && !frame.wire.rest.contains_key("item_id")
+    {
+        // Only native shell command events may omit the ID and resolve by output_index.
+        return Ok("");
+    }
+    let item_id = required_str(&frame.wire.rest, "item_id", event_name)?;
+    Ok(item_id)
+}
+
 fn validate_event_fields(
     event: &Map<String, Value>,
     event_type: SSEEventType,
     event_name: &str,
 ) -> Result<(), EventError> {
     match event_type {
+        SSEEventType::ShellCallCommandAdded
+        | SSEEventType::ShellCallCommandDelta
+        | SSEEventType::ShellCallCommandDone => {
+            required_u32(event, "command_index", event_name)?;
+        }
         SSEEventType::OutputTextDelta
         | SSEEventType::OutputTextDone
         | SSEEventType::ContentPartAdded
@@ -218,6 +239,7 @@ fn validate_event_fields(
         SSEEventType::OutputTextDelta
         | SSEEventType::FunctionCallArgumentsDelta
         | SSEEventType::CustomToolCallInputDelta
+        | SSEEventType::ShellCallCommandDelta
         | SSEEventType::ReasoningTextDelta
         | SSEEventType::ReasoningSummaryTextDelta
         | SSEEventType::McpCallArgumentsDelta => Some("delta"),
@@ -226,6 +248,7 @@ fn validate_event_fields(
         }
         SSEEventType::FunctionCallArgumentsDone | SSEEventType::McpCallArgumentsDone => Some("arguments"),
         SSEEventType::CustomToolCallInputDone => Some("input"),
+        SSEEventType::ShellCallCommandAdded | SSEEventType::ShellCallCommandDone => Some("command"),
         SSEEventType::ContentPartAdded
         | SSEEventType::ContentPartDone
         | SSEEventType::ReasoningPartAdded
@@ -307,4 +330,49 @@ fn missing_field(owner: &str, field: &str) -> EventError {
 
 fn invalid(message: impl Into<String>) -> EventError {
     EventError(message.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::validate_frame;
+    use crate::events::normalize_sse_line;
+
+    #[test]
+    fn only_native_shell_command_events_allow_omitted_item_id() {
+        for (event_type, allows_omitted_id) in [
+            ("response.shell_call_command.added", true),
+            ("response.shell_call_command.delta", true),
+            ("response.shell_call_command.done", true),
+            ("response.function_call_arguments.delta", false),
+            ("response.function_call_arguments.done", false),
+            ("response.custom_tool_call_input.delta", false),
+            ("response.custom_tool_call_input.done", false),
+            ("response.mcp_call_arguments.delta", false),
+        ] {
+            let event = json!({
+                "type": event_type,
+                "output_index": 0,
+                "command_index": 0,
+                "command": "pwd",
+                "delta": "",
+                "arguments": "{}",
+                "input": "pwd"
+            });
+            let frame = normalize_sse_line(&format!("data: {event}")).unwrap();
+            assert_eq!(validate_frame(&frame).is_ok(), allows_omitted_id, "{event_type}");
+
+            for item_id in [json!(""), json!(null), json!(42), json!("sh_1")] {
+                let mut event = event.clone();
+                event["item_id"] = item_id.clone();
+                let frame = normalize_sse_line(&format!("data: {event}")).unwrap();
+                assert_eq!(
+                    validate_frame(&frame).is_ok(),
+                    item_id == json!("sh_1"),
+                    "{event_type} with item_id={item_id}"
+                );
+            }
+        }
+    }
 }

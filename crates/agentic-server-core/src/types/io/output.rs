@@ -2,6 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::events::EventPayload;
+use crate::events::types::ShellCommandUpdate;
 use crate::executor::error::ExecutorError;
 use crate::tool::ToolRegistry;
 use crate::types::event::MessageStatus;
@@ -11,6 +12,7 @@ use crate::utils::uuid7_str;
 use super::input::{
     CompactionItem, InputContent, InputFunctionToolCall, InputItem, InputMessage, InputMessageContent, InputTextContent,
 };
+use super::shell::ShellCall;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputTextContent {
@@ -215,6 +217,49 @@ impl TryFrom<&EventPayload> for CompactionItem {
             id: Some(id),
             encrypted_content: String::new(),
         })
+    }
+}
+
+impl TryFrom<&EventPayload> for ShellCall {
+    type Error = ExecutorError;
+
+    fn try_from(payload: &EventPayload) -> Result<Self, Self::Error> {
+        let EventPayload::OutputItemAdded {
+            shell_call: Some(call), ..
+        } = payload
+        else {
+            return Err(ExecutorError::ParseError("expected OutputItemAdded payload".into()));
+        };
+        Ok(call.as_ref().clone())
+    }
+}
+
+impl ApplyDone for ShellCall {
+    fn apply_done(&mut self, payload: &EventPayload, buffer: &mut String) {
+        match payload {
+            EventPayload::ShellCallCommand {
+                command_index,
+                update: ShellCommandUpdate::Done(command),
+                ..
+            } => {
+                if let Some(target) = self.action.commands.get_mut(*command_index as usize) {
+                    *target = if command.is_empty() {
+                        std::mem::take(buffer)
+                    } else {
+                        buffer.clear();
+                        command.clone()
+                    };
+                }
+            }
+            EventPayload::OutputItemDone { item, .. } => {
+                // Deserialize through the tagged enum so `type` cannot enter flattened extras.
+                if let Some(OutputItem::ShellCall(call)) = deserialize_from_value_opt(item.clone()) {
+                    *self = call;
+                    buffer.clear();
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -808,6 +853,8 @@ pub enum OutputItem {
     FunctionCall(FunctionToolCall),
     #[serde(rename = "custom_tool_call")]
     CustomToolCall(CustomToolCall),
+    #[serde(rename = "shell_call")]
+    ShellCall(ShellCall),
     #[serde(rename = "web_search_call")]
     WebSearchCall(WebSearchCall),
     #[serde(rename = "mcp_call")]
@@ -830,6 +877,7 @@ impl OutputItem {
             Self::Message(item) => Some(&item.id),
             Self::FunctionCall(item) => Some(&item.id),
             Self::CustomToolCall(item) => Some(&item.id),
+            Self::ShellCall(item) => item.id.as_deref(),
             Self::WebSearchCall(item) => Some(&item.id),
             Self::McpCall(item) => Some(&item.id),
             Self::McpListTools(item) => Some(&item.id),
@@ -845,7 +893,7 @@ impl OutputItem {
             Self::FunctionCall(call) => registry
                 .lookup(&call.name)
                 .is_none_or(|entry| !entry.ownership.is_gateway()),
-            Self::CustomToolCall(_) => true,
+            Self::CustomToolCall(_) | Self::ShellCall(_) => true,
             Self::Message(_)
             | Self::WebSearchCall(_)
             | Self::McpCall(_)
@@ -867,6 +915,7 @@ impl OutputItem {
             Self::Reasoning(reasoning) => Some(InputItem::Reasoning(reasoning.clone())),
             Self::FunctionCall(call) => Some(InputItem::FunctionCall(InputFunctionToolCall::from(call.clone()))),
             Self::CustomToolCall(call) => Some(InputItem::FunctionCall(call.clone().into())),
+            Self::ShellCall(call) => Some(InputItem::FunctionCall(call.clone().into())),
             Self::McpListTools(list_tools) => Some(InputItem::McpListTools(list_tools.clone())),
             Self::Compaction(item) => Some(InputItem::Compaction(item.clone())),
             Self::WebSearchCall(_) | Self::McpCall(_) | Self::Unknown => None,
@@ -940,6 +989,35 @@ mod tests {
         };
         assert_eq!(call.name, "apply_patch");
         assert_eq!(call.arguments, r#"{"input":"*** Begin Patch\n*** End Patch"}"#);
+    }
+
+    #[test]
+    fn shell_call_round_trips_and_rehydrates_as_function_input() {
+        let item: OutputItem = serde_json::from_value(serde_json::json!({
+            "type": "shell_call",
+            "id": "sh_1",
+            "call_id": "call_1",
+            "action": {
+                "commands": ["pwd"],
+                "timeout_ms": 1000,
+                "max_output_length": 4096
+            },
+            "status": "completed"
+        }))
+        .unwrap();
+
+        assert!(item.requires_client_action(&ToolRegistry::default()));
+        let Some(InputItem::FunctionCall(call)) = item.to_input_item() else {
+            panic!("shell call should rehydrate as a function call input item");
+        };
+        assert_eq!(call.call_id, "call_1");
+        assert_eq!(call.name, "shell");
+        assert_eq!(call.id.as_deref(), Some("fc_1"));
+        let action: serde_json::Value = serde_json::from_str(&call.arguments).unwrap();
+        assert_eq!(action["commands"], serde_json::json!(["pwd"]));
+
+        let serialized = serde_json::to_value(item).unwrap();
+        assert_eq!(serialized["type"], "shell_call");
     }
 
     #[test]
@@ -1038,6 +1116,7 @@ mod tests {
     #[test]
     fn reasoning_output_builds_from_added_and_applies_indexed_done_events() {
         let added = EventPayload::OutputItemAdded {
+            shell_call: None,
             item_id: "rs_1".to_owned(),
             item_type: crate::events::SSEItemType::Reasoning,
             output_index: 2,
@@ -1239,6 +1318,7 @@ mod tests {
     #[test]
     fn mcp_list_tools_builds_from_added_and_applies_done_item() {
         let added = EventPayload::OutputItemAdded {
+            shell_call: None,
             item_id: "mcpl_1".to_owned(),
             item_type: crate::events::SSEItemType::McpListTools,
             output_index: 0,

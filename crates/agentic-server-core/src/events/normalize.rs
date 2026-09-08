@@ -1,6 +1,7 @@
 use serde_json::Value;
 
-use super::types::{EventFrame, EventPayload, SSEEventType, SSEItemType, WireEvent};
+use super::types::{EventFrame, EventPayload, SSEEventType, SSEItemType, ShellCommandUpdate, WireEvent};
+use crate::types::io::OutputItem;
 use crate::utils::common::{deserialize_from_str_opt, deserialize_from_value_opt};
 
 /// Normalize a raw SSE data line into a typed [`EventFrame`].
@@ -64,6 +65,9 @@ fn extract_payload(event_type: SSEEventType, json: &Value) -> EventPayload {
         SSEEventType::FunctionCallArgumentsDone => extract_fn_call_args_done(json),
         SSEEventType::CustomToolCallInputDelta => extract_custom_tool_call_input_delta(json),
         SSEEventType::CustomToolCallInputDone => extract_custom_tool_call_input_done(json),
+        SSEEventType::ShellCallCommandAdded => extract_shell_call_command_added(json),
+        SSEEventType::ShellCallCommandDelta => extract_shell_call_command_delta(json),
+        SSEEventType::ShellCallCommandDone => extract_shell_call_command_done(json),
 
         SSEEventType::ReasoningTextDelta => extract_reasoning_text_delta(json),
         SSEEventType::ReasoningTextDone => extract_reasoning_text_done(json),
@@ -133,6 +137,14 @@ fn extract_output_item_added(json: &Value) -> EventPayload {
         name: json_str_opt(item, "name"),
         namespace: json_str_opt(item, "namespace"),
         call_id: json_str_opt(item, "call_id"),
+        shell_call: if item["type"] == "shell_call" {
+            match deserialize_from_value_opt::<OutputItem>(item.clone()) {
+                Some(OutputItem::ShellCall(call)) => Some(Box::new(call)),
+                _ => None,
+            }
+        } else {
+            None
+        },
     }
 }
 
@@ -166,6 +178,27 @@ fn extract_text_done(json: &Value) -> EventPayload {
         text: json_str(json, "text"),
         item_id: json_str(json, "item_id"),
         output_index: json_u32(json, "output_index"),
+    }
+}
+
+fn extract_shell_call_command_added(json: &Value) -> EventPayload {
+    extract_shell_command(json, ShellCommandUpdate::Added(json_str(json, "command")))
+}
+
+fn extract_shell_call_command_delta(json: &Value) -> EventPayload {
+    extract_shell_command(json, ShellCommandUpdate::Delta(json_str(json, "delta")))
+}
+
+fn extract_shell_call_command_done(json: &Value) -> EventPayload {
+    extract_shell_command(json, ShellCommandUpdate::Done(json_str(json, "command")))
+}
+
+fn extract_shell_command(json: &Value, update: ShellCommandUpdate) -> EventPayload {
+    EventPayload::ShellCallCommand {
+        item_id: json_str(json, "item_id"),
+        output_index: json_u32(json, "output_index"),
+        command_index: json_u32(json, "command_index"),
+        update,
     }
 }
 
