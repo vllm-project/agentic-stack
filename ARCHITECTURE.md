@@ -532,7 +532,7 @@ scheduler switch. It is forwarded to vLLM for all supported declaration mixtures
 defaults to `false` when omitted. Whatever calls the model emits are executed under
 the global sliding window and each handler's same-tool safety policy.
 
-#### `messages_loop.rs` / `messages_request.rs` / `messages_stream.rs`
+#### `messages_context.rs` / `messages_loop.rs` / `messages_request.rs` / `messages_stream.rs`
 
 A **parallel, independent implementation** of the same shape of loop for the Anthropic
 Messages API. `messages_stream.rs`'s own header comment describes it as "structurally
@@ -544,6 +544,18 @@ pieces: `ToolRegistry::dispatch` and `types::messages::tool_seam`. The round/tim
 constants (`MAX_GATEWAY_TOOL_ROUNDS`, `GATEWAY_TOOL_TIMEOUT`) are duplicated and
 manually kept in sync with the Responses-side ones rather than shared — a known seam,
 not an oversight, per the future-consolidation note.
+
+Both loops take a `MessagesRequestContext` (`messages_context.rs`), the per-request
+type that replaced a bare `serde_json::Value` at that boundary. It holds two views of
+one request: a typed `MessagesRequest` for reading `tools`/`stream`/`model`, and the
+raw JSON body that is actually forwarded upstream. The raw body is deliberately *not*
+re-serialized from the typed view — `ContentBlock` catches unmodeled block types in
+`#[serde(other)] Unknown` and models only the fields the gateway reads, so a typed
+round-trip would drop `cache_control` and `is_error` and collapse `image`/
+`redacted_thinking` into `{"type":"unknown"}`. The context owns every mutation the
+loops make to that body (`force_stream`, `append_round`) and the native web-search
+budget, so the two views cannot drift apart uncontrolled; `messages` and `system` are
+reachable only through the raw body, never the typed view.
 
 ### `storage/` — persistence
 

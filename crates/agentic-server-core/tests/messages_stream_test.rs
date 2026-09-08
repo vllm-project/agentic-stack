@@ -12,7 +12,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use agentic_core::executor::{
-    BoxStream, ConversationHandler, ExecutionContext, MessagesUpstream, ResponseHandler, run_messages_stream,
+    BoxStream, ConversationHandler, ExecutionContext, MessagesRequestContext, MessagesUpstream, ResponseHandler,
+    run_messages_stream,
 };
 use agentic_core::storage::{ConversationStore, ResponseStore};
 use agentic_core::tool::{ToolRegistry, WebSearchHandler};
@@ -180,7 +181,8 @@ async fn run_test_messages_stream(
     exec_ctx: Arc<ExecutionContext>,
 ) -> BoxStream {
     let upstream = MessagesUpstream::new(&exec_ctx.llm_base_url, None, reqwest::header::HeaderMap::new());
-    run_messages_stream(request, registry, exec_ctx, upstream)
+    let ctx = MessagesRequestContext::from_value(request).expect("request context");
+    run_messages_stream(ctx, registry, exec_ctx, upstream)
         .await
         .map(|response| response.body)
         .unwrap()

@@ -7,8 +7,8 @@ use http::HeaderMap;
 use tracing::debug;
 
 use agentic_core::executor::{
-    ExecutorError, MessagesUpstream, normalize_native_web_search_for_upstream, run_messages_loop, run_messages_stream,
-    validate_native_web_search_request,
+    ExecutorError, MessagesRequestContext, MessagesUpstream, normalize_native_web_search_for_upstream,
+    run_messages_loop, run_messages_stream,
 };
 use agentic_core::proxy::{
     ProxyAuth, ProxyBody, ProxyRequest, ProxyResponse, error_response_for_auth, proxy_request_with_path,
@@ -73,7 +73,7 @@ async fn execute_messages(
     state: &AppState,
     headers: &HeaderMap,
     query: Option<&str>,
-    req: &MessagesRequest,
+    req: MessagesRequest,
     body: &Bytes,
 ) -> Response {
     // Build the request-scoped registry from the declared tools (M6). Gateway
@@ -87,28 +87,29 @@ async fn execute_messages(
         Err(e) => return messages_error_response(ExecutorError::from(e)),
     };
 
-    // Parse the raw body to a JSON Value the loop forwards upstream untouched —
-    // preserving every Anthropic field (tool_choice, stop_sequences, …).
-    let request_json: serde_json::Value = match serde_json::from_slice(body) {
-        Ok(v) => v,
-        Err(e) => return messages_error_response(ExecutorError::from(e)),
+    // One context per request, carrying both views: the typed request for field
+    // access, and the raw body the loop forwards upstream untouched — preserving
+    // every Anthropic field (tool_choice, stop_sequences, cache_control, and
+    // block types the gateway does not model). Reuses the routing parse, so
+    // neither view is built twice. Native web-search declarations are validated
+    // here, before a streaming response commits its status and headers.
+    let ctx = match MessagesRequestContext::new(req, body) {
+        Ok(ctx) => ctx,
+        Err(e) => return messages_error_response(e),
     };
-    if let Err(error) = validate_native_web_search_request(&request_json) {
-        return messages_error_response(error);
-    }
 
     let upstream = MessagesUpstream::new(
         &state.exec_ctx.llm_base_url,
         query,
         upstream_request_headers(headers, &state.proxy_state.config, ProxyAuth::Anthropic),
     );
-    if req.stream {
-        match run_messages_stream(request_json, Arc::new(registry), Arc::clone(&state.exec_ctx), upstream).await {
+    if ctx.stream() {
+        match run_messages_stream(ctx, Arc::new(registry), Arc::clone(&state.exec_ctx), upstream).await {
             Ok(response) => sse_response_with_headers(response.body, response.headers),
             Err(e) => messages_error_response(e),
         }
     } else {
-        match run_messages_loop(request_json, &registry, &state.exec_ctx, &upstream).await {
+        match run_messages_loop(ctx, &registry, &state.exec_ctx, &upstream).await {
             Ok(message) => {
                 let mut response = axum::Json(message.body).into_response();
                 response.headers_mut().extend(message.headers);
@@ -141,7 +142,7 @@ pub async fn messages(State(state): State<AppState>, request: Request) -> Respon
             "routing HTTP messages request"
         );
         if route_to_loop {
-            return execute_messages(&state, &parts.headers, parts.uri.query(), &req, &bytes).await;
+            return execute_messages(&state, &parts.headers, parts.uri.query(), req, &bytes).await;
         }
     }
 

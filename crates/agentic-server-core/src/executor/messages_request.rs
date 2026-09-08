@@ -7,6 +7,7 @@ use crate::tool::web_search::web_search_function_tool;
 use crate::types::messages::tool_seam::{NATIVE_WEB_SEARCH_TYPE, WEB_SEARCH_EXECUTOR};
 
 /// Request-wide native web-search execution budget.
+#[derive(Debug)]
 pub(super) struct WebSearchBudget {
     remaining: Option<usize>,
 }
@@ -157,16 +158,6 @@ fn native_web_search_max_uses(request: &Value) -> ExecutorResult<Option<usize>> 
     }
 
     Ok(max_uses)
-}
-
-/// Validate native web-search declarations before an HTTP streaming response
-/// commits its status and headers.
-///
-/// # Errors
-/// Returns [`ExecutorError::InvalidRequest`] when a native declaration uses an
-/// unsupported version or invalid policy configuration.
-pub fn validate_native_web_search_request(request: &Value) -> ExecutorResult<()> {
-    native_web_search_max_uses(request).map(drop)
 }
 
 /// Normalize native web-search declarations for an upstream endpoint that

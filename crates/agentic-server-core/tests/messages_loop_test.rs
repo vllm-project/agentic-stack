@@ -14,7 +14,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use agentic_core::executor::{
-    ConversationHandler, ExecutionContext, ExecutorResult, MessagesUpstream, ResponseHandler, run_messages_loop,
+    ConversationHandler, ExecutionContext, ExecutorResult, MessagesRequestContext, MessagesUpstream, ResponseHandler,
+    run_messages_loop,
 };
 use agentic_core::storage::{ConversationStore, ResponseStore};
 use agentic_core::tool::{ToolRegistry, WebSearchHandler};
@@ -205,9 +206,14 @@ async fn run_test_messages_loop(
     exec_ctx: &ExecutionContext,
 ) -> ExecutorResult<Value> {
     let upstream = MessagesUpstream::new(&exec_ctx.llm_base_url, None, reqwest::header::HeaderMap::new());
-    run_messages_loop(request, registry, exec_ctx, &upstream)
-        .await
-        .map(|response| response.body)
+    run_messages_loop(
+        MessagesRequestContext::from_value(request)?,
+        registry,
+        exec_ctx,
+        &upstream,
+    )
+    .await
+    .map(|response| response.body)
 }
 
 fn web_search_request() -> Value {
@@ -289,7 +295,8 @@ async fn native_web_search_applies_domain_and_location_configuration() {
     let registry = build_tool_registry(&tools, &exec_ctx).await;
 
     let transport = MessagesUpstream::new(&exec_ctx.llm_base_url, None, reqwest::header::HeaderMap::new());
-    run_messages_loop(request, &registry, &exec_ctx, &transport)
+    let ctx = MessagesRequestContext::from_value(request).expect("request context");
+    run_messages_loop(ctx, &registry, &exec_ctx, &transport)
         .await
         .expect("loop runs");
 
@@ -316,7 +323,8 @@ async fn native_web_search_applies_blocked_domains() {
     let registry = build_tool_registry(&tools, &exec_ctx).await;
 
     let transport = MessagesUpstream::new(&exec_ctx.llm_base_url, None, reqwest::header::HeaderMap::new());
-    run_messages_loop(request, &registry, &exec_ctx, &transport)
+    let ctx = MessagesRequestContext::from_value(request).expect("request context");
+    run_messages_loop(ctx, &registry, &exec_ctx, &transport)
         .await
         .expect("loop runs");
 
@@ -351,7 +359,8 @@ async fn native_web_search_enforces_max_uses() {
     let registry = build_tool_registry(&tools, &exec_ctx).await;
 
     let transport = MessagesUpstream::new(&exec_ctx.llm_base_url, None, reqwest::header::HeaderMap::new());
-    run_messages_loop(request, &registry, &exec_ctx, &transport)
+    let ctx = MessagesRequestContext::from_value(request).expect("request context");
+    run_messages_loop(ctx, &registry, &exec_ctx, &transport)
         .await
         .expect("loop runs");
 
@@ -769,4 +778,84 @@ async fn messages_loop_preserves_claude_code_cache_control_across_rounds() {
         serde_json::json!({"type": "ephemeral", "ttl": "1h"})
     );
     assert!(requests[1]["tools"][0].get("cache_control").is_none());
+}
+
+/// The dual-view context exists so the upstream body stays the client's own
+/// JSON. A typed round-trip through `MessagesRequest` would not: `ContentBlock`
+/// models only the fields the gateway reads and catches everything else in
+/// `#[serde(other)] Unknown`, which re-serializes as a literal
+/// `{"type":"unknown"}` block. This locks in that the raw body — not the typed
+/// view — is what reaches vLLM, across a gateway round.
+#[tokio::test]
+async fn messages_loop_preserves_unmodeled_blocks_and_tool_result_fields_across_rounds() {
+    let round0 = serde_json::json!({
+        "id": "m", "type": "message", "role": "assistant", "model": "qwen3",
+        "content": [{"type": "tool_use", "id": "t2", "name": "WebSearch", "input": {"query": "rust"}}],
+        "stop_reason": "tool_use", "usage": {"input_tokens": 5, "output_tokens": 3}
+    });
+    let round1 = serde_json::json!({
+        "id": "m2", "type": "message", "role": "assistant", "model": "qwen3",
+        "content": [{"type": "text", "text": "Done."}],
+        "stop_reason": "end_turn", "usage": {"input_tokens": 5, "output_tokens": 3}
+    });
+    let (vllm_url, upstream, _v) = spawn_mock_vllm_messages(vec![round0, round1]).await;
+    let (search_url, _search_requests, _s) = spawn_mock_search().await;
+    let mut exec_ctx = build_exec_ctx(&vllm_url, &search_url).await;
+    exec_ctx.messages_gateway_tools = GatewayToolMap::from_pairs([("WebSearch", "web_search")]);
+
+    // Every block here is either unmodeled by `ContentBlock` (`image`,
+    // `redacted_thinking`) or carries fields it does not model (`citations`,
+    // `is_error`, `cache_control`, a non-text `tool_result` part).
+    let request = serde_json::json!({
+        "model": "qwen3", "max_tokens": 1024, "stream": false,
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "text", "text": "What is this?",
+                 "citations": [{"type": "web_search_result_location", "url": "https://example.com"}]},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"}}
+            ]},
+            {"role": "assistant", "content": [
+                {"type": "redacted_thinking", "data": "encrypted-blob"},
+                {"type": "tool_use", "id": "t1", "name": "WebSearch", "input": {"query": "prior"}}
+            ]},
+            {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "is_error": true,
+                 "cache_control": {"type": "ephemeral", "ttl": "5m"},
+                 "content": [
+                     {"type": "text", "text": "search failed"},
+                     {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "BBBB"}}
+                 ]}
+            ]}
+        ],
+        "tools": [{"name": "WebSearch", "description": "Search the web",
+            "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}}}]
+    });
+    let original_messages = request["messages"].clone();
+    let tools: Vec<ToolParam> = serde_json::from_value(request["tools"].clone()).unwrap();
+    let registry = build_tool_registry(&tools, &exec_ctx).await;
+
+    let result = run_test_messages_loop(request, &registry, &exec_ctx).await.unwrap();
+    assert_eq!(result["stop_reason"], "end_turn");
+
+    let requests = upstream.requests.lock().await;
+    assert_eq!(requests.len(), 2, "tool round + final round");
+    for upstream_request in requests.iter() {
+        let messages = upstream_request["messages"].as_array().expect("messages");
+        assert_eq!(
+            &messages[..3],
+            original_messages.as_array().unwrap().as_slice(),
+            "the client's own blocks reach upstream untouched"
+        );
+        // The failure mode a typed round-trip would introduce.
+        let rendered = serde_json::to_string(upstream_request).unwrap();
+        assert!(
+            !rendered.contains(r#""type":"unknown""#),
+            "no block collapsed to Unknown"
+        );
+    }
+    // Round 2 carries the appended gateway turn on top of the untouched prefix.
+    let round_two = requests[1]["messages"].as_array().expect("messages");
+    assert_eq!(round_two.len(), 5, "3 client turns + assistant turn + tool_result turn");
+    assert_eq!(round_two[3]["content"][0]["id"], "t2");
+    assert_eq!(round_two[4]["content"][0]["type"], "tool_result");
 }
