@@ -83,8 +83,7 @@ async fn serve_gateway_until_signal(
 
     tokio::select! {
         result = &mut gateway => result,
-        signal = shutdown_signal() => {
-            signal?;
+        () = shutdown_signal()? => {
             info!("shutdown signal received");
             shutdown_token.cancel();
             drain_gateway(gateway.as_mut()).await
@@ -108,18 +107,24 @@ where
 }
 
 #[cfg(unix)]
-async fn shutdown_signal() -> Result<(), std::io::Error> {
+fn shutdown_signal() -> Result<impl Future<Output = ()>, std::io::Error> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
 
-    tokio::select! {
-        signal = tokio::signal::ctrl_c() => signal,
-        _ = terminate.recv() => Ok(()),
-    }
+    Ok(async move {
+        tokio::select! {
+            _ = interrupt.recv() => {},
+            _ = terminate.recv() => {},
+        }
+    })
 }
 
 #[cfg(not(unix))]
-async fn shutdown_signal() -> Result<(), std::io::Error> {
-    tokio::signal::ctrl_c().await
+fn shutdown_signal() -> Result<impl Future<Output = ()>, std::io::Error> {
+    let mut interrupt = tokio::signal::windows::ctrl_c()?;
+    Ok(async move {
+        interrupt.recv().await;
+    })
 }
 
 async fn wait_until_llm_ready(config: &Config) -> Result<(), ServerError> {
@@ -166,67 +171,54 @@ pub async fn run_with_llm(
         Some(config) => Some(OidcAuthenticator::discover(config).await?),
         None => None,
     };
+    // Register signal handlers before spawning the owned subprocess, and
+    // retain the same listener across startup and serving so no signal is lost.
+    let shutdown = shutdown_signal()?;
+    tokio::pin!(shutdown);
     let mut cmd = tokio::process::Command::new("python");
     cmd.arg("-m").arg("vllm.entrypoints.openai.api_server");
     cmd.args(&llm_args);
+    cmd.kill_on_drop(true);
 
     let mut child = cmd.spawn()?;
     info!("spawned vLLM subprocess (pid {})", child.id().unwrap_or(0));
 
-    let readiness_result = if config.skip_llm_ready_check {
-        info!("skipping LLM readiness check: {}", config.llm_api_base);
-        Ok(false)
-    } else {
-        tokio::select! {
-            ready = wait_llm_ready(&config) => ready.map(|()| true).map_err(ServerError::from),
+    let shutdown_token = CancellationToken::new();
+    let result = async {
+        let state = tokio::select! {
+            biased;
+            () = &mut shutdown => {
+                info!("shutdown signal received during startup");
+                return Ok(());
+            }
             status = child.wait() => {
                 let status = status?;
-                Err(ServerError::from(CoreError::LlmProcessExited { status: status.to_string() }))
+                return Err(ServerError::from(CoreError::LlmProcessExited { status: status.to_string() }));
             }
-        }
-    };
+            state = async {
+                wait_until_llm_ready(&config).await?;
+                build_state(&config, shutdown_token.clone()).await
+            } => state?,
+        };
 
-    match readiness_result {
-        Ok(true) => info!("LLM ready: {}", config.llm_api_base),
-        Ok(false) => {}
-        Err(err) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Err(err);
+        let gateway = serve_gateway(state, host, port, authenticator);
+        tokio::pin!(gateway);
+
+        tokio::select! {
+            gateway = &mut gateway => gateway,
+            status = child.wait() => {
+                shutdown_token.cancel();
+                let status = status?;
+                Err(ServerError::from(CoreError::LlmProcessExited { status: status.to_string() }))
+            },
+            () = &mut shutdown => {
+                info!("shutdown signal received");
+                shutdown_token.cancel();
+                drain_gateway(gateway.as_mut()).await
+            }
         }
     }
-
-    let shutdown_token = CancellationToken::new();
-    let state = match build_state(&config, shutdown_token.clone()).await {
-        Ok(s) => s,
-        Err(err) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Err(err);
-        }
-    };
-
-    let gateway = serve_gateway(state, host, port, authenticator);
-    tokio::pin!(gateway);
-
-    let result = tokio::select! {
-        gateway = &mut gateway => gateway,
-        status = child.wait() => {
-            shutdown_token.cancel();
-            let status = status?;
-            Err(ServerError::from(CoreError::LlmProcessExited { status: status.to_string() }))
-        },
-        signal = shutdown_signal() => {
-            match signal {
-                Ok(()) => {
-                    info!("shutdown signal received");
-                    shutdown_token.cancel();
-                    drain_gateway(gateway.as_mut()).await
-                }
-                Err(err) => Err(err.into()),
-            }
-        }
-    };
+    .await;
 
     let _ = child.kill().await;
     let _ = child.wait().await;
