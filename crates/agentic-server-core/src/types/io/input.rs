@@ -48,6 +48,8 @@ pub struct InputFileContent {
 pub enum InputContent {
     InputText(InputTextContent),
     InputImage(InputImageContent),
+    /// Preserved on the wire; support is validated after the routing decision.
+    InputFile(InputFileContent),
     /// Assistant output text in rehydrated history.
     OutputText(InputTextContent),
     /// Reasoning step text in rehydrated history.

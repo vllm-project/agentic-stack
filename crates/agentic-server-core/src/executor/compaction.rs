@@ -82,7 +82,8 @@ fn item_has_meaningful_context(item: &InputItem) -> bool {
                     !text.text.trim().is_empty()
                 }
                 InputContent::InputImage(image) => image.image_url.as_deref().is_some_and(|url| !url.trim().is_empty()),
-                InputContent::Unknown => false,
+                // Message files are rejected during typed input validation.
+                InputContent::InputFile(_) | InputContent::Unknown => false,
             }),
         },
         InputItem::FunctionCall(call) => !call.name.trim().is_empty() || !call.arguments.trim().is_empty(),

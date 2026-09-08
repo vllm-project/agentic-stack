@@ -14,6 +14,7 @@ use crate::executor::gateway::{
 };
 use crate::executor::gateway_accumulator::{GatewayStreamAccumulator, StreamEvent, emit_sse_frame};
 use crate::executor::inference::{call_inference, fetch_response_json};
+use crate::executor::rehydrate::validate_message_files;
 use crate::executor::request::{ExecutionContext, RequestContext};
 use crate::tool::ToolRegistry;
 use crate::types::io::OutputItem;
@@ -39,8 +40,10 @@ pub(super) struct StreamPayload {
 /// fields removed.
 ///
 /// # Errors
-/// A tool-configuration or serialization failure.
+/// Unsupported message files, a tool-configuration error, or a serialization failure.
 pub fn upstream_request(ctx: &RequestContext, stream: bool) -> ExecutorResult<String> {
+    // Composable callers may supply RequestContext without the rehydration step.
+    validate_message_files(&ctx.enriched_request.input)?;
     let request = ctx.enriched_request.to_upstream_request(stream)?;
     serialize_to_string(&request).map_err(ExecutorError::JsonError)
 }

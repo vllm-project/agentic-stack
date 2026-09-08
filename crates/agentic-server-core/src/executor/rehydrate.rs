@@ -9,10 +9,34 @@ use crate::executor::request::{ExecutionContext, RequestContext};
 use crate::storage::InOutItem;
 use crate::tool::ToolError;
 use crate::types::io::{
-    InputItem, ReasoningOutput, ReasoningTextContent, ResponsesInput, resolve_tool_choice, resolve_tools,
+    InputContent, InputItem, InputMessageContent, ReasoningOutput, ReasoningTextContent, ResponsesInput,
+    resolve_tool_choice, resolve_tools,
 };
 use crate::types::request_response::RequestPayload;
 use crate::utils::uuid7_str;
+
+/// Reject unsupported message files on typed paths, including restored history.
+///
+/// Keep this out of deserialization: eligible raw proxy requests must retain their
+/// original bytes and leave support decisions to the upstream. Structured tool
+/// call outputs have a separate content type and are deliberately not rejected.
+pub(super) fn validate_message_files(input: &ResponsesInput) -> ExecutorResult<()> {
+    let ResponsesInput::Items(items) = input else {
+        return Ok(());
+    };
+    let has_file = items.iter().any(|item| {
+        matches!(item, InputItem::Message(message)
+            if matches!(&message.content, InputMessageContent::Parts(parts)
+                if parts.iter().any(|part| matches!(part, InputContent::InputFile(_)))))
+    });
+    if has_file {
+        return Err(ExecutorError::InvalidRequest(
+            "input_file content in messages is not supported by the typed Responses executor; provide input_text or input_image content instead"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
 
 fn has_plaintext_reasoning(reasoning: &ReasoningOutput) -> bool {
     reasoning.content.iter().any(|content| !content.text.is_empty())
@@ -93,11 +117,14 @@ pub(super) fn prepare_reasoning_for_vllm(input: &mut ResponsesInput) -> Executor
 /// - no ids:                 forward only the new input
 ///
 /// # Errors
-/// Returns [`ExecutorError`] if storage is unavailable or a referenced ID does not exist.
+/// Returns [`ExecutorError`] if storage is unavailable, a referenced ID does not exist,
+/// or the new/resolved input contains unsupported message files.
 pub async fn rehydrate_conversation(
     request: RequestPayload,
     exec_ctx: &ExecutionContext,
 ) -> ExecutorResult<RequestContext> {
+    // Fail before storage work for new files; check again once history is resolved.
+    validate_message_files(&request.input)?;
     let response_id = uuid7_str("resp_");
     let new_input_items: Vec<InputItem> = Vec::from(&request.input);
 
@@ -126,6 +153,7 @@ pub async fn rehydrate_conversation(
         ctx.enriched_request.input = ResponsesInput::Items(ctx.new_input_items.clone());
     }
 
+    validate_message_files(&ctx.enriched_request.input)?;
     Ok(ctx)
 }
 
