@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::agentic_output::redact_url;
+use crate::model_capabilities::InputModalities;
 
 #[derive(Debug)]
 pub struct HarnessEnv {
@@ -19,13 +20,18 @@ pub const CLAUDE_CANONICAL_MODEL: &str = "claude-sonnet-4-5-20250929";
 
 /// Write an isolated Codex home for an Agentic API session.
 ///
+/// `input_modalities` must be the modalities the gateway resolved for `model`: Codex strips
+/// image content from a request when this catalog says the model accepts text only, so the
+/// value is required rather than defaulted.
+///
 /// # Errors
 ///
 /// Returns an I/O error when the temporary home or generated files cannot be written.
-pub fn prepare_codex_home(
+pub(crate) fn prepare_codex_home(
     root: &Path,
     gateway_url: &str,
     model: &str,
+    input_modalities: InputModalities,
     api_key: Option<&str>,
 ) -> Result<HarnessEnv, io::Error> {
     fs::create_dir_all(root)?;
@@ -39,7 +45,7 @@ pub fn prepare_codex_home(
             "supported_in_api": true,
             "visibility": "list",
             "priority": 0,
-            "input_modalities": ["text"],
+            "input_modalities": input_modalities,
             "default_reasoning_level": "medium",
             "supported_reasoning_levels": [
                 {"effort": "low", "description": "Fast responses"},
@@ -221,11 +227,13 @@ mod tests {
     use std::fs;
 
     use super::{prepare_claude_home, prepare_claude_home_with_state, prepare_codex_home};
+    use crate::model_capabilities::InputModalities;
 
     #[test]
     fn codex_config_is_isolated_and_contains_gateway_provider() {
         let root = unique_temp_dir("codex");
-        let env = prepare_codex_home(&root, "http://127.0.0.1:3000", "Qwen/test", None).expect("config");
+        let env = prepare_codex_home(&root, "http://127.0.0.1:3000", "Qwen/test", InputModalities::Text, None)
+            .expect("config");
         let config = fs::read_to_string(root.join("config.toml")).expect("config file");
 
         assert!(config.contains("[model_providers.agentic-api]"));
@@ -241,14 +249,20 @@ mod tests {
     #[test]
     fn codex_home_removes_inherited_openai_key_unless_explicitly_configured() {
         let root = unique_temp_dir("codex-credential-isolation");
-        let without_key = prepare_codex_home(&root, "http://127.0.0.1:3000", "Qwen/test", None)
+        let without_key = prepare_codex_home(&root, "http://127.0.0.1:3000", "Qwen/test", InputModalities::Text, None)
             .expect("Codex config without gateway key");
 
         assert!(without_key.environment_remove.contains(&"OPENAI_API_KEY".to_owned()));
         assert!(!without_key.environment.contains_key("OPENAI_API_KEY"));
 
-        let with_key = prepare_codex_home(&root, "http://127.0.0.1:3000", "Qwen/test", Some("gateway-key"))
-            .expect("Codex config with gateway key");
+        let with_key = prepare_codex_home(
+            &root,
+            "http://127.0.0.1:3000",
+            "Qwen/test",
+            InputModalities::Text,
+            Some("gateway-key"),
+        )
+        .expect("Codex config with gateway key");
         assert_eq!(
             with_key.environment.get("OPENAI_API_KEY"),
             Some(&"gateway-key".to_owned())
@@ -442,6 +456,60 @@ mod tests {
 
         let mode = fs::metadata(state_root).expect("state metadata").permissions().mode() & 0o777;
         assert_eq!(mode, 0o700);
+    }
+
+    #[test]
+    fn codex_catalog_advertises_the_resolved_input_modalities() {
+        for (modalities, expected) in [
+            (InputModalities::Text, serde_json::json!(["text"])),
+            (InputModalities::TextAndImage, serde_json::json!(["text", "image"])),
+        ] {
+            let root = unique_temp_dir("codex-modalities");
+            prepare_codex_home(&root, "http://127.0.0.1:3000", "Qwen/test", modalities, None).expect("config");
+            let catalog: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(root.join("model_catalog.json")).expect("catalog file"))
+                    .expect("valid catalog JSON");
+
+            assert_eq!(catalog["models"][0]["input_modalities"], expected);
+            assert_eq!(catalog["models"][0]["slug"], "Qwen/test");
+
+            fs::remove_dir_all(root).expect("cleanup");
+        }
+    }
+
+    #[test]
+    fn codex_catalog_keeps_its_launcher_specific_tool_settings() {
+        let root = unique_temp_dir("codex-tool-settings");
+        prepare_codex_home(
+            &root,
+            "http://127.0.0.1:3000",
+            "Qwen/test",
+            InputModalities::TextAndImage,
+            None,
+        )
+        .expect("config");
+        let catalog: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.join("model_catalog.json")).expect("catalog file"))
+                .expect("valid catalog JSON");
+        let model = &catalog["models"][0];
+
+        assert_eq!(
+            model["shell_type"], "local",
+            "the launcher runs Codex against a local shell"
+        );
+        assert!(
+            model.get("apply_patch_tool_type").is_none(),
+            "the launcher omits apply_patch_tool_type so Codex edits through the shell tool"
+        );
+        assert_eq!(
+            model["truncation_policy"],
+            serde_json::json!({"limit": 32768, "mode": "tokens"})
+        );
+        assert_eq!(model["supports_image_detail_original"], false);
+        assert_eq!(model["web_search_tool_type"], "text");
+        assert_eq!(model["include_skills_usage_instructions"], false);
+
+        fs::remove_dir_all(root).expect("cleanup");
     }
 
     fn unique_temp_dir(name: &str) -> std::path::PathBuf {

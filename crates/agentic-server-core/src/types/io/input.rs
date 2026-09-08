@@ -37,24 +37,60 @@ pub struct InputFileContent {
     pub detail: Option<String>,
 }
 
+impl InputFileContent {
+    /// Whether the part names a file at all. The gateway never fetches or
+    /// decodes the file; it only needs to know the part is not an empty shell
+    /// when deciding whether an item still carries context.
+    #[must_use]
+    pub fn has_reference(&self) -> bool {
+        [
+            self.file_data.as_deref(),
+            self.file_id.as_deref(),
+            self.file_url.as_deref(),
+            self.filename.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|value| !value.trim().is_empty())
+    }
+}
+
 /// Content item inside a message input.
 ///
 /// Uses an internally-tagged enum — serde consumes `"type"` for the variant
 /// discriminant so the inner structs must NOT redeclare a `type_` field.
 /// `output_text` and `reasoning_text` reuse `InputTextContent` since they
 /// carry only a `text` field; they are preserved so vLLM sees the full history.
+/// `input_image` and `input_file` mirror the media parts [`ToolOutputContent`]
+/// models, so a media part keeps its structure whether it arrives in a message
+/// or as a client-owned tool result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InputContent {
     InputText(InputTextContent),
     InputImage(InputImageContent),
+    InputFile(InputFileContent),
     /// Assistant output text in rehydrated history.
     OutputText(InputTextContent),
     /// Reasoning step text in rehydrated history.
     ReasoningText(InputTextContent),
-    /// Any other content type — drop silently.
+    /// A content type this gateway does not model.
+    ///
+    /// The variant is unit-only, so it cannot round-trip the part it replaced:
+    /// serializing it would forward a synthetic `{"type": "unknown"}` part that
+    /// no client sent. [`ResponsesInput::model_input`] drops it instead, which
+    /// keeps the surrounding message — and the ordering of the parts the
+    /// gateway does model — intact.
     #[serde(other)]
     Unknown,
+}
+
+impl InputContent {
+    /// Whether this part is a content type the gateway cannot represent.
+    #[must_use]
+    pub const fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +108,24 @@ pub struct InputMessage {
 pub enum InputMessageContent {
     Text(String),
     Parts(Vec<InputContent>),
+}
+
+impl InputMessageContent {
+    /// Whether any part is a content type the gateway cannot represent.
+    #[must_use]
+    fn has_unknown_parts(&self) -> bool {
+        matches!(self, Self::Parts(parts) if parts.iter().any(InputContent::is_unknown))
+    }
+
+    /// The same content with unrepresentable parts removed, preserving the
+    /// order of the parts the gateway does model.
+    #[must_use]
+    fn without_unknown_parts(&self) -> Self {
+        match self {
+            Self::Text(text) => Self::Text(text.clone()),
+            Self::Parts(parts) => Self::Parts(parts.iter().filter(|part| !part.is_unknown()).cloned().collect()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,6 +317,28 @@ impl InputItem {
     pub(crate) fn is_model_visible(&self) -> bool {
         !matches!(self, Self::McpListTools(_) | Self::CompactionTrigger)
     }
+
+    /// Whether the item carries message content the gateway cannot represent.
+    #[must_use]
+    pub(crate) fn has_unknown_content(&self) -> bool {
+        matches!(self, Self::Message(message) if message.content.has_unknown_parts())
+    }
+
+    /// The item as the model should see it, with unrepresentable content parts
+    /// dropped. The message itself is kept so the turn structure — and the
+    /// order of the remaining parts — survives.
+    #[must_use]
+    fn without_unknown_content(&self) -> Self {
+        let Self::Message(message) = self else {
+            return self.clone();
+        };
+        if !message.content.has_unknown_parts() {
+            return self.clone();
+        }
+        let mut message = message.clone();
+        message.content = message.content.without_unknown_parts();
+        Self::Message(message)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -335,7 +411,8 @@ impl ResponsesInput {
     /// becomes an assistant message containing the locally generated summary.
     /// Items before that checkpoint are superseded and are omitted.
     /// Internal MCP-list records and `compaction_trigger` markers are stripped
-    /// and never reach the model.
+    /// and never reach the model. Message content parts the gateway does not
+    /// model are dropped rather than forwarded as `{"type": "unknown"}`.
     #[must_use]
     pub fn model_input(&self) -> Cow<'_, Self> {
         let Self::Items(items) = self else {
@@ -343,8 +420,15 @@ impl ResponsesInput {
         };
 
         let Some(window) = latest_compaction_window(items) else {
-            if items.iter().any(|item| !item.is_model_visible()) {
-                let stripped = items.iter().filter(|item| item.is_model_visible()).cloned().collect();
+            if items
+                .iter()
+                .any(|item| !item.is_model_visible() || item.has_unknown_content())
+            {
+                let stripped = items
+                    .iter()
+                    .filter(|item| item.is_model_visible())
+                    .map(InputItem::without_unknown_content)
+                    .collect();
                 return Cow::Owned(Self::Items(stripped));
             }
             return Cow::Borrowed(self);
@@ -363,7 +447,7 @@ impl ResponsesInput {
                         text: compaction.encrypted_content.clone(),
                     })]),
                 }),
-                other => other.clone(),
+                other => other.without_unknown_content(),
             })
             .collect();
         Cow::Owned(Self::Items(model_items))
@@ -433,6 +517,117 @@ mod tests {
         let value = serde_json::to_value(normalized).expect("normalized output serializes");
 
         assert_eq!(value["output"], content);
+    }
+
+    #[test]
+    fn structured_function_tool_output_preserves_image_array() {
+        let content = serde_json::json!([
+            {"type": "input_text", "text": "attached local image path: diagram.png"},
+            {"type": "input_image", "image_url": "data:image/png;base64,abc"}
+        ]);
+        let item: InputItem = serde_json::from_value(serde_json::json!({
+            "type": "function_call_output",
+            "call_id": "call_view_image_1",
+            "output": content
+        }))
+        .expect("valid structured function-tool output");
+
+        let InputItem::FunctionCallOutput(output) = &item else {
+            panic!("expected function-tool output");
+        };
+        assert!(matches!(output.output, ToolCallOutput::Content(_)));
+
+        let value = serde_json::to_value(&item).expect("output serializes");
+        assert_eq!(value["output"], content, "structured output must not be stringified");
+    }
+
+    #[test]
+    fn input_file_message_content_round_trips_as_a_modeled_part() {
+        let part = serde_json::json!({
+            "type": "input_file",
+            "file_id": "file_1",
+            "filename": "report.pdf"
+        });
+        let item: InputItem = serde_json::from_value(serde_json::json!({
+            "type": "message",
+            "role": "user",
+            "content": [part]
+        }))
+        .expect("valid message input");
+
+        let InputItem::Message(message) = &item else {
+            panic!("expected message item");
+        };
+        let InputMessageContent::Parts(parts) = &message.content else {
+            panic!("expected message parts");
+        };
+        let [InputContent::InputFile(file)] = parts.as_slice() else {
+            panic!("expected a modeled input_file part");
+        };
+        assert!(file.has_reference());
+
+        let value = serde_json::to_value(&item).expect("message serializes");
+        assert_eq!(value["content"][0], part);
+    }
+
+    #[test]
+    fn unknown_message_content_parts_are_dropped_from_model_input() {
+        let input: ResponsesInput = serde_json::from_value(serde_json::json!([{
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "before"},
+                {"type": "input_audio", "audio_url": "https://example.com/clip.wav"},
+                {"type": "input_image", "image_url": "data:image/png;base64,abc", "detail": "low"}
+            ]
+        }]))
+        .expect("valid message input");
+
+        let serialized = serde_json::to_value(input.model_input()).expect("model input serializes");
+        let parts = serialized[0]["content"].as_array().expect("content parts");
+        assert_eq!(
+            parts.iter().map(|part| &part["type"]).collect::<Vec<_>>(),
+            vec!["input_text", "input_image"],
+            "an unrepresentable part must be dropped, not forwarded as {{\"type\": \"unknown\"}}"
+        );
+        assert_eq!(parts[1]["image_url"], "data:image/png;base64,abc");
+        assert_eq!(parts[1]["detail"], "low");
+    }
+
+    #[test]
+    fn message_with_only_unknown_content_keeps_its_turn() {
+        let input: ResponsesInput = serde_json::from_value(serde_json::json!([{
+            "role": "user",
+            "content": [{"type": "input_audio", "audio_url": "https://example.com/clip.wav"}]
+        }]))
+        .expect("valid message input");
+
+        let serialized = serde_json::to_value(input.model_input()).expect("model input serializes");
+        assert_eq!(serialized.as_array().map(Vec::len), Some(1));
+        assert_eq!(serialized[0]["role"], "user");
+        assert_eq!(serialized[0]["content"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[test]
+    fn unknown_content_is_dropped_from_retained_messages_after_compaction() {
+        let input: ResponsesInput = serde_json::from_value(serde_json::json!([
+            {
+                "type": "message",
+                "id": "msg_keep",
+                "role": "user",
+                "status": "completed",
+                "content": [
+                    {"type": "input_audio", "audio_url": "https://example.com/clip.wav"},
+                    {"type": "input_image", "image_url": "data:image/png;base64,abc"}
+                ]
+            },
+            {"type": "compaction", "encrypted_content": "summary"}
+        ]))
+        .expect("valid compacted history");
+
+        let serialized = serde_json::to_value(input.model_input()).expect("model input serializes");
+        let parts = serialized[0]["content"].as_array().expect("retained content parts");
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0]["type"], "input_image");
     }
 
     #[test]

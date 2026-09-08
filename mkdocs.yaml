@@ -98,6 +98,7 @@ nav:
   - Guides:
     - Responses Compaction: guides/responses-compaction.md
     - Harness CLI Testing: guides/harness-cli-testing.md
+    - Vision Model Verification: guides/vision-model-verification.md
     - NVIDIA Dynamo Upstream: guides/dynamo-upstream.md
   - Developing:
     - Getting Started: developing/getting-started.md

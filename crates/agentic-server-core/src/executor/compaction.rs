@@ -82,6 +82,7 @@ fn item_has_meaningful_context(item: &InputItem) -> bool {
                     !text.text.trim().is_empty()
                 }
                 InputContent::InputImage(image) => image.image_url.as_deref().is_some_and(|url| !url.trim().is_empty()),
+                InputContent::InputFile(file) => file.has_reference(),
                 InputContent::Unknown => false,
             }),
         },

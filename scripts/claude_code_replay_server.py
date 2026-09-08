@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import threading
 from dataclasses import dataclass
@@ -127,7 +129,43 @@ def validate_capture(records: list[dict[str, Any]], expected_model: str | None =
     assert searches[0].get("query"), "expected a non-empty search query"
 
 
-def validate_responses_capture(records: list[dict[str, Any]], expected_model: str) -> None:
+PNG_DATA_URL_PREFIX = "data:image/png;base64,"
+
+
+def _inline_image_urls(request: dict[str, Any]) -> list[str]:
+    """Every `input_image` URL in a Responses request, in the order it was sent."""
+    urls: list[str] = []
+    for item in request.get("input", []):
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "input_image":
+                url = part.get("image_url")
+                if isinstance(url, str):
+                    urls.append(url)
+    return urls
+
+
+def _inline_image_digests(request: dict[str, Any]) -> list[str]:
+    """SHA-256 of each inline PNG payload, proving the exact bytes survived the gateway."""
+    digests: list[str] = []
+    for url in _inline_image_urls(request):
+        assert url.startswith(PNG_DATA_URL_PREFIX), (
+            f"expected an inline PNG data URL, got {url[:48]!r}"
+        )
+        payload = base64.b64decode(url[len(PNG_DATA_URL_PREFIX) :], validate=True)
+        digests.append(hashlib.sha256(payload).hexdigest())
+    return digests
+
+
+def validate_responses_capture(
+    records: list[dict[str, Any]],
+    expected_model: str,
+    expected_image_sha256: str | None = None,
+) -> None:
     responses = [record["body"] for record in records if record["kind"] == "responses"]
     transports = [record["body"] for record in records if record["kind"] == "responses_transport"]
     assert len(responses) == 1, f"expected one Responses request, got {len(responses)}"
@@ -139,12 +177,26 @@ def validate_responses_capture(records: list[dict[str, Any]], expected_model: st
     assert request.get("stream") is True, "expected Codex to request a streaming response"
     assert request.get("input"), "expected a non-empty Responses input"
 
+    if expected_image_sha256 is not None:
+        digests = _inline_image_digests(request)
+        assert digests, (
+            "expected Codex to attach inline image content; a request without an "
+            "input_image part means the image was stripped before it reached the gateway"
+        )
+        assert expected_image_sha256 in digests, (
+            f"expected an attached image with sha256 {expected_image_sha256}, got {digests}"
+        )
+
 
 @dataclass
 class ReplayState:
     turns: list[ReplayTurn]
     capture_path: Path
     next_turn: int = 0
+    #: Served model id for `/v1/models`. Codex reads its image support from the
+    #: gateway catalog, which the gateway builds from this upstream listing, so a
+    #: replay server that serves no catalog cannot launch Codex at all.
+    model: str | None = None
 
     def __post_init__(self) -> None:
         self.lock = threading.Lock()
@@ -191,6 +243,28 @@ def make_handler(state: ReplayState) -> type[BaseHTTPRequestHandler]:
             parsed = urlsplit(self.path)
             if parsed.path == "/health":
                 self._send_bytes(200, "text/plain", b"")
+                return
+            if parsed.path == "/v1/models":
+                if state.model is None:
+                    self.send_error(404)
+                    return
+                # `image` makes the gateway resolve text+image modalities, which is
+                # what stops Codex from stripping image content client-side. This is
+                # a transport fixture: no model runs here, the turns are replayed.
+                self._send_json(
+                    200,
+                    {
+                        "object": "list",
+                        "data": [
+                            {
+                                "id": state.model,
+                                "object": "model",
+                                "owned_by": "replay",
+                                "capabilities": ["image", "reasoning"],
+                            }
+                        ],
+                    },
+                )
                 return
             if parsed.path == "/v1/search":
                 query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
@@ -279,11 +353,19 @@ def parse_args() -> argparse.Namespace:
     serve.add_argument("--cassette", required=True, type=Path)
     serve.add_argument("--port", required=True, type=int)
     serve.add_argument("--capture", required=True, type=Path)
+    serve.add_argument(
+        "--model",
+        help="serve this model id from /v1/models with image support; omit to serve no catalog",
+    )
 
     assert_capture = subparsers.add_parser("assert-capture")
     assert_capture.add_argument("--capture", required=True, type=Path)
     assert_capture.add_argument("--api", choices=("messages", "responses"), default="messages")
     assert_capture.add_argument("--model", required=True)
+    assert_capture.add_argument(
+        "--expect-image-sha256",
+        help="require an inline PNG with this digest in the captured Responses request",
+    )
     return parser.parse_args()
 
 
@@ -292,7 +374,7 @@ def main() -> None:
     if args.command == "assert-capture":
         records = load_capture(args.capture)
         if args.api == "responses":
-            validate_responses_capture(records, args.model)
+            validate_responses_capture(records, args.model, args.expect_image_sha256)
             responses = sum(record["kind"] == "responses" for record in records)
             transports = sum(record["kind"] == "responses_transport" for record in records)
             print(f"capture valid: responses={responses} transports={transports}")
@@ -306,7 +388,7 @@ def main() -> None:
 
     args.capture.parent.mkdir(parents=True, exist_ok=True)
     args.capture.write_text("")
-    state = ReplayState(load_turns(args.cassette), args.capture)
+    state = ReplayState(load_turns(args.cassette), args.capture, model=args.model)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(state))
     server.serve_forever()
 

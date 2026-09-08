@@ -10,6 +10,7 @@ use agentic_core::proxy::ProxyState;
 use agentic_core::readiness::{llm_readiness_client, wait_llm_ready};
 use agentic_server::app::{AppState, ReadinessTracker, ServerConfig, WebSocketTracker, build_router_with_auth};
 use agentic_server::auth::{OidcAuthError, OidcAuthenticator, OidcConfig};
+use agentic_server::model_capabilities::ModelCapabilities;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -32,7 +33,11 @@ impl From<OidcAuthError> for ServerError {
     }
 }
 
-async fn build_state(config: &Config, shutdown_token: CancellationToken) -> Result<AppState, ServerError> {
+async fn build_state(
+    config: &Config,
+    model_capabilities: ModelCapabilities,
+    shutdown_token: CancellationToken,
+) -> Result<AppState, ServerError> {
     let proxy_state = ProxyState::new(config.clone())?;
     let exec_ctx = Arc::new(ExecutionContext::from_config(config).await?);
 
@@ -46,6 +51,7 @@ async fn build_state(config: &Config, shutdown_token: CancellationToken) -> Resu
         llm_api_base: config.llm_api_base.clone(),
         skip_llm_ready_check: config.skip_llm_ready_check,
         openai_api_key: config.openai_api_key.clone(),
+        model_capabilities: Arc::new(model_capabilities),
     })
 }
 
@@ -139,13 +145,19 @@ async fn wait_until_llm_ready(config: &Config) -> Result<(), ServerError> {
 ///
 /// Returns an error if OIDC discovery or verification-key loading, DB
 /// initialisation, LLM readiness polling, or the server binding fails.
-pub async fn run(config: Config, host: &str, port: u16, oidc_config: Option<OidcConfig>) -> Result<(), ServerError> {
+pub async fn run(
+    config: Config,
+    model_capabilities: ModelCapabilities,
+    host: &str,
+    port: u16,
+    oidc_config: Option<OidcConfig>,
+) -> Result<(), ServerError> {
     let authenticator = match oidc_config {
         Some(config) => Some(OidcAuthenticator::discover(config).await?),
         None => None,
     };
     wait_until_llm_ready(&config).await?;
-    let state = build_state(&config, CancellationToken::new()).await?;
+    let state = build_state(&config, model_capabilities, CancellationToken::new()).await?;
     serve_gateway_until_signal(state, host, port, authenticator).await
 }
 
@@ -157,6 +169,7 @@ pub async fn run(config: Config, host: &str, port: u16, oidc_config: Option<Oidc
 /// fails to start, DB initialisation fails, or the gateway errors.
 pub async fn run_with_llm(
     config: Config,
+    model_capabilities: ModelCapabilities,
     host: &str,
     port: u16,
     llm_args: Vec<String>,
@@ -197,7 +210,7 @@ pub async fn run_with_llm(
     }
 
     let shutdown_token = CancellationToken::new();
-    let state = match build_state(&config, shutdown_token.clone()).await {
+    let state = match build_state(&config, model_capabilities, shutdown_token.clone()).await {
         Ok(s) => s,
         Err(err) => {
             let _ = child.kill().await;

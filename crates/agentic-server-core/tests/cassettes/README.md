@@ -55,8 +55,11 @@ Each smoke script starts a replay server and Agentic API, then invokes the insta
 `agentic harness` command. The Claude job opts `WebSearch` into gateway execution with
 `MESSAGES_GATEWAY_TOOL_ALIASES=WebSearch=web_search`; it asserts the recorded answer, two Messages rounds, one search
 request, a hidden `tool_result`, cache-bearing system and user blocks, and the exact Qwen model requested by Claude
-Code 2.1.245. The Codex job asserts the recorded `HELLO` answer, one streaming Responses request, and the exact Qwen
-model requested by Codex 0.149.1.
+Code 2.1.245. The Codex job asserts the recorded `HELLO` answer, one streaming Responses request, the exact Qwen
+model requested by Codex 0.149.1, and that the PNG attached with `codex exec --image` arrives as an inline
+`input_image` data URL whose bytes hash to the digest of the generated file. The replay server serves a `/v1/models`
+listing advertising `capabilities: ["image"]` so the gateway resolves text-and-image modalities; without it the Codex
+launcher cannot resolve its catalog and Codex would strip the image before sending.
 
 ## Modes
 

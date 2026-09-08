@@ -1342,6 +1342,10 @@ mod tests {
                 {
                     "type": "input_file",
                     "file_id": "file_1"
+                },
+                {
+                    "type": "input_audio",
+                    "audio_url": "https://example.com/clip.wav"
                 }
             ]
         });
@@ -1353,6 +1357,9 @@ mod tests {
         let InputMessageContent::Parts(parts) = &message.content else {
             panic!("expected message parts");
         };
-        assert!(matches!(parts.as_slice(), [InputContent::Unknown]));
+        assert!(matches!(
+            parts.as_slice(),
+            [InputContent::InputFile(_), InputContent::Unknown]
+        ));
     }
 }

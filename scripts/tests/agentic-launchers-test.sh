@@ -21,6 +21,14 @@ assert_file_contains() {
   grep -F -- "$expected" "$file" >/dev/null || fail "$file does not contain: $expected"
 }
 
+assert_catalog_modalities() {
+  local file="$1"
+  local expected="$2"
+  local actual
+  actual="$(jq -c '.models[0].input_modalities' "$file")"
+  [[ "$actual" == "$expected" ]] || fail "$file advertises $actual, expected $expected"
+}
+
 assert_file_excludes() {
   local file="$1"
   local unexpected="$2"
@@ -105,7 +113,7 @@ cat <<'JSON'
     "use_responses_lite": false,
     "tool_mode": null,
     "multi_agent_version": null,
-    "input_modalities": ["text"]
+    "input_modalities": ["text", "image"]
   }]
 }
 JSON
@@ -160,6 +168,7 @@ assert_file_contains "$codex_home/config.toml" 'model = "agentic-api"'
 assert_file_contains "$codex_home/config.toml" 'supports_websockets = true'
 assert_file_contains "$codex_home/model_catalog.json" '"web_search_tool_type": "text"'
 assert_file_contains "$codex_home/model_catalog.json" '"shell_type": "shell_command"'
+assert_catalog_modalities "$codex_home/model_catalog.json" '["text","image"]'
 assert_file_contains "$capture_dir/curl.txt" 'http://127.0.0.1:3020/v1/models?client_version=0.148.0'
 
 PATH="$fake_bin:$PATH" CAPTURE_DIR="$capture_dir" AGENTIC_YOLO=1 CLAUDE_BIN="$fake_bin/claude" \

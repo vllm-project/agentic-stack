@@ -304,6 +304,73 @@ diagnostic, and rotate it if it was reusable.
 
 ---
 
+## Image Capability Resolution
+
+Codex decides whether a request may carry image content by reading its **local** model catalog. When the entry for the
+selected model does not list `image` in `input_modalities`, Codex strips image content client-side and sends a
+placeholder instead. A vision-capable upstream is therefore not enough on its own: the catalog Codex reads has to say
+the model accepts images.
+
+Two catalogs exist and they must agree:
+
+| Catalog | Produced by | Consumed by |
+|---|---|---|
+| `GET /v1/models?client_version=<ver>` | `handler/http/models.rs` | Codex refreshing its model list, and both `agentic` launchers |
+| `$CODEX_HOME/model_catalog.json` | `agentic_harness::prepare_codex_home` (and `scripts/agentic-codex.sh`) | Codex reading an isolated session home |
+
+### Resolution order
+
+The gateway resolves `input_modalities` for every served model in this order:
+
+1. An explicit `[models."<served-model-id>"] input_modalities` override in `~/.agentic-api/config.toml`.
+2. Recognized upstream metadata: `capabilities: ["image"]` on the upstream `/v1/models` entry.
+3. A conservative text-only fallback.
+
+An explicit `["text"]` override wins over upstream image metadata, which is how a vision model gets pinned to text.
+Capabilities are never inferred from a model name — an unrecognized capability string such as `vision` or `multimodal`
+resolves to text-only. `supports_image_detail_original` stays `false`: the gateway does not relay image detail hints.
+
+### How the launchers stay consistent
+
+`agentic run codex` and `agentic harness codex` both fetch `GET {gateway}/v1/models?client_version=<ver>` before
+writing the isolated home, and take the selected model **and** its modalities from that one response. The client
+version is read from the Codex binary itself (`codex --version`, honoring `AGENTIC_CODEX_BIN`); set
+`AGENTIC_CODEX_CLIENT_VERSION` to skip the probe where it cannot run. Only the modalities are copied — the isolated
+catalog keeps its launcher-specific settings (`shell_type: "local"`, an omitted `apply_patch_tool_type`, and a
+token-based truncation policy), which intentionally differ from the HTTP catalog.
+
+`scripts/agentic-codex.sh` copies the gateway catalog verbatim, so it inherits the resolved modalities with no change.
+
+`scripts/codex-smoke.sh` covers this end to end in CI: the replay server advertises `capabilities: ["image"]`, the real
+Codex CLI attaches a generated 1x1 PNG with `--image`, and the capture assertion requires that exact payload by
+SHA-256. With the capability removed, Codex instead sends `image content omitted because you do not support image
+input` as text and the assertion fails — which is what makes client-side stripping distinguishable from gateway loss.
+[Verifying image support against a live vision model](../guides/vision-model-verification.md) covers the live check.
+
+### Failure behavior
+
+A launcher never writes a catalog it could not verify. If the gateway cannot be reached, rejects the request, returns
+an undecodable catalog, or does not list the selected model, the launch fails with an actionable error instead of
+writing text-only metadata:
+
+- Transport errors, `5xx`, `408`, `425`, `429`, and an empty catalog are retried until the readiness budget expires
+  (`--llm-ready-timeout-s`/`--llm-ready-interval-s`; 30s/250ms when attaching to a running gateway).
+- `401`/`403` fail immediately with a hint to pass `--api-key`. **A gateway behind OIDC now requires a credential for
+  `agentic harness codex`**, because `/v1/models` is a protected route.
+- A served, non-empty catalog that does not list the selected model is retried for 10 seconds and then fails, naming
+  the models the gateway does serve. A catalog listing other models proves the upstream is warm, so a missing model is
+  treated as a configuration error rather than a cold start.
+- Catalog responses larger than 1 MiB are rejected.
+
+### Regenerating existing session homes
+
+`agentic run` and `agentic harness` create a fresh session home per invocation, so they pick up resolved modalities
+automatically. A persistent home does not: delete and regenerate any `model_catalog.json` written before this change
+(for example a directory pinned with `AGENTIC_CODEX_HOME`, or a hand-written `-c model_catalog_json=...` file), or
+Codex will keep reading the stale text-only entry.
+
+---
+
 ## Out Of Scope
 
 - Raw proxy namespace flatten/restore.

@@ -31,8 +31,12 @@ while verifying [issue #190](https://github.com/vllm-project/agentic-api/issues/
 
 CI pins Claude Code 2.1.245 and Codex 0.149.1 and runs both real CLIs through the attach commands against recorded
 Qwen/vLLM streams. The Claude job verifies a gateway-owned web-search round trip; the Codex job verifies a completed
-Responses answer. Run the same checks locally with `bash scripts/claude-code-smoke.sh` and
-`bash scripts/codex-smoke.sh` after building both binaries with `cargo build -p agentic-server --bins`.
+Responses answer and that a PNG attached with `codex exec --image` reaches the gateway byte for byte. Run the same
+checks locally with `bash scripts/claude-code-smoke.sh` and `bash scripts/codex-smoke.sh` after building both binaries
+with `cargo build -p agentic-server --bins`.
+
+Neither job runs a model. To check that a real vision model renders what the gateway delivered, follow
+[Verifying image support against a live vision model](vision-model-verification.md).
 
 ## CLI behavior worth knowing
 
@@ -43,6 +47,7 @@ Responses answer. Run the same checks locally with `bash scripts/claude-code-smo
 | Claude uses isolated settings and state | Per-run settings map Claude Code's canonical `claude-sonnet-4-5-20250929` identifier to the exact served model ID, while every default and small/fast model tier is pinned to that served model. Session history is isolated from the user's normal Claude home under `$AGENTIC_API_HOME/harnesses/claude` (default `~/.agentic-api/harnesses/claude`) so `--resume` and `--continue` work across invocations. Inherited Vertex, Bedrock, and Foundry routing switches are removed. |
 | Claude effort is pinned to `medium` | Claude Code defaults to `high`, which Qwen's vLLM chat template rejects (`ValueError`). The CLI always passes `--effort medium` and sets `CLAUDE_CODE_EFFORT_LEVEL=medium` (the env var wins inside Claude Code). Override both with `AGENTIC_CLAUDE_EFFORT=low|medium|xhigh`. |
 | Claude resource limits are pinned | The generated environment sets a 32,768-token context, 2,048 output tokens, and disables extended thinking. These conservative defaults fit the tested Qwen deployment. |
+| Codex reads its model and image support from the gateway | Before writing an isolated Codex home, both `run codex` and `harness codex` fetch `GET {gateway}/v1/models?client_version=<ver>` and take the model and its `input_modalities` from that one response, so the isolated catalog always matches what the gateway serves. The client version comes from `codex --version` (honoring `AGENTIC_CODEX_BIN`); set `AGENTIC_CODEX_CLIENT_VERSION` to skip that probe. A gateway that is unreachable, rejects the request, or does not serve the selected model fails the launch with an actionable error instead of writing text-only metadata. Against an OIDC-protected gateway, pass `--api-key`. Configure image support with `[models."<id>"] input_modalities = ["text", "image"]`; see [Codex integration](../design/codex-integration.md). |
 | `--yolo` | Adds `--dangerously-skip-permissions` (Claude) or `--dangerously-bypass-approvals-and-sandbox` (Codex). Use only in an externally isolated environment. |
 | `--skip-llm-ready-check` | Skips the upstream `/health` probe. Avoid it while testing: the probe is what surfaces an unreachable upstream before the harness starts. |
 | Arguments after `--` | Forwarded to the harness (`-p`, `--resume`, `exec`, ...). Claude's `--model`, `--settings`, `--setting-sources`, and `--bare` are rejected because they would bypass the generated model and provider isolation. Generated settings are temporary, but Claude session history persists in the isolated Agentic API home. |

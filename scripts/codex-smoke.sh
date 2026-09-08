@@ -34,6 +34,7 @@ fi
 
 temp_dir="$(mktemp -d)"
 capture_path="${temp_dir}/capture.jsonl"
+image_path="${temp_dir}/red-pixel.png"
 replay_log="${temp_dir}/replay.log"
 gateway_log="${temp_dir}/gateway.log"
 codex_output="${temp_dir}/codex.out"
@@ -83,10 +84,39 @@ wait_until_ready() {
   return 1
 }
 
+# A 1x1 red PNG, generated rather than committed so the fixture stays synthetic,
+# non-sensitive, and byte-identical on every run. Its digest is what proves the
+# exact image Codex attached reached the gateway unmodified.
+image_sha256="$("$PYTHON_BIN" - "$image_path" <<'PNG'
+import hashlib
+import struct
+import sys
+import zlib
+
+
+def chunk(tag: bytes, data: bytes) -> bytes:
+    body = tag + data
+    return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+
+header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)  # 1x1, 8-bit truecolor
+pixel = b"\x00" + bytes((255, 0, 0))  # filter byte, then one red pixel
+png = (
+    b"\x89PNG\r\n\x1a\n"
+    + chunk(b"IHDR", header)
+    + chunk(b"IDAT", zlib.compress(pixel, 9))
+    + chunk(b"IEND", b"")
+)
+open(sys.argv[1], "wb").write(png)
+print(hashlib.sha256(png).hexdigest())
+PNG
+)"
+
 "$PYTHON_BIN" scripts/claude_code_replay_server.py serve \
   --cassette "$CASSETTE" \
   --capture "$capture_path" \
   --port "$REPLAY_PORT" \
+  --model "$MODEL" \
   >"$replay_log" 2>&1 &
 replay_pid=$!
 wait_until_ready "replay server" "http://127.0.0.1:${REPLAY_PORT}/health"
@@ -113,7 +143,8 @@ env \
   -- \
   exec \
   --skip-git-repo-check \
-  "Reply with exactly one word: HELLO" \
+  --image="$image_path" \
+  "Look at the attached image, then reply with exactly one word: HELLO" \
   >"$codex_output" 2>"$codex_debug" </dev/null
 
 "$PYTHON_BIN" - "$codex_output" <<'PY'
@@ -127,4 +158,5 @@ PY
 "$PYTHON_BIN" scripts/claude_code_replay_server.py assert-capture \
   --api responses \
   --model "$MODEL" \
-  --capture "$capture_path"
+  --capture "$capture_path" \
+  --expect-image-sha256 "$image_sha256"

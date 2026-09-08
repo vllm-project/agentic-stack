@@ -1,8 +1,11 @@
+import base64
+import hashlib
 import json
 import sys
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -24,6 +27,50 @@ RESPONSES_CASSETTE = (
     "reasoning-single-Qwen-Qwen3-30B-A3B-FP8-streaming.yaml"
 )
 QWEN_MODEL = "Qwen/Qwen3-30B-A3B-FP8"
+# The 1x1 red PNG the Codex image smoke attaches, and its digest.
+RED_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP4z8AAAAMBAQD3A0FDAAAAAElFTkSuQmCC"
+)
+RED_PIXEL_SHA256 = hashlib.sha256(RED_PIXEL_PNG).hexdigest()
+
+
+def image_input(image_url: str | None = None) -> list[dict[str, object]]:
+    """A Codex-shaped Responses input carrying one inline image."""
+    if image_url is None:
+        image_url = replay.PNG_DATA_URL_PREFIX + base64.b64encode(RED_PIXEL_PNG).decode()
+    return [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "Describe the attached image."},
+                {"type": "input_image", "image_url": image_url},
+            ],
+        }
+    ]
+
+
+def responses_records(input: object) -> list[dict[str, object]]:
+    return [
+        {"kind": "responses_transport", "body": {"path": "/v1/responses", "headers": {}}},
+        {"kind": "responses", "body": {"model": QWEN_MODEL, "stream": True, "input": input}},
+    ]
+
+
+def serve_get(state: "replay.ReplayState", path: str) -> bytes:
+    """Run one GET against a short-lived replay server and return the body."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), replay.make_handler(state))
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{server.server_port}{path}", timeout=5
+        ) as response:
+            return response.read()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
 def cache_control(ttl: str = "5m") -> dict[str, str]:
@@ -132,6 +179,55 @@ class ReplayServerTests(unittest.TestCase):
         ]
 
         replay.validate_responses_capture(records, QWEN_MODEL)
+
+    def test_validate_responses_capture_accepts_an_attached_image(self) -> None:
+        records = responses_records(input=image_input())
+
+        replay.validate_responses_capture(records, QWEN_MODEL, RED_PIXEL_SHA256)
+
+    def test_validate_responses_capture_rejects_a_stripped_image(self) -> None:
+        records = responses_records(input="Describe the attached image.")
+
+        with self.assertRaisesRegex(AssertionError, "inline image content"):
+            replay.validate_responses_capture(records, QWEN_MODEL, RED_PIXEL_SHA256)
+
+    def test_validate_responses_capture_rejects_a_mutated_image(self) -> None:
+        mutated = base64.b64encode(RED_PIXEL_PNG + b"trailing").decode()
+        records = responses_records(
+            input=image_input(replay.PNG_DATA_URL_PREFIX + mutated)
+        )
+
+        with self.assertRaisesRegex(AssertionError, "sha256"):
+            replay.validate_responses_capture(records, QWEN_MODEL, RED_PIXEL_SHA256)
+
+    def test_validate_responses_capture_ignores_images_when_none_expected(self) -> None:
+        records = responses_records(input="Reply with exactly one word: HELLO")
+
+        replay.validate_responses_capture(records, QWEN_MODEL)
+
+    def test_models_route_advertises_image_support_for_the_served_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture_path = Path(temp_dir) / "capture.jsonl"
+            capture_path.write_text("")
+            state = replay.ReplayState(
+                replay.load_turns(RESPONSES_CASSETTE), capture_path, model=QWEN_MODEL
+            )
+            body = json.loads(serve_get(state, "/v1/models"))
+
+        self.assertEqual(len(body["data"]), 1)
+        self.assertEqual(body["data"][0]["id"], QWEN_MODEL)
+        self.assertIn("image", body["data"][0]["capabilities"])
+
+    def test_models_route_is_absent_without_a_served_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture_path = Path(temp_dir) / "capture.jsonl"
+            capture_path.write_text("")
+            state = replay.ReplayState(replay.load_turns(RESPONSES_CASSETTE), capture_path)
+
+            with self.assertRaises(urllib.error.HTTPError) as raised:
+                serve_get(state, "/v1/models")
+
+        self.assertEqual(raised.exception.code, 404)
 
     def test_validate_responses_capture_rejects_wrong_model(self) -> None:
         records = [

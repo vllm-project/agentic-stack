@@ -210,6 +210,7 @@ async fn storage_backed_state(llm_url: &str) -> StorageBackedState {
         llm_api_base: config.llm_api_base,
         skip_llm_ready_check: config.skip_llm_ready_check,
         openai_api_key: config.openai_api_key,
+        model_capabilities: std::sync::Arc::default(),
     };
     StorageBackedState { state, pool, _db: db }
 }
@@ -981,4 +982,489 @@ async fn test_oversized_body_returns_413() {
 
     // Assert
     assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+// --- Image preservation through the Responses HTTP transport (issue #253) ---
+//
+// A 1x1 red PNG and a 1x1 blue PNG, inline as data URLs. They are real, valid
+// PNGs with distinguishable pixels, so an ordering assertion cannot pass by
+// accident, and no binary fixture has to ship with the tests. The gateway never
+// decodes them: decoding and preprocessing stay in vLLM.
+const RED_PIXEL_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP4z8AAAAMBAQD3A0FDAAAAAElFTkSuQmCC";
+const BLUE_PIXEL_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mNgYPgPAAEDAQA2dBFAAAAAAElFTkSuQmCC";
+
+fn image_part(image_url: &str, detail: Option<&str>) -> serde_json::Value {
+    match detail {
+        Some(detail) => serde_json::json!({"type": "input_image", "image_url": image_url, "detail": detail}),
+        None => serde_json::json!({"type": "input_image", "image_url": image_url}),
+    }
+}
+
+/// Spawn a mock vLLM that captures every request body and answers each one with a
+/// distinct completed assistant message, so a stored turn rehydrates real history.
+async fn spawn_mock_vllm_json_capture_answers()
+-> (String, Arc<Mutex<Vec<serde_json::Value>>>, tokio::task::JoinHandle<()>) {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let route_requests = Arc::clone(&requests);
+    let turn = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let app = Router::new().route(
+        "/v1/responses",
+        post(move |body: Bytes| {
+            let route_requests = Arc::clone(&route_requests);
+            let turn = Arc::clone(&turn);
+            async move {
+                let body = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+                route_requests.lock().await.push(body);
+                let index = turn.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                let payload = serde_json::json!({
+                    "id": format!("resp_upstream_{index}"),
+                    "object": "response",
+                    "status": "completed",
+                    "model": "test",
+                    "created_at": 0,
+                    "output": [{
+                        "id": format!("msg_upstream_{index}"),
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": format!("ANSWER {index}")}]
+                    }]
+                });
+                axum::response::Response::builder()
+                    .status(200)
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(payload.to_string()))
+                    .unwrap()
+                    .into_response()
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{addr}"), requests, handle)
+}
+
+async fn post_response(gateway_url: &str, body: &serde_json::Value) -> serde_json::Value {
+    let response = reqwest::Client::new()
+        .post(format!("{gateway_url}/v1/responses"))
+        .json(body)
+        .send()
+        .await
+        .expect("response request");
+    assert_eq!(response.status(), StatusCode::OK);
+    response.json().await.expect("response JSON")
+}
+
+#[tokio::test]
+async fn test_http_preserves_mixed_text_and_image_ordering() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let content = serde_json::json!([
+        {"type": "input_text", "text": "first"},
+        image_part(RED_PIXEL_PNG, Some("low")),
+        {"type": "input_text", "text": "between"},
+        image_part(BLUE_PIXEL_PNG, Some("high")),
+        {"type": "input_text", "text": "last"}
+    ]);
+
+    post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "test",
+            "input": [{"type": "message", "role": "user", "content": content}],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0]["input"][0]["content"], content,
+        "mixed text and image parts must reach vLLM in the order the client sent them"
+    );
+}
+
+#[tokio::test]
+async fn test_http_preserves_multiple_images_across_messages() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let input = serde_json::json!([
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "look at this"}, image_part(RED_PIXEL_PNG, None)]
+        },
+        {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "I see red."}]},
+        {
+            "type": "message",
+            "role": "user",
+            "content": [image_part(BLUE_PIXEL_PNG, None), {"type": "input_text", "text": "and this?"}]
+        }
+    ]);
+
+    post_response(
+        &gateway_url,
+        &serde_json::json!({"model": "test", "input": input, "store": true, "stream": false}),
+    )
+    .await;
+
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["input"], input);
+    let images = requests[0]["input"]
+        .as_array()
+        .expect("input items")
+        .iter()
+        .filter_map(|item| item["content"].as_array())
+        .flatten()
+        .filter(|part| part["type"] == "input_image")
+        .map(|part| part["image_url"].as_str().expect("image URL"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        images,
+        vec![RED_PIXEL_PNG, BLUE_PIXEL_PNG],
+        "each turn's image must survive, in turn order"
+    );
+}
+
+#[tokio::test]
+async fn test_http_client_view_image_tool_output_reaches_next_round() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let tool_output = serde_json::json!([
+        {"type": "input_text", "text": "attached local image path: diagram.png"},
+        image_part(RED_PIXEL_PNG, None)
+    ]);
+
+    post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "test",
+            "tools": [{
+                "type": "function",
+                "name": "view_image",
+                "description": "Attach a local image to the conversation.",
+                "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}
+            }],
+            "input": [
+                {"type": "message", "role": "user", "content": "look at diagram.png"},
+                {
+                    "type": "function_call",
+                    "call_id": "call_view_image_1",
+                    "name": "view_image",
+                    "arguments": "{\"path\":\"diagram.png\"}"
+                },
+                {"type": "function_call_output", "call_id": "call_view_image_1", "output": tool_output}
+            ],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+
+    let requests = requests.lock().await;
+    let output = requests[0]["input"]
+        .as_array()
+        .expect("input items")
+        .iter()
+        .find(|item| item["type"] == "function_call_output")
+        .map(|item| &item["output"])
+        .expect("client tool output should reach the next inference round");
+    assert!(
+        output.is_array(),
+        "structured tool output must stay an array, not an escaped JSON string: {output}"
+    );
+    assert_eq!(output, &tool_output);
+}
+
+#[tokio::test]
+async fn test_http_custom_tool_image_output_normalizes_without_stringifying() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let tool_output = serde_json::json!([
+        {"type": "input_text", "text": "screenshot"},
+        image_part(BLUE_PIXEL_PNG, Some("auto"))
+    ]);
+
+    post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "test",
+            "tools": [{"type": "custom", "name": "grab_screenshot", "description": "Capture the screen."}],
+            "input": [
+                {
+                    "type": "custom_tool_call",
+                    "id": "ctc_1",
+                    "call_id": "call_custom_1",
+                    "name": "grab_screenshot",
+                    "input": "screen",
+                    "status": "completed"
+                },
+                {"type": "custom_tool_call_output", "call_id": "call_custom_1", "output": tool_output}
+            ],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+
+    let requests = requests.lock().await;
+    let output = requests[0]["input"]
+        .as_array()
+        .expect("input items")
+        .iter()
+        .find(|item| item["type"] == "function_call_output")
+        .map(|item| &item["output"])
+        .expect("a custom-tool output must normalize to a function-tool output");
+    assert!(
+        output.is_array(),
+        "normalization must not stringify the array: {output}"
+    );
+    assert_eq!(output, &tool_output);
+}
+
+#[tokio::test]
+async fn test_http_previous_response_id_continuation_preserves_images() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture_answers().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let content = serde_json::json!([
+        {"type": "input_text", "text": "describe this"},
+        image_part(RED_PIXEL_PNG, Some("low"))
+    ]);
+
+    let first = post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "test",
+            "input": [{"type": "message", "role": "user", "content": content}],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+    let previous_response_id = first["id"].as_str().expect("stored response ID");
+
+    post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "test",
+            "previous_response_id": previous_response_id,
+            "input": [{"type": "message", "role": "user", "content": "and now?"}],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 2);
+    let history = requests[1]["input"].as_array().expect("rehydrated history");
+    assert_eq!(
+        history[0]["content"], content,
+        "the stored image must survive the round trip through the response store"
+    );
+    assert_eq!(history[1]["role"], "assistant");
+    assert_eq!(history[2]["content"], "and now?");
+}
+
+#[tokio::test]
+async fn test_http_conversation_rehydration_preserves_images() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture_answers().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let client = reqwest::Client::new();
+    let conversation_id = create_conversation(&client, &gateway_url).await;
+    let content = serde_json::json!([
+        {"type": "input_text", "text": "conversation image"},
+        image_part(BLUE_PIXEL_PNG, None)
+    ]);
+
+    post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "test",
+            "conversation_id": conversation_id,
+            "input": [{"type": "message", "role": "user", "content": content}],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+    post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "test",
+            "conversation_id": conversation_id,
+            "input": [{"type": "message", "role": "user", "content": "follow up"}],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 2);
+    let history = requests[1]["input"].as_array().expect("rehydrated history");
+    assert_eq!(history[0]["content"], content);
+    assert_eq!(history.last().expect("newest turn")["content"], "follow up");
+}
+
+#[tokio::test]
+async fn test_http_stored_tool_image_output_survives_continuation() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture_answers().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let tool_output = serde_json::json!([
+        {"type": "input_text", "text": "attached local image path: diagram.png"},
+        image_part(RED_PIXEL_PNG, None)
+    ]);
+
+    let first = post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "test",
+            "tools": [{
+                "type": "function",
+                "name": "view_image",
+                "description": "Attach a local image to the conversation.",
+                "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}
+            }],
+            "input": [
+                {"type": "message", "role": "user", "content": "look at diagram.png"},
+                {
+                    "type": "function_call",
+                    "call_id": "call_view_image_1",
+                    "name": "view_image",
+                    "arguments": "{\"path\":\"diagram.png\"}"
+                },
+                {"type": "function_call_output", "call_id": "call_view_image_1", "output": tool_output}
+            ],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+
+    post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "test",
+            "previous_response_id": first["id"].as_str().expect("stored response ID"),
+            "input": [{"type": "message", "role": "user", "content": "describe it"}],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+
+    let requests = requests.lock().await;
+    let stored_output = requests[1]["input"]
+        .as_array()
+        .expect("rehydrated history")
+        .iter()
+        .find(|item| item["type"] == "function_call_output")
+        .map(|item| &item["output"])
+        .expect("the stored tool output must rehydrate");
+    assert!(stored_output.is_array(), "persistence must not stringify the array");
+    assert_eq!(stored_output, &tool_output);
+}
+
+#[tokio::test]
+async fn test_store_false_proxies_image_content_verbatim() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture_body().await;
+    let (gateway_url, _gateway) = spawn_gateway(test_state(&test_config(&llm_url))).await;
+    // An unmodeled field on the image part proves the raw proxy forwards bytes
+    // rather than reserializing through the gateway's typed input model.
+    let request_body = format!(
+        r#"{{"model":"test","store":false,"stream":false,"input":[{{"type":"message","role":"user","content":[{{"type":"input_image","image_url":"{RED_PIXEL_PNG}","detail":"low","x_future_field":"kept"}},{{"type":"input_text","text":"raw proxy"}}]}}]}}"#
+    );
+
+    let response = reqwest::Client::new()
+        .post(format!("{gateway_url}/v1/responses"))
+        .header("Content-Type", "application/json")
+        .body(request_body.clone())
+        .send()
+        .await
+        .expect("raw proxy request");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        std::str::from_utf8(&requests[0]).expect("upstream body should be UTF-8"),
+        request_body,
+        "a stateless request must reach vLLM byte for byte"
+    );
+}
+
+#[tokio::test]
+async fn test_http_text_only_model_still_forwards_images_unchanged() {
+    // The control half of the text-only catalog check. Codex decides whether to
+    // send image content by reading its local catalog, so with a text-only model
+    // a missing image must be attributable to client-side stripping. The gateway
+    // itself never strips: modality resolution shapes `/v1/models` only, and
+    // `models_test.rs` covers that side.
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let content = serde_json::json!([
+        {"type": "input_text", "text": "text-only catalog"},
+        image_part(RED_PIXEL_PNG, None)
+    ]);
+
+    post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "text-only-model",
+            "input": [{"type": "message", "role": "user", "content": content}],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+
+    let requests = requests.lock().await;
+    assert_eq!(requests[0]["model"], "text-only-model");
+    assert_eq!(requests[0]["input"][0]["content"], content);
+}
+
+#[tokio::test]
+async fn test_http_unknown_content_part_is_dropped_instead_of_forwarded() {
+    let (llm_url, requests, _llm) = spawn_mock_vllm_json_capture().await;
+    let fixture = storage_backed_state(&llm_url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+
+    post_response(
+        &gateway_url,
+        &serde_json::json!({
+            "model": "test",
+            "input": [{"type": "message", "role": "user", "content": [
+                {"type": "input_text", "text": "before"},
+                {"type": "input_audio", "audio_url": "https://example.com/clip.wav"},
+                image_part(RED_PIXEL_PNG, None)
+            ]}],
+            "store": true,
+            "stream": false
+        }),
+    )
+    .await;
+
+    let requests = requests.lock().await;
+    let parts = requests[0]["input"][0]["content"]
+        .as_array()
+        .expect("forwarded content parts");
+    assert_eq!(
+        parts.iter().map(|part| &part["type"]).collect::<Vec<_>>(),
+        vec!["input_text", "input_image"],
+        "an unrepresentable part must be dropped, never rewritten as a synthetic part"
+    );
+    assert_eq!(parts[1]["image_url"], RED_PIXEL_PNG);
 }

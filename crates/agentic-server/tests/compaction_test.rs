@@ -445,3 +445,108 @@ async fn compact_endpoint_rejects_missing_context() {
     assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
     assert!(requests.lock().await.is_empty());
 }
+
+// --- Image preservation across compaction (issue #253) ---
+//
+// Token estimation for image-bearing messages is issue #255; these tests only
+// assert that compaction keeps a retained image-bearing user message intact.
+const RED_PIXEL_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP4z8AAAAMBAQD3A0FDAAAAAElFTkSuQmCC";
+
+fn image_message_content() -> serde_json::Value {
+    serde_json::json!([
+        {"type": "input_text", "text": "retained"},
+        {"type": "input_image", "image_url": RED_PIXEL_PNG, "detail": "low"}
+    ])
+}
+
+#[tokio::test]
+async fn compaction_window_retains_image_bearing_user_message() {
+    let (model_url, model_requests, _model) = spawn_compaction_model().await;
+    let (gateway_url, _gateway) = spawn_gateway(test_state(&test_config(&model_url))).await;
+    let content = image_message_content();
+
+    let response = reqwest::Client::new()
+        .post(format!("{gateway_url}/v1/responses"))
+        .json(&serde_json::json!({
+            "model": "test-model",
+            "store": false,
+            "stream": false,
+            "input": [
+                {"type": "message", "role": "user", "content": "superseded by the checkpoint"},
+                {
+                    "type": "message",
+                    "id": "msg_keep",
+                    "role": "user",
+                    "status": "completed",
+                    "content": content
+                },
+                {"type": "compaction", "encrypted_content": "summary so far"},
+                {"type": "message", "role": "user", "content": "after the checkpoint"}
+            ]
+        }))
+        .send()
+        .await
+        .expect("compacted continuation request");
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let requests = model_requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    let model_input = requests[0]["input"].as_array().expect("model input");
+    assert_eq!(model_input.len(), 3, "only the retained window reaches the model");
+    assert_eq!(
+        model_input[0]["content"], content,
+        "a retained user message must keep its image parts"
+    );
+    assert_eq!(model_input[1]["role"], "assistant");
+    assert_eq!(model_input[1]["content"][0]["text"], "summary so far");
+    assert_eq!(model_input[2]["content"], "after the checkpoint");
+}
+
+#[tokio::test]
+async fn compact_endpoint_preserves_retained_image_message() {
+    let (model_url, model_requests, _model) = spawn_compaction_model().await;
+    let (gateway_url, _gateway) = spawn_gateway(test_state(&test_config(&model_url))).await;
+    let content = image_message_content();
+
+    let response = reqwest::Client::new()
+        .post(format!("{gateway_url}/v1/responses/compact"))
+        .json(&serde_json::json!({
+            "model": "test-model",
+            "input": [
+                {"type": "message", "role": "user", "content": content},
+                {"type": "function_call_output", "call_id": "call_1", "output": "large result"}
+            ],
+            "tools": []
+        }))
+        .send()
+        .await
+        .expect("compact request");
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = response.json().await.expect("compact response JSON");
+    assert_eq!(body["output"][0]["type"], "message");
+    assert_eq!(
+        body["output"][0]["content"], content,
+        "the compacted window must carry the image-bearing user message forward"
+    );
+    assert_eq!(body["output"][1]["type"], "compaction");
+
+    // Reusing the compacted window must still send the image to the model.
+    let reused = reqwest::Client::new()
+        .post(format!("{gateway_url}/v1/responses"))
+        .json(&serde_json::json!({
+            "model": "test-model",
+            "input": body["output"].clone(),
+            "store": false,
+            "stream": false
+        }))
+        .send()
+        .await
+        .expect("reuse compacted output");
+    assert_eq!(reused.status(), reqwest::StatusCode::OK);
+
+    let requests = model_requests.lock().await;
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1]["input"][0]["content"], content);
+    assert_eq!(requests[1]["input"][1]["role"], "assistant");
+}
