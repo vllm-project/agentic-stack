@@ -30,6 +30,10 @@ async fn exec_ctx() -> ExecutionContext {
 
 /// Built the way a request actually arrives — through deserialization.
 fn request(input: &str, previous: Option<&str>) -> RequestPayload {
+    request_value(&json!(input), previous)
+}
+
+fn request_value(input: &Value, previous: Option<&str>) -> RequestPayload {
     let mut body = json!({"model": "test-model", "input": input, "store": true});
     if let Some(previous) = previous {
         body["previous_response_id"] = json!(previous);
@@ -74,6 +78,57 @@ fn upstream_sse(text: &str) -> String {
     .concat()
 }
 
+fn upstream_call_json(output: &Value, status: &str) -> String {
+    json!({
+        "id": "resp_upstream",
+        "object": "response",
+        "created_at": 1_700_000_000,
+        "model": "test-model",
+        "status": status,
+        "output": [output],
+    })
+    .to_string()
+}
+
+fn upstream_call_sse(added: &Value, done: &Value, terminal: &Value, status: &str) -> String {
+    [
+        json!({"type": "response.created", "response": {"id": "resp_upstream", "status": "in_progress"}}),
+        json!({"type": "response.in_progress", "response": {"id": "resp_upstream", "status": "in_progress"}}),
+        json!({"type": "response.output_item.added", "output_index": 0, "item": added}),
+        json!({"type": "response.output_item.done", "output_index": 0, "item": done}),
+        json!({
+            "type": format!("response.{status}"),
+            "response": {"id": "resp_upstream", "status": status, "output": [terminal]},
+        }),
+    ]
+    .iter()
+    .map(|frame| format!("data: {frame}\n\n"))
+    .collect::<Vec<_>>()
+    .concat()
+}
+
+fn function_call(id: &str, call_id: &str, status: &str) -> Value {
+    json!({
+        "type": "function_call",
+        "id": id,
+        "call_id": call_id,
+        "name": "lookup",
+        "arguments": "{}",
+        "status": status,
+    })
+}
+
+fn custom_tool_call(id: &str, call_id: &str, status: &str) -> Value {
+    json!({
+        "type": "custom_tool_call",
+        "id": id,
+        "call_id": call_id,
+        "name": "raw_echo",
+        "input": "hello",
+        "status": status,
+    })
+}
+
 fn signing_key() -> SigningKey {
     SigningKey::new(b"test-signing-key-32-bytes-minimum!".to_vec()).expect("valid test key")
 }
@@ -115,6 +170,55 @@ fn replayed(turn: &Hydration) -> (usize, String) {
 
 fn status_of(error: &ExecutorError) -> u16 {
     error.http_status().as_u16()
+}
+
+fn assert_call_id_error(error: &ExecutorError, case: &str, untrusted_marker: Option<&str>) {
+    assert_eq!(status_of(error), 400, "{case}: {error}");
+    let message = error.to_string();
+    assert!(message.contains("call_id"), "{case}: {error}");
+    if let Some(marker) = untrusted_marker {
+        assert!(!message.contains(marker), "untrusted call_id leaked: {message}");
+        assert!(
+            message.contains("output[0]") && message.contains("output[1]"),
+            "{case}: {message}"
+        );
+    }
+}
+
+async fn assert_relayed_call_id_rejected(
+    ctx: &ExecutionContext,
+    attempt: Hydration,
+    relayed: &str,
+    stream: bool,
+    case: &str,
+    marker: &str,
+    expected_detail: &str,
+) {
+    let retry_context = attempt.context.clone();
+    let response_id = unseal(&retry_context, &signing_key()).expect("unseal").response_id;
+    let upstream = if stream {
+        UpstreamBody::Sse(relayed)
+    } else {
+        UpstreamBody::Json(relayed)
+    };
+    let error = persist(attempt.context, upstream, ctx).await.expect_err(case);
+    assert_eq!(status_of(&error), 400, "{case}: {error}");
+    let message = error.to_string();
+    assert!(
+        message.contains("call_id") && message.contains("output[0]") && message.contains(expected_detail),
+        "{case}: {message}"
+    );
+    assert!(!message.contains(marker), "{case}: leaked call_id: {message}");
+
+    let retry = function_call("fc_retry", "call_retry", "completed");
+    let corrected = persist(
+        retry_context,
+        UpstreamBody::Json(&upstream_call_json(&retry, "completed")),
+        ctx,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("{case} consumed {response_id}: {error}"));
+    assert_eq!(corrected.id, response_id);
 }
 
 #[tokio::test]
@@ -166,7 +270,7 @@ async fn a_function_call_stream_passes_strict_validation() {
         r#"data: {"type":"response.in_progress","response":{"id":"resp_upstream","status":"in_progress"}}"#,
         r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"","status":"in_progress"}}"#,
         r#"data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"{\"q\":"}"#,
-        r#"data: {"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","name":"lookup","arguments":"{\"q\":\"rust\"}"}"#,
+        r#"data: {"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","arguments":"{\"q\":\"rust\"}"}"#,
         r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"rust\"}","status":"completed"}}"#,
         r#"data: {"type":"response.completed","response":{"id":"resp_upstream","status":"completed","output":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"rust\"}","status":"completed"}]}}"#,
     ]
@@ -179,6 +283,324 @@ async fn a_function_call_stream_passes_strict_validation() {
         stored.output.as_slice(),
         [agentic_core::types::io::OutputItem::FunctionCall(_)]
     ));
+}
+
+#[tokio::test]
+async fn relayed_json_tool_call_ids_are_validated_before_persistence() {
+    assert_relayed_tool_call_ids_are_validated(false).await;
+}
+
+#[tokio::test]
+async fn relayed_sse_tool_call_ids_are_validated_before_persistence() {
+    assert_relayed_tool_call_ids_are_validated(true).await;
+}
+
+async fn assert_relayed_tool_call_ids_are_validated(stream: bool) {
+    let ctx = exec_ctx().await;
+    let mut accepted = Vec::new();
+    let duplicate_id = "call_duplicate\r\nforged-log-entry";
+    let malformed_outputs = [
+        (
+            "function call without call_id",
+            "completed",
+            json!([{
+                "type": "function_call", "id": "fc_1", "name": "lookup",
+                "arguments": "{}", "status": "completed"
+            }]),
+            None,
+        ),
+        (
+            "custom tool call with empty call_id",
+            "incomplete",
+            json!([{
+                "type": "custom_tool_call", "id": "ctc_1", "call_id": "",
+                "name": "raw_echo", "input": "hello", "status": "completed"
+            }]),
+            None,
+        ),
+        (
+            "function and custom calls with the same call_id",
+            "completed",
+            json!([
+                {
+                    "type": "function_call", "id": "fc_1", "call_id": duplicate_id,
+                    "name": "lookup", "arguments": "{}", "status": "completed"
+                },
+                {
+                    "type": "custom_tool_call", "id": "ctc_2", "call_id": duplicate_id,
+                    "name": "raw_echo", "input": "hello", "status": "completed"
+                }
+            ]),
+            Some("forged-log-entry"),
+        ),
+    ];
+
+    for (case, status, output, untrusted_marker) in malformed_outputs {
+        let attempt = turn("Call a tool", None, &ctx).await;
+        let context = attempt.context.clone();
+        let response_id = unseal(&context, &signing_key()).expect("unseal").response_id;
+        let body = json!({
+            "id": "resp_upstream", "object": "response", "created_at": 1_700_000_000,
+            "model": "test-model", "status": status, "output": output
+        });
+        let relayed = if stream {
+            let mut frames = vec![
+                json!({"type": "response.created", "response": {"id": "resp_upstream", "status": "in_progress"}}),
+                json!({"type": "response.in_progress", "response": {"id": "resp_upstream", "status": "in_progress"}}),
+            ];
+            for (output_index, item) in output.as_array().expect("output items").iter().enumerate() {
+                frames.push(json!({
+                    "type": "response.output_item.added", "output_index": output_index, "item": item
+                }));
+                frames.push(json!({
+                    "type": "response.output_item.done", "output_index": output_index, "item": item
+                }));
+            }
+            frames.push(json!({
+                "type": format!("response.{status}"),
+                "response": {"id": "resp_upstream", "status": status, "output": output}
+            }));
+            frames
+                .iter()
+                .map(|frame| format!("data: {frame}\n\n"))
+                .collect::<Vec<_>>()
+                .concat()
+        } else {
+            body.to_string()
+        };
+        let upstream = if stream {
+            UpstreamBody::Sse(&relayed)
+        } else {
+            UpstreamBody::Json(&relayed)
+        };
+
+        let Err(error) = persist(attempt.context, upstream, &ctx).await else {
+            let poisoned = hydrate(request("continue", Some(&response_id)), &ctx)
+                .await
+                .expect_err("accepted invalid response remained continuable");
+            accepted.push(format!("{case}: {poisoned}"));
+            continue;
+        };
+        assert_call_id_error(&error, case, untrusted_marker);
+
+        // Validation must happen before insertion so the caller can retry
+        // the reserved response ID with a usable upstream response.
+        let valid = json!({
+            "id": "resp_retry", "status": "completed", "output": [{
+                "type": "custom_tool_call", "id": "ctc_retry", "call_id": "call_retry",
+                "name": "raw_echo", "input": "retry succeeded", "status": "completed"
+            }]
+        })
+        .to_string();
+        let stored = persist(context, UpstreamBody::Json(&valid), &ctx)
+            .await
+            .unwrap_or_else(|error| panic!("{case} consumed {response_id}: {error}"));
+        assert_eq!(stored.id, response_id);
+    }
+    assert!(accepted.is_empty(), "accepted invalid calls: {}", accepted.join("; "));
+}
+
+#[tokio::test]
+async fn relayed_json_call_id_cannot_reuse_continued_history() {
+    assert_relayed_call_id_cannot_reuse_continued_history(false).await;
+}
+
+#[tokio::test]
+async fn relayed_sse_call_id_cannot_reuse_continued_history() {
+    assert_relayed_call_id_cannot_reuse_continued_history(true).await;
+}
+
+async fn assert_relayed_call_id_cannot_reuse_continued_history(stream: bool) {
+    let ctx = exec_ctx().await;
+    let reused_call_id = "call_prior\r\nforged-history-log-entry";
+    let first_call = function_call("fc_prior", reused_call_id, "completed");
+    let first = turn("Call lookup", None, &ctx).await;
+    let stored = persist(
+        first.context,
+        UpstreamBody::Json(&upstream_call_json(&first_call, "completed")),
+        &ctx,
+    )
+    .await
+    .expect("store the prior call");
+
+    let resolution = json!([{
+        "type": "function_call_output",
+        "call_id": reused_call_id,
+        "output": "prior result",
+    }]);
+    let continued = hydrate(request_value(&resolution, Some(&stored.id)), &ctx)
+        .await
+        .expect("resolve the prior call");
+    let repeated = custom_tool_call("ctc_repeated", reused_call_id, "completed");
+    let relayed = if stream {
+        upstream_call_sse(&repeated, &repeated, &repeated, "completed")
+    } else {
+        upstream_call_json(&repeated, "completed")
+    };
+    assert_relayed_call_id_rejected(
+        &ctx,
+        continued,
+        &relayed,
+        stream,
+        "a continued call_id must remain unique",
+        "forged-history-log-entry",
+        "history",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn relayed_call_id_cannot_reuse_a_call_replayed_in_the_current_input() {
+    let ctx = exec_ctx().await;
+    let reused_call_id = "call_input\r\nforged-input-log-entry";
+    let input = json!([
+        {
+            "type": "function_call",
+            "id": "fc_input",
+            "call_id": reused_call_id,
+            "name": "lookup",
+            "arguments": "{}",
+            "status": "completed",
+        },
+        {"type": "function_call_output", "call_id": reused_call_id, "output": "input result"},
+    ]);
+    let attempt = hydrate(request_value(&input, None), &ctx)
+        .await
+        .expect("the replayed call/output pair is valid input");
+    let repeated = function_call("fc_repeated", reused_call_id, "completed");
+    assert_relayed_call_id_rejected(
+        &ctx,
+        attempt,
+        &upstream_call_json(&repeated, "completed"),
+        false,
+        "an upstream call_id must remain unique across manually replayed input",
+        "forged-input-log-entry",
+        "request input[0]",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn relayed_sse_call_id_is_stable_across_item_representations() {
+    let ctx = exec_ctx().await;
+    let changed_call_id = "call_changed\r\nforged-stream-log-entry";
+    let cases = [
+        (
+            "function call changes in output_item.done",
+            function_call("fc_1", "call_original", "in_progress"),
+            function_call("fc_1", changed_call_id, "completed"),
+            function_call("fc_1", changed_call_id, "completed"),
+            "completed",
+        ),
+        (
+            "function call changes in terminal output",
+            function_call("fc_1", "call_original", "in_progress"),
+            function_call("fc_1", "call_original", "completed"),
+            function_call("fc_1", changed_call_id, "completed"),
+            "completed",
+        ),
+        (
+            "incomplete function call changes in output_item.done",
+            function_call("fc_1", "call_original", "in_progress"),
+            function_call("fc_1", changed_call_id, "completed"),
+            function_call("fc_1", changed_call_id, "completed"),
+            "incomplete",
+        ),
+        (
+            "custom call changes in output_item.done",
+            custom_tool_call("ctc_1", "call_original", "in_progress"),
+            custom_tool_call("ctc_1", changed_call_id, "completed"),
+            custom_tool_call("ctc_1", changed_call_id, "completed"),
+            "completed",
+        ),
+        (
+            "custom call changes in terminal output",
+            custom_tool_call("ctc_1", "call_original", "in_progress"),
+            custom_tool_call("ctc_1", "call_original", "completed"),
+            custom_tool_call("ctc_1", changed_call_id, "completed"),
+            "completed",
+        ),
+    ];
+
+    for (case, added, done, terminal, status) in cases {
+        let sse = upstream_call_sse(&added, &done, &terminal, status);
+        assert_relayed_call_id_rejected(
+            &ctx,
+            turn("Call a tool", None, &ctx).await,
+            &sse,
+            true,
+            case,
+            "forged-stream-log-entry",
+            "changes",
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn relayed_sse_function_argument_event_cannot_change_call_id() {
+    let ctx = exec_ctx().await;
+    let changed_call_id = "call_changed\r\nforged-argument-log-entry";
+    let added = function_call("fc_1", "call_original", "in_progress");
+    let done_without_id = function_call("fc_1", "", "completed");
+    let terminal = function_call("fc_1", "call_original", "completed");
+    let sse = [
+        json!({"type": "response.created", "response": {"id": "resp_upstream", "status": "in_progress"}}),
+        json!({"type": "response.in_progress", "response": {"id": "resp_upstream", "status": "in_progress"}}),
+        json!({"type": "response.output_item.added", "output_index": 0, "item": added}),
+        json!({
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_1",
+            "call_id": changed_call_id,
+            "name": "lookup",
+            "arguments": "{}",
+        }),
+        json!({"type": "response.output_item.done", "output_index": 0, "item": done_without_id}),
+        json!({
+            "type": "response.completed",
+            "response": {"id": "resp_upstream", "status": "completed", "output": [terminal]},
+        }),
+    ]
+    .iter()
+    .map(|frame| format!("data: {frame}\n\n"))
+    .collect::<Vec<_>>()
+    .concat();
+
+    assert_relayed_call_id_rejected(
+        &ctx,
+        turn("Call a tool", None, &ctx).await,
+        &sse,
+        true,
+        "an arguments event cannot replace an announced call_id",
+        "forged-argument-log-entry",
+        "changes",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn relayed_sse_call_id_can_first_appear_in_output_item_done() {
+    let ctx = exec_ctx().await;
+    for (added, done) in [
+        (
+            function_call("fc_1", "", "in_progress"),
+            function_call("fc_1", "call_function", "completed"),
+        ),
+        (
+            custom_tool_call("ctc_1", "", "in_progress"),
+            custom_tool_call("ctc_1", "call_custom", "completed"),
+        ),
+    ] {
+        let sse = upstream_call_sse(&added, &done, &done, "completed");
+        persist(
+            turn("Call a tool", None, &ctx).await.context,
+            UpstreamBody::Sse(&sse),
+            &ctx,
+        )
+        .await
+        .expect("a later first non-empty call_id is valid");
+    }
 }
 
 /// Every way a turn is refused, and the status the caller sees.
@@ -309,15 +731,38 @@ async fn a_turn_that_is_not_written_still_returns() {
 
     let mut failed: Value = serde_json::from_str(&upstream_json("")).expect("json");
     failed["status"] = json!("failed");
-    failed["output"] = json!([]);
+    failed["output"] = json!([{
+        "type": "function_call", "id": "fc_partial", "name": "lookup",
+        "arguments": "", "status": "in_progress"
+    }]);
     let attempt = turn("hi", None, &ctx).await;
     let id = unseal(&attempt.context, &signing_key()).expect("unseal").response_id;
     let payload = persist(attempt.context, UpstreamBody::Json(&failed.to_string()), &ctx)
         .await
         .expect("a failed turn is not a boundary error");
     assert_eq!(payload.status, "error", "`failed` normalizes to the error status");
+    assert!(matches!(
+        payload.output.as_slice(),
+        [agentic_core::types::io::OutputItem::FunctionCall(call)] if call.call_id.is_empty()
+    ));
     let orphan = hydrate(request("and then?", Some(&id)), &ctx).await;
     assert_eq!(status_of(&orphan.expect_err("never stored")), 404);
+
+    // A failed response remains returned-but-unstored even when its partial
+    // item representations disagree; no unusable continuation can be created.
+    let added = function_call("fc_failed", "call_original", "in_progress");
+    let done = function_call("fc_failed", "call_changed", "completed");
+    let failed_sse = upstream_call_sse(&added, &done, &done, "failed");
+    let failed_attempt = turn("hi", None, &ctx).await;
+    let failed_id = unseal(&failed_attempt.context, &signing_key())
+        .expect("unseal")
+        .response_id;
+    let payload = persist(failed_attempt.context, UpstreamBody::Sse(&failed_sse), &ctx)
+        .await
+        .expect("failed partial output is not a persistence error");
+    assert_eq!(payload.status, "error");
+    let orphan = hydrate(request("and then?", Some(&failed_id)), &ctx).await;
+    assert_eq!(status_of(&orphan.expect_err("failed SSE was never stored")), 404);
 }
 
 /// Until an identical retry can be proven identical, a reused id is refused.

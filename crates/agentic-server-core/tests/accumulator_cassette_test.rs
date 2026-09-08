@@ -22,6 +22,10 @@ const WEB_SEARCH_GATEWAY_MODEL_SLUG: &str = "Qwen-Qwen3.5-35B-A3B-FP8";
 const WEB_SEARCH_OPENAI_MODEL: &str = "gpt-5.6";
 const WEB_SEARCH_OPENAI_MODEL_SLUG: &str = "gpt-5.6";
 
+fn from_sse_lines(lines: impl IntoIterator<Item = String>, conversation_id: Option<&str>) -> ResponseAccumulator {
+    ResponseAccumulator::from_sse_lines(lines, conversation_id).expect("valid cassette SSE stream")
+}
+
 // --- Legacy event cassette format ---
 
 #[derive(Deserialize)]
@@ -159,7 +163,7 @@ fn process_codex_streaming_turn(cassette: &TurnCassette, turn_idx: usize, model:
         "Codex cassette turn {} must have SSE data lines",
         turn_idx + 1
     );
-    let acc = ResponseAccumulator::from_sse_lines(data_lines, None);
+    let acc = from_sse_lines(data_lines, None);
     let payload = acc.finalize(model, None, None);
     assert_eq!(payload.status, "completed");
     payload.output
@@ -207,7 +211,7 @@ fn test_accumulator_cassette_function_call_vllm_gemma4() {
         .expected_function_call
         .expect("cassette must have expected_function_call");
 
-    let acc = ResponseAccumulator::from_sse_lines(cassette.sse, None);
+    let acc = from_sse_lines(cassette.sse, None);
     let payload = acc.finalize("google/gemma-4-26B-A4B-it", None, None);
 
     assert_eq!(payload.status, "completed");
@@ -236,7 +240,7 @@ fn test_accumulator_cassette_function_call_vllm_gemma4() {
 fn test_accumulator_cassette_text_only_no_function_calls() {
     let cassette = load_cassette("text-only-vllm-gemma4.yaml");
 
-    let acc = ResponseAccumulator::from_sse_lines(cassette.sse, None);
+    let acc = from_sse_lines(cassette.sse, None);
     let payload = acc.finalize("google/gemma-4-26B-A4B-it", None, None);
 
     assert_eq!(payload.status, "completed");
@@ -257,7 +261,7 @@ fn test_tool_calls_cassette_auto_streaming() {
     let turn = &cassette.turns[0];
     let data_lines = extract_data_lines(&turn.response.sse);
 
-    let acc = ResponseAccumulator::from_sse_lines(data_lines, None);
+    let acc = from_sse_lines(data_lines, None);
     let payload = acc.finalize("Qwen/Qwen3-30B-A3B-FP8", None, None);
 
     assert_eq!(payload.status, "completed");
@@ -292,7 +296,7 @@ fn test_tool_calls_cassette_required_streaming() {
     let turn = &cassette.turns[0];
     let data_lines = extract_data_lines(&turn.response.sse);
 
-    let acc = ResponseAccumulator::from_sse_lines(data_lines, None);
+    let acc = from_sse_lines(data_lines, None);
     let payload = acc.finalize("Qwen/Qwen3-30B-A3B-FP8", None, None);
 
     assert_eq!(payload.status, "completed");
@@ -322,7 +326,7 @@ fn test_tool_calls_cassette_named_streaming() {
     let turn = &cassette.turns[0];
     let data_lines = extract_data_lines(&turn.response.sse);
 
-    let acc = ResponseAccumulator::from_sse_lines(data_lines, None);
+    let acc = from_sse_lines(data_lines, None);
     let payload = acc.finalize("Qwen/Qwen3-30B-A3B-FP8", None, None);
 
     assert_eq!(payload.status, "completed");
@@ -346,7 +350,7 @@ fn test_tool_calls_cassette_none_streaming() {
     let turn = &cassette.turns[0];
     let data_lines = extract_data_lines(&turn.response.sse);
 
-    let acc = ResponseAccumulator::from_sse_lines(data_lines, None);
+    let acc = from_sse_lines(data_lines, None);
     let payload = acc.finalize("Qwen/Qwen3-30B-A3B-FP8", None, None);
 
     assert_eq!(payload.status, "completed");
@@ -502,7 +506,7 @@ fn test_reasoning_cassette_qwen3_streaming() {
     let turn = &cassette.turns[0];
     let data_lines = extract_data_lines(&turn.response.sse);
 
-    let acc = ResponseAccumulator::from_sse_lines(data_lines, None);
+    let acc = from_sse_lines(data_lines, None);
     let payload = acc.finalize("Qwen/Qwen3-30B-A3B-FP8", None, None);
 
     assert_eq!(payload.status, "completed");
@@ -550,7 +554,7 @@ fn test_reasoning_cassette_gpt_oss_streaming() {
     let turn = &cassette.turns[0];
     let data_lines = extract_data_lines(&turn.response.sse);
 
-    let acc = ResponseAccumulator::from_sse_lines(data_lines, None);
+    let acc = from_sse_lines(data_lines, None);
     let payload = acc.finalize("openai/gpt-oss-20b", None, None);
 
     assert_eq!(payload.status, "completed");
@@ -858,7 +862,7 @@ fn process_streaming_turn(cassette: &TurnCassette, turn_idx: usize, model: &str)
         "streaming turn {} must have SSE data lines",
         turn_idx + 1
     );
-    let acc = ResponseAccumulator::from_sse_lines(data_lines, None);
+    let acc = from_sse_lines(data_lines, None);
     let payload = acc.finalize(model, None, None);
     assert_eq!(payload.status, "completed");
     payload.output
@@ -1539,7 +1543,7 @@ fn test_all_stateful_cassettes_parse_without_error() {
                 "{filename} turn {} has no SSE data lines",
                 i + 1
             );
-            let acc = ResponseAccumulator::from_sse_lines(data_lines, None);
+            let acc = from_sse_lines(data_lines, None);
             let payload = acc.finalize("gpt-4o", None, None);
             assert_eq!(
                 payload.status,

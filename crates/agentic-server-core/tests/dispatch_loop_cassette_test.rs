@@ -344,7 +344,7 @@ async fn vllm_gateway_web_search_then_codex_namespace_across_turns() {
 /// coverage of the loop's `Continue` decision firing **more than once**: round 0
 /// and round 1 both dispatch a gateway call and loop, round 2 returns a message
 /// so the loop terminates `Done`. Three model calls, two You.com executions.
-async fn assert_multi_round_web_search(cassette_rel_path: &str) {
+async fn assert_multi_round_web_search(cassette_rel_path: &str, expected_item_types: &[&str]) {
     let (you_url, mut captured_you, _you_handle) = spawn_mock_you().await;
     let llm = support::MockServer::start_deque(vec![
         cassette_turn_at(cassette_rel_path, 0),
@@ -379,13 +379,10 @@ async fn assert_multi_round_web_search(cassette_rel_path: &str) {
     );
 
     let events = support::streamed_sse_events(&chunks);
+    assert_multi_round_public_stream(&events, expected_item_types);
     // Both gateway calls surfaced as public web_search_call items in the terminal
     // response; the final turn produced a message.
-    let terminal = events
-        .iter()
-        .rev()
-        .find_map(|e| e.get("response").filter(|r| r.get("output").is_some()))
-        .expect("stream should include a terminal response payload");
+    let terminal = &events.last().expect("stream should end with a terminal event")["response"];
     let items = terminal["output"].as_array().unwrap();
     let searches = items.iter().filter(|it| it["type"] == "web_search_call").count();
     assert_eq!(searches, 2, "both gateway searches recorded on output: {terminal:#}");
@@ -401,17 +398,154 @@ async fn assert_multi_round_web_search(cassette_rel_path: &str) {
     );
 }
 
+fn assert_multi_round_public_stream(events: &[serde_json::Value], expected_item_types: &[&str]) {
+    let lifecycle: Vec<&str> = events
+        .iter()
+        .map(|event| event["type"].as_str().expect("event should have a type"))
+        .filter(|kind| {
+            matches!(
+                *kind,
+                "response.created"
+                    | "response.in_progress"
+                    | "response.completed"
+                    | "response.incomplete"
+                    | "response.failed"
+                    | "error"
+            )
+        })
+        .collect();
+    assert_eq!(
+        lifecycle,
+        ["response.created", "response.in_progress", "response.completed"],
+        "all inference rounds should share one successful public lifecycle"
+    );
+    assert_eq!(events.first().unwrap()["type"], "response.created");
+    let terminal = events.last().unwrap();
+    assert_eq!(
+        terminal["type"], "response.completed",
+        "completion must be the last event"
+    );
+
+    for (sequence, event) in events.iter().enumerate() {
+        assert_eq!(
+            event["sequence_number"].as_u64(),
+            Some(u64::try_from(sequence).unwrap()),
+            "public sequence must include synthetic and terminal events: {event}"
+        );
+    }
+
+    let mut expected_boundaries = Vec::new();
+    for (index, item_type) in expected_item_types.iter().enumerate() {
+        let index = u64::try_from(index).unwrap();
+        expected_boundaries.push(("response.output_item.added", index));
+        if *item_type == "web_search_call" {
+            expected_boundaries.extend([
+                ("response.web_search_call.in_progress", index),
+                ("response.web_search_call.searching", index),
+                ("response.web_search_call.completed", index),
+            ]);
+        }
+        expected_boundaries.push(("response.output_item.done", index));
+    }
+    let actual_boundaries: Vec<(&str, u64)> = events
+        .iter()
+        .filter(|event| {
+            let kind = event["type"].as_str().unwrap();
+            kind.starts_with("response.output_item.") || kind.starts_with("response.web_search_call.")
+        })
+        .map(|event| {
+            (
+                event["type"].as_str().unwrap(),
+                event["output_index"].as_u64().expect("item event should have an index"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        actual_boundaries, expected_boundaries,
+        "recorded reasoning, synthesized searches, and the answer must retain their public item order"
+    );
+
+    let output = terminal["response"]["output"].as_array().unwrap();
+    let actual_item_types: Vec<&str> = output.iter().map(|item| item["type"].as_str().unwrap()).collect();
+    assert_eq!(actual_item_types, expected_item_types);
+    assert_recorded_text_channels(events, output, expected_item_types);
+}
+
+fn assert_recorded_text_channels(
+    events: &[serde_json::Value],
+    output: &[serde_json::Value],
+    expected_item_types: &[&str],
+) {
+    for (index, item_type) in expected_item_types.iter().enumerate() {
+        let delta_type = match *item_type {
+            "reasoning" => "response.reasoning_text.delta",
+            "message" => "response.output_text.delta",
+            _ => continue,
+        };
+        let index = u64::try_from(index).unwrap();
+        assert!(
+            events.iter().any(|event| {
+                event["type"] == delta_type
+                    && event["output_index"].as_u64() == Some(index)
+                    && event["delta"].as_str().is_some_and(|text| !text.is_empty())
+            }),
+            "expected nonempty {delta_type} for public item {index}"
+        );
+    }
+
+    let visible_text: String = events
+        .iter()
+        .filter(|event| event["type"] == "response.output_text.delta")
+        .map(|event| {
+            let index = usize::try_from(event["output_index"].as_u64().unwrap()).unwrap();
+            assert_eq!(
+                expected_item_types[index], "message",
+                "answer delta must target a message"
+            );
+            event["delta"].as_str().expect("text delta should be a string")
+        })
+        .collect();
+    let terminal_text: String = output
+        .iter()
+        .filter(|item| item["type"] == "message")
+        .flat_map(|item| item["content"].as_array().unwrap())
+        .filter(|part| part["type"] == "output_text")
+        .map(|part| part["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        visible_text, terminal_text,
+        "streamed answer should match the terminal answer"
+    );
+    assert!(!visible_text.is_empty(), "recorded scenario must produce visible text");
+    // Inspect the assembled answer so a tag split across delta events is still detected.
+    assert!(!visible_text.contains("<think>") && !visible_text.contains("</think>"));
+}
+
 /// Real recorded **`OpenAI`** (`gpt-4o`) multi-round gateway loop.
 #[tokio::test]
 async fn openai_multi_round_web_search_loops_then_answers() {
-    assert_multi_round_web_search("codex/codex-openai-multi-round-web-search-gpt-4o-streaming.yaml").await;
+    assert_multi_round_web_search(
+        "codex/codex-openai-multi-round-web-search-gpt-4o-streaming.yaml",
+        &["web_search_call", "web_search_call", "message"],
+    )
+    .await;
 }
 
 /// Real recorded **vLLM** (`openai/gpt-oss-20b`) multi-round gateway loop —
 /// backend parity.
 #[tokio::test]
 async fn vllm_multi_round_web_search_loops_then_answers() {
-    assert_multi_round_web_search("codex/codex-vllm-multi-round-web-search-gpt-oss-20b-streaming.yaml").await;
+    assert_multi_round_web_search(
+        "codex/codex-vllm-multi-round-web-search-gpt-oss-20b-streaming.yaml",
+        &[
+            "reasoning",
+            "web_search_call",
+            "reasoning",
+            "web_search_call",
+            "message",
+        ],
+    )
+    .await;
 }
 
 /// Real recorded **OpenAI** (`gpt-4o`) turn that emits a gateway `web_search`
