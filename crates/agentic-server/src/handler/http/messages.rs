@@ -125,7 +125,7 @@ async fn execute_messages(
 
 pub async fn messages(State(state): State<AppState>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
-    let bytes: Bytes = match read_bytes_with_auth(body, ProxyAuth::Anthropic).await {
+    let bytes: Bytes = match read_bytes_with_auth(body, ProxyAuth::Anthropic, state.max_request_body_size).await {
         Ok(bytes) => bytes,
         Err(response) => return response,
     };
@@ -150,7 +150,7 @@ pub async fn messages(State(state): State<AppState>, request: Request) -> Respon
 
 pub async fn count_tokens(State(state): State<AppState>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
-    let mut bytes: Bytes = match read_bytes_with_auth(body, ProxyAuth::Anthropic).await {
+    let mut bytes: Bytes = match read_bytes_with_auth(body, ProxyAuth::Anthropic, state.max_request_body_size).await {
         Ok(bytes) => bytes,
         Err(response) => return response,
     };

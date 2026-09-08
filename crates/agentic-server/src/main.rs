@@ -14,12 +14,19 @@ use agentic_core::config::{
     ToolRuntimeConfig, WebSearchProviderConfig, default_database_url, ensure_agentic_api_home, normalize_base_url,
 };
 use agentic_core::error::Error;
+use agentic_server::app::DEFAULT_MAX_REQUEST_BODY_SIZE;
 use agentic_server::auth::OidcConfig;
 
 mod config_file;
 mod server;
 
-use config_file::{FileConfig, McpFileConfig, MessagesGatewayFileConfig, ToolsFileConfig, WebSearchFileConfig};
+use config_file::{
+    FileConfig, McpFileConfig, MessagesGatewayFileConfig, ServerFileConfig, ToolsFileConfig, WebSearchFileConfig,
+};
+use server::GatewayOptions;
+
+/// Environment override for the serialized request-size ceiling.
+const MAX_REQUEST_BODY_SIZE_ENV: &str = "AGENTIC_MAX_REQUEST_BODY_SIZE_BYTES";
 
 #[derive(Args, Clone)]
 struct CommonArgs {
@@ -49,6 +56,13 @@ struct CommonArgs {
     /// Skip the upstream /health readiness probe. Useful for hosted OpenAI-compatible providers.
     #[arg(long, env = "SKIP_LLM_READY_CHECK", default_value_t = false, global = true)]
     skip_llm_ready_check: bool,
+
+    /// Maximum serialized request size in bytes for HTTP bodies and WebSocket messages.
+    /// Covers JSON overhead, replayed history, and base64 attachments; unrelated to the
+    /// upstream token context limit. Overrides `AGENTIC_MAX_REQUEST_BODY_SIZE_BYTES` and
+    /// `server.max_request_body_size_bytes` in the configuration file.
+    #[arg(long, global = true)]
+    max_request_body_size_bytes: Option<NonZeroUsize>,
 
     /// `SQLite` or `PostgreSQL` URL for conversation and response storage.
     /// Defaults to `agentic_api.db` in the Agentic API home directory.
@@ -158,6 +172,31 @@ fn parse_env_nonzero_usize_value(
         Err(std::env::VarError::NotPresent) => Ok(default),
         Err(error) => Err(Error::Config(format!("failed to read {name}: {error}"))),
     }
+}
+
+/// Resolves the request-size ceiling as CLI argument > environment variable >
+/// configuration file > default.
+///
+/// An explicit CLI argument short-circuits the lower-priority sources, so a
+/// stale or malformed `AGENTIC_MAX_REQUEST_BODY_SIZE_BYTES` inherited from the
+/// environment cannot block startup when the operator names a valid value.
+fn resolve_max_request_body_size(cli: Option<NonZeroUsize>, file: Option<NonZeroUsize>) -> Result<NonZeroUsize, Error> {
+    resolve_max_request_body_size_value(cli, file, std::env::var(MAX_REQUEST_BODY_SIZE_ENV))
+}
+
+fn resolve_max_request_body_size_value(
+    cli: Option<NonZeroUsize>,
+    file: Option<NonZeroUsize>,
+    value: Result<String, std::env::VarError>,
+) -> Result<NonZeroUsize, Error> {
+    if let Some(cli) = cli {
+        return Ok(cli);
+    }
+    parse_env_nonzero_usize_value(
+        MAX_REQUEST_BODY_SIZE_ENV,
+        value,
+        file.unwrap_or(DEFAULT_MAX_REQUEST_BODY_SIZE),
+    )
 }
 
 fn parse_env_duration(name: &str, default_seconds: u64) -> Result<Duration, Error> {
@@ -298,6 +337,22 @@ fn build_config(llm_api_base: String, common: &CommonArgs, file: &FileConfig) ->
     })
 }
 
+fn gateway_options<'a>(
+    common: &'a CommonArgs,
+    file: &FileConfig,
+    oidc: Option<OidcConfig>,
+) -> Result<GatewayOptions<'a>, Error> {
+    Ok(GatewayOptions {
+        host: &common.gateway_host,
+        port: common.gateway_port,
+        max_request_body_size: resolve_max_request_body_size(
+            common.max_request_body_size_bytes,
+            file.server.max_request_body_size_bytes,
+        )?,
+        oidc,
+    })
+}
+
 fn generated_file_config(llm_api_base: String) -> FileConfig {
     FileConfig {
         llm_api_base: Some(llm_api_base),
@@ -308,6 +363,10 @@ fn generated_file_config(llm_api_base: String) -> FileConfig {
         mcp: McpFileConfig {
             allowed_hosts: environment_value("AGENTIC_MCP_ALLOWED_HOSTS")
                 .map_or_else(Vec::new, |value| parse_comma_separated(&value)),
+        },
+        server: ServerFileConfig {
+            max_request_body_size_bytes: environment_value(MAX_REQUEST_BODY_SIZE_ENV)
+                .and_then(|value| value.parse::<NonZeroUsize>().ok()),
         },
         tools: ToolsFileConfig {
             max_concurrent_gateway_calls: environment_value("AGENTIC_MAX_CONCURRENT_GATEWAY_CALLS")
@@ -374,7 +433,8 @@ async fn main() -> Result<(), server::ServerError> {
                 file_config = generated_file_config(base.clone()).create_or_load(&agentic_home)?;
             }
             let config = build_config(normalize_base_url(&base), &common, &file_config)?;
-            server::run(config, &common.gateway_host, common.gateway_port, oidc_config).await
+            let gateway = gateway_options(&common, &file_config, oidc_config)?;
+            server::run(config, gateway).await
         }
         Some(Commands::Serve { model, port, llm_args }) => {
             if llm_api_base.is_some() {
@@ -396,13 +456,15 @@ async fn main() -> Result<(), server::ServerError> {
             args.push("--port".to_owned());
             args.push(port.to_string());
             args.extend(llm_args);
-            server::run_with_llm(config, &common.gateway_host, common.gateway_port, args, oidc_config).await
+            let gateway = gateway_options(&common, &file_config, oidc_config)?;
+            server::run_with_llm(config, gateway, args).await
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::time::Duration;
 
     use clap::{CommandFactory, Parser};
@@ -410,7 +472,7 @@ mod tests {
     use super::{
         Cli, Commands, database_configs_from_env, oidc_config_from_values, parse_env_duration_value,
         parse_env_nonzero_usize_value, parse_env_optional_duration_value, parse_env_temp_store_value,
-        parse_env_u32_value, parse_env_u64_value,
+        parse_env_u32_value, parse_env_u64_value, resolve_max_request_body_size_value,
     };
     use agentic_core::config::{
         DEFAULT_POSTGRES_ACQUIRE_TIMEOUT_SECONDS, DEFAULT_POSTGRES_IDLE_TIMEOUT_SECONDS,
@@ -418,6 +480,7 @@ mod tests {
         DEFAULT_POSTGRES_MIGRATION_TIMEOUT_SECONDS, DEFAULT_POSTGRES_STATEMENT_TIMEOUT_SECONDS,
         DEFAULT_SQLITE_MAX_CONNECTIONS, SqliteTempStore,
     };
+    use agentic_server::app::DEFAULT_MAX_REQUEST_BODY_SIZE;
 
     #[test]
     fn serve_uses_common_args_before_subcommand() {
@@ -673,6 +736,95 @@ mod tests {
                 Ok("0".to_owned()),
                 DEFAULT_POSTGRES_MAX_CONNECTIONS,
             )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn max_request_body_size_is_configurable_from_cli_env_and_file() {
+        let cli = NonZeroUsize::new(4_096);
+        let file = NonZeroUsize::new(2_048);
+        let missing = || Err(std::env::VarError::NotPresent);
+
+        assert_eq!(
+            resolve_max_request_body_size_value(None, None, missing()).expect("default value"),
+            DEFAULT_MAX_REQUEST_BODY_SIZE
+        );
+        assert_eq!(
+            resolve_max_request_body_size_value(None, file, missing()).expect("file value"),
+            file.expect("nonzero")
+        );
+        assert_eq!(
+            resolve_max_request_body_size_value(None, file, Ok("8192".to_owned()))
+                .expect("environment overrides the file")
+                .get(),
+            8_192
+        );
+        assert_eq!(
+            resolve_max_request_body_size_value(cli, file, Ok("8192".to_owned()))
+                .expect("CLI overrides the environment")
+                .get(),
+            4_096
+        );
+    }
+
+    #[test]
+    fn max_request_body_size_rejects_invalid_environment_overrides() {
+        let cli = NonZeroUsize::new(4_096);
+
+        assert!(resolve_max_request_body_size_value(None, None, Ok("0".to_owned())).is_err());
+        assert!(resolve_max_request_body_size_value(None, None, Ok("-1".to_owned())).is_err());
+        assert!(resolve_max_request_body_size_value(None, None, Ok("not-a-number".to_owned())).is_err());
+
+        // An explicit CLI argument outranks the environment, so a stale or malformed
+        // inherited value cannot block startup.
+        assert_eq!(
+            resolve_max_request_body_size_value(cli, None, Ok("0".to_owned()))
+                .expect("CLI argument overrides a malformed environment value")
+                .get(),
+            4_096
+        );
+        assert_eq!(
+            resolve_max_request_body_size_value(cli, None, Ok("not-a-number".to_owned()))
+                .expect("CLI argument overrides an unparsable environment value")
+                .get(),
+            4_096
+        );
+    }
+
+    #[test]
+    fn max_request_body_size_argument_is_global() {
+        let before = Cli::parse_from([
+            "agentic-server",
+            "--max-request-body-size-bytes",
+            "4096",
+            "serve",
+            "model-a",
+        ]);
+        let after = Cli::parse_from([
+            "agentic-server",
+            "serve",
+            "model-a",
+            "--max-request-body-size-bytes",
+            "4096",
+        ]);
+
+        assert_eq!(
+            before.common.max_request_body_size_bytes.map(NonZeroUsize::get),
+            Some(4_096)
+        );
+        assert_eq!(
+            after.common.max_request_body_size_bytes.map(NonZeroUsize::get),
+            Some(4_096)
+        );
+        assert!(
+            Cli::try_parse_from([
+                "agentic-server",
+                "--llm-api-base",
+                "http://localhost:8000",
+                "--max-request-body-size-bytes",
+                "0",
+            ])
             .is_err()
         );
     }

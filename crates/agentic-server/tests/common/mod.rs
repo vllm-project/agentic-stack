@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use axum::Router;
@@ -12,7 +13,9 @@ use agentic_core::executor::{ConversationHandler, ExecutionContext, ResponseHand
 use agentic_core::proxy::ProxyState;
 use agentic_core::readiness::llm_readiness_client;
 use agentic_core::storage::{ConversationStore, ResponseStore};
-use agentic_server::app::{AppState, ReadinessTracker, ServerConfig, WebSocketTracker, build_router};
+use agentic_server::app::{
+    AppState, DEFAULT_MAX_REQUEST_BODY_SIZE, ReadinessTracker, ServerConfig, WebSocketTracker, build_router,
+};
 
 pub fn test_config(llm_url: &str) -> Config {
     Config {
@@ -29,6 +32,10 @@ pub fn test_config(llm_url: &str) -> Config {
 }
 
 pub fn test_state(config: &Config) -> AppState {
+    test_state_with_max_request_body_size(config, DEFAULT_MAX_REQUEST_BODY_SIZE)
+}
+
+pub fn test_state_with_max_request_body_size(config: &Config, max_request_body_size: NonZeroUsize) -> AppState {
     let exec_ctx = ExecutionContext::new(
         ConversationHandler::new(ConversationStore::disabled()),
         ResponseHandler::new(ResponseStore::disabled()),
@@ -47,6 +54,7 @@ pub fn test_state(config: &Config) -> AppState {
         llm_api_base: config.llm_api_base.clone(),
         skip_llm_ready_check: config.skip_llm_ready_check,
         openai_api_key: config.openai_api_key.clone(),
+        max_request_body_size,
     }
 }
 

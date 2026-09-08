@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::fmt::Write as _;
 use std::future::Future;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -24,9 +25,12 @@ use agentic_core::storage::{
     ConversationStore, DbPool, InOutItem, ResponseMetadata, ResponseStore, create_pool_with_schema,
 };
 use agentic_core::types::io::{InputItem, ResponsesInput};
-use agentic_server::app::{AppState, WebSocketTracker};
+use agentic_server::app::{AppState, DEFAULT_MAX_REQUEST_BODY_SIZE, WebSocketTracker};
 
-use common::{spawn_gateway, spawn_mock_llm, test_config, test_state};
+use common::{spawn_gateway, spawn_mock_llm, test_config, test_state, test_state_with_max_request_body_size};
+
+/// Deliberately tiny ceiling used to exercise the limit without large allocations.
+const SMALL_REQUEST_SIZE_LIMIT: NonZeroUsize = NonZeroUsize::new(500).expect("nonzero");
 
 const COMPETING_RESPONSE_ID: &str = "resp_competing";
 const CONFLICT_MESSAGE: &str = "conversation changed while the response was being generated; retry the request";
@@ -212,6 +216,7 @@ async fn storage_backed_state(llm_url: &str) -> StorageBackedState {
         llm_api_base: config.llm_api_base,
         skip_llm_ready_check: config.skip_llm_ready_check,
         openai_api_key: config.openai_api_key,
+        max_request_body_size: DEFAULT_MAX_REQUEST_BODY_SIZE,
     };
     StorageBackedState { state, pool, _db: db }
 }
@@ -1474,4 +1479,79 @@ async fn test_oversized_body_returns_413() {
 
     // Assert
     assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+/// The configured ceiling covers the serialized request, so a body only a few
+/// hundred bytes long is rejected once the limit is lowered to match.
+#[tokio::test]
+async fn test_configured_request_size_limit_rejects_oversized_body() {
+    // Arrange — a 500-byte ceiling; the LLM is never reached.
+    let (llm_url, _h1) = spawn_mock_llm().await;
+    let state = test_state_with_max_request_body_size(&test_config(&llm_url), SMALL_REQUEST_SIZE_LIMIT);
+    let (gw_url, _h2) = spawn_gateway(state).await;
+
+    // Act
+    let resp = reqwest::Client::new()
+        .post(format!("{gw_url}/v1/responses"))
+        .header("Content-Type", "application/json")
+        .body("x".repeat(SMALL_REQUEST_SIZE_LIMIT.get() + 1))
+        .send()
+        .await
+        .unwrap();
+
+    // Assert
+    assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(
+        resp.json::<serde_json::Value>().await.unwrap()["error"]["code"],
+        "body_too_large"
+    );
+}
+
+#[tokio::test]
+async fn test_configured_request_size_limit_rejects_oversized_compaction_body() {
+    // Arrange — `/v1/responses/compact` reads through the same configured ceiling.
+    let (llm_url, _h1) = spawn_mock_llm().await;
+    let state = test_state_with_max_request_body_size(&test_config(&llm_url), SMALL_REQUEST_SIZE_LIMIT);
+    let (gw_url, _h2) = spawn_gateway(state).await;
+
+    // Act
+    let resp = reqwest::Client::new()
+        .post(format!("{gw_url}/v1/responses/compact"))
+        .header("Content-Type", "application/json")
+        .body("x".repeat(SMALL_REQUEST_SIZE_LIMIT.get() + 1))
+        .send()
+        .await
+        .unwrap();
+
+    // Assert
+    assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn test_raised_request_size_limit_admits_larger_body() {
+    // Arrange — the same payload shape that a 500-byte ceiling would reject.
+    let (llm_url, requests, _h1) = spawn_mock_vllm_json_capture().await;
+    let state =
+        test_state_with_max_request_body_size(&test_config(&llm_url), NonZeroUsize::new(64 * 1024).expect("nonzero"));
+    let (gw_url, _h2) = spawn_gateway(state).await;
+    let prompt = "x".repeat(4 * 1024);
+
+    // Act
+    let resp = reqwest::Client::new()
+        .post(format!("{gw_url}/v1/responses"))
+        .json(&serde_json::json!({
+            "model": "test",
+            "input": [{"type": "message", "role": "user", "content": prompt}],
+            "store": false,
+            "stream": false
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Assert — the raised ceiling lets the request through to the upstream.
+    assert_eq!(resp.status(), StatusCode::OK);
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["input"][0]["content"].as_str().unwrap().len(), 4 * 1024);
 }

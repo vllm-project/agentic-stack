@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +17,19 @@ use tracing::{info, warn};
 
 const GATEWAY_DRAIN_TIMEOUT: Duration = Duration::from_secs(8);
 
+/// Transport-level gateway settings resolved before the server starts.
+///
+/// These are deliberately separate from [`Config`], which carries inference,
+/// storage, and tool concerns that core owns.
+pub struct GatewayOptions<'a> {
+    pub host: &'a str,
+    pub port: u16,
+    /// Ceiling on serialized inbound request bytes for HTTP bodies and
+    /// WebSocket messages and frames.
+    pub max_request_body_size: NonZeroUsize,
+    pub oidc: Option<OidcConfig>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
     #[error(transparent)]
@@ -32,7 +46,11 @@ impl From<OidcAuthError> for ServerError {
     }
 }
 
-async fn build_state(config: &Config, shutdown_token: CancellationToken) -> Result<AppState, ServerError> {
+async fn build_state(
+    config: &Config,
+    shutdown_token: CancellationToken,
+    max_request_body_size: NonZeroUsize,
+) -> Result<AppState, ServerError> {
     let proxy_state = ProxyState::new(config.clone())?;
     let exec_ctx = Arc::new(ExecutionContext::from_config(config).await?);
 
@@ -46,6 +64,7 @@ async fn build_state(config: &Config, shutdown_token: CancellationToken) -> Resu
         llm_api_base: config.llm_api_base.clone(),
         skip_llm_ready_check: config.skip_llm_ready_check,
         openai_api_key: config.openai_api_key.clone(),
+        max_request_body_size,
     })
 }
 
@@ -139,13 +158,19 @@ async fn wait_until_llm_ready(config: &Config) -> Result<(), ServerError> {
 ///
 /// Returns an error if OIDC discovery or verification-key loading, DB
 /// initialisation, LLM readiness polling, or the server binding fails.
-pub async fn run(config: Config, host: &str, port: u16, oidc_config: Option<OidcConfig>) -> Result<(), ServerError> {
-    let authenticator = match oidc_config {
-        Some(config) => Some(OidcAuthenticator::discover(config).await?),
+pub async fn run(config: Config, gateway: GatewayOptions<'_>) -> Result<(), ServerError> {
+    let GatewayOptions {
+        host,
+        port,
+        max_request_body_size,
+        oidc,
+    } = gateway;
+    let authenticator = match oidc {
+        Some(oidc) => Some(OidcAuthenticator::discover(oidc).await?),
         None => None,
     };
     wait_until_llm_ready(&config).await?;
-    let state = build_state(&config, CancellationToken::new()).await?;
+    let state = build_state(&config, CancellationToken::new(), max_request_body_size).await?;
     serve_gateway_until_signal(state, host, port, authenticator).await
 }
 
@@ -157,13 +182,17 @@ pub async fn run(config: Config, host: &str, port: u16, oidc_config: Option<Oidc
 /// fails to start, DB initialisation fails, or the gateway errors.
 pub async fn run_with_llm(
     config: Config,
-    host: &str,
-    port: u16,
+    gateway: GatewayOptions<'_>,
     llm_args: Vec<String>,
-    oidc_config: Option<OidcConfig>,
 ) -> Result<(), ServerError> {
-    let authenticator = match oidc_config {
-        Some(config) => Some(OidcAuthenticator::discover(config).await?),
+    let GatewayOptions {
+        host,
+        port,
+        max_request_body_size,
+        oidc,
+    } = gateway;
+    let authenticator = match oidc {
+        Some(oidc) => Some(OidcAuthenticator::discover(oidc).await?),
         None => None,
     };
     let mut cmd = tokio::process::Command::new("python");
@@ -197,7 +226,7 @@ pub async fn run_with_llm(
     }
 
     let shutdown_token = CancellationToken::new();
-    let state = match build_state(&config, shutdown_token.clone()).await {
+    let state = match build_state(&config, shutdown_token.clone(), max_request_body_size).await {
         Ok(s) => s,
         Err(err) => {
             let _ = child.kill().await;

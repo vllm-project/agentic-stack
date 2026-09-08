@@ -44,7 +44,7 @@ async fn execute_responses(state: &AppState, parts: Parts, payload: RequestPaylo
 
 pub async fn responses(State(state): State<AppState>, req: Request) -> Response {
     let (parts, body) = req.into_parts();
-    let bytes = match read_bytes(body).await {
+    let bytes = match read_bytes(body, state.max_request_body_size).await {
         Ok(bytes) => bytes,
         Err(response) => return response,
     };
@@ -87,7 +87,7 @@ pub async fn responses(State(state): State<AppState>, req: Request) -> Response 
 
 pub async fn compact_response(State(state): State<AppState>, req: Request) -> Response {
     let (parts, body) = req.into_parts();
-    let request: CompactRequest = match read_json(body).await {
+    let request: CompactRequest = match read_json(body, state.max_request_body_size).await {
         Ok(request) => request,
         Err(response) => return response,
     };

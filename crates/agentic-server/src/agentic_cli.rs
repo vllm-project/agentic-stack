@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use clap::{
     Args, Parser, Subcommand, ValueEnum,
     builder::{Styles, styling::AnsiColor},
@@ -165,6 +167,11 @@ pub struct CommonOptions {
     #[arg(long, default_value = DEFAULT_DATABASE_URL, env = "DATABASE_URL", hide_env_values = true)]
     pub database_url: String,
 
+    /// Maximum serialized request size in bytes accepted by the gateway.
+    /// Left to the gateway's own configuration chain when omitted.
+    #[arg(long)]
+    pub max_request_body_size_bytes: Option<NonZeroUsize>,
+
     /// API key forwarded to the gateway and harness when configured
     #[arg(long, env = "OPENAI_API_KEY", hide_env_values = true)]
     pub api_key: Option<String>,
@@ -241,6 +248,7 @@ impl Default for CommonOptions {
             gateway_host: "127.0.0.1".to_owned(),
             gateway_port: 3000,
             database_url: DEFAULT_DATABASE_URL.to_owned(),
+            max_request_body_size_bytes: None,
             api_key: None,
             skip_llm_ready_check: false,
             llm_ready_timeout_s: 600.0,

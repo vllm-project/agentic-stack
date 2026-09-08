@@ -38,6 +38,19 @@ impl McpFileConfig {
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
+pub(crate) struct ServerFileConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_request_body_size_bytes: Option<NonZeroUsize>,
+}
+
+impl ServerFileConfig {
+    fn is_empty(&self) -> bool {
+        self.max_request_body_size_bytes.is_none()
+    }
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub(crate) struct ToolsFileConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_concurrent_gateway_calls: Option<NonZeroUsize>,
@@ -73,6 +86,8 @@ pub(crate) struct FileConfig {
     pub web_search: WebSearchFileConfig,
     #[serde(skip_serializing_if = "McpFileConfig::is_empty")]
     pub mcp: McpFileConfig,
+    #[serde(skip_serializing_if = "ServerFileConfig::is_empty")]
+    pub server: ServerFileConfig,
     #[serde(skip_serializing_if = "ToolsFileConfig::is_empty")]
     pub tools: ToolsFileConfig,
     #[serde(skip_serializing_if = "MessagesGatewayFileConfig::is_empty")]
@@ -236,7 +251,7 @@ mod tests {
     use agentic_core::McpServerEntry;
     use tempfile::tempdir;
 
-    use super::{FileConfig, McpFileConfig, WebSearchFileConfig};
+    use super::{FileConfig, McpFileConfig, ServerFileConfig, WebSearchFileConfig};
 
     #[test]
     fn missing_config_file_uses_defaults() {
@@ -258,6 +273,9 @@ mod tests {
             mcp: McpFileConfig {
                 allowed_hosts: vec!["mcp.example.com".to_owned()],
             },
+            server: ServerFileConfig {
+                max_request_body_size_bytes: std::num::NonZeroUsize::new(20 * 1024 * 1024),
+            },
             ..FileConfig::default()
         };
 
@@ -269,6 +287,8 @@ mod tests {
         assert!(contents.contains("[web_search]"));
         assert!(contents.contains("api_key_env = \"YOU_API_KEY\""));
         assert!(contents.contains("allowed_hosts = [\"mcp.example.com\"]"));
+        assert!(contents.contains("[server]"));
+        assert!(contents.contains("max_request_body_size_bytes = 20971520"));
         assert!(!contents.contains("YOU_API_KEY ="));
         assert!(!contents.contains("[mcp_servers]"));
 
@@ -354,6 +374,40 @@ mod tests {
                 .max_concurrent_gateway_calls
                 .map(std::num::NonZeroUsize::get),
             Some(3)
+        );
+    }
+
+    #[test]
+    fn rejects_zero_max_request_body_size() {
+        let home = tempdir().expect("temp home");
+        fs::write(
+            home.path().join("config.toml"),
+            "[server]\nmax_request_body_size_bytes = 0\n",
+        )
+        .expect("write config");
+
+        let error = FileConfig::load(home.path()).expect_err("zero request size must fail");
+        assert!(error.to_string().contains("max_request_body_size_bytes"));
+    }
+
+    #[test]
+    fn accepts_positive_max_request_body_size() {
+        let home = tempdir().expect("temp home");
+        fs::write(
+            home.path().join("config.toml"),
+            "[server]\nmax_request_body_size_bytes = 1048576\n",
+        )
+        .expect("write config");
+
+        let config = FileConfig::load(home.path())
+            .expect("positive request size must parse")
+            .expect("existing config");
+        assert_eq!(
+            config
+                .server
+                .max_request_body_size_bytes
+                .map(std::num::NonZeroUsize::get),
+            Some(1_048_576)
         );
     }
 

@@ -19,7 +19,7 @@ use agentic_core::executor::{
 use agentic_core::types::request_response::RequestPayload;
 use agentic_core::utils::common::utcnow_str;
 
-use super::super::common::{MAX_BODY_SIZE, extract_bearer};
+use super::super::common::extract_bearer;
 use super::error::WsError;
 use crate::app::AppState;
 use crate::auth::AuthenticatedPrincipal;
@@ -47,8 +47,12 @@ fn upgrade_responses_ws(
     principal: Option<AuthenticatedPrincipal>,
 ) -> Response {
     let websocket_guard = state.websocket_tracker.track();
-    ws.max_message_size(MAX_BODY_SIZE)
-        .max_frame_size(MAX_BODY_SIZE)
+    // Read before `state` moves into the upgrade closure. Messages and frames
+    // above this ceiling are rejected by the transport, which closes the
+    // connection before any JSON request is parsed.
+    let max_request_body_size = state.max_request_body_size.get();
+    ws.max_message_size(max_request_body_size)
+        .max_frame_size(max_request_body_size)
         .on_upgrade(move |socket| async move {
             let _websocket_guard = websocket_guard;
             Box::pin(responses_ws_loop(socket, state, headers, principal)).await;

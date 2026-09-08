@@ -31,7 +31,7 @@ use agentic_core::tool::{WebSearchHandler, model_visible_namespace_member_name};
 use agentic_core::types::RequestPayload;
 use agentic_core::types::io::{CompactionItem, InputItem, ResponsesInput};
 use agentic_core::types::tools::ResponsesTool;
-use agentic_server::app::{AppState, WebSocketTracker};
+use agentic_server::app::{AppState, DEFAULT_MAX_REQUEST_BODY_SIZE, WebSocketTracker};
 
 use common::{spawn_gateway, test_config};
 
@@ -288,6 +288,7 @@ fn persistence_disabled_state(llm_url: &str) -> AppState {
         llm_api_base: config.llm_api_base,
         skip_llm_ready_check: config.skip_llm_ready_check,
         openai_api_key: config.openai_api_key,
+        max_request_body_size: DEFAULT_MAX_REQUEST_BODY_SIZE,
     }
 }
 
@@ -323,9 +324,13 @@ async fn storage_backed_state_with_web_search(llm_url: &str, web_search_base_url
         llm_api_base: config.llm_api_base,
         skip_llm_ready_check: config.skip_llm_ready_check,
         openai_api_key: config.openai_api_key,
+        max_request_body_size: DEFAULT_MAX_REQUEST_BODY_SIZE,
     };
     StorageBackedState { state, pool, _db: db }
 }
+
+/// Deliberately tiny ceiling used to exercise the limit without large allocations.
+const SMALL_REQUEST_SIZE_LIMIT: std::num::NonZeroUsize = std::num::NonZeroUsize::new(500).expect("nonzero");
 
 const COMPETING_RESPONSE_ID: &str = "resp_competing";
 const CONFLICT_MESSAGE: &str = "conversation changed while the response was being generated; retry the request";
@@ -2121,15 +2126,18 @@ async fn test_websocket_rejects_binary_json_without_upstream_request() {
     assert!(mock.request_bodies().await.is_empty());
 }
 
+/// Over-limit messages are rejected by the transport before any JSON is parsed,
+/// so the connection closes instead of carrying a JSON error event.
 #[tokio::test]
-async fn test_websocket_rejects_messages_larger_than_http_body_limit() {
+async fn test_websocket_rejects_messages_larger_than_the_configured_request_size_limit() {
     let mock = MockResponsesServer::start(vec![]).await;
-    let fixture = storage_backed_state(&mock.url).await;
-    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let mut state = storage_backed_state(&mock.url).await;
+    state.state.max_request_body_size = SMALL_REQUEST_SIZE_LIMIT;
+    let (gateway_url, _gateway) = spawn_gateway(state.state.clone()).await;
     let mut ws = connect_responses_ws(&gateway_url).await;
 
     if ws
-        .send(Message::Text("x".repeat(10 * 1024 * 1024 + 1).into()))
+        .send(Message::Text("x".repeat(SMALL_REQUEST_SIZE_LIMIT.get() + 1).into()))
         .await
         .is_ok()
     {
@@ -2140,6 +2148,33 @@ async fn test_websocket_rejects_messages_larger_than_http_body_limit() {
         assert!(message.is_err() || matches!(message, Ok(Message::Close(_))));
     }
     assert!(mock.request_bodies().await.is_empty());
+}
+
+/// A raised ceiling admits a request that the small limit above would have closed.
+#[tokio::test]
+async fn test_websocket_accepts_messages_within_a_raised_request_size_limit() {
+    let mock = MockResponsesServer::start(vec![sse_response("resp_upstream_1", "msg_upstream_1", "HELLO")]).await;
+    let mut state = storage_backed_state(&mock.url).await;
+    state.state.max_request_body_size = std::num::NonZeroUsize::new(64 * 1024).expect("nonzero");
+    let (gateway_url, _gateway) = spawn_gateway(state.state.clone()).await;
+    let mut ws = connect_responses_ws(&gateway_url).await;
+
+    let request = json!({
+        "type": "response.create",
+        "model": "test-model",
+        "input": [{"type": "message", "role": "user", "content": "x".repeat(4 * 1024)}],
+        "store": true,
+        "stream": true
+    });
+    assert!(
+        request.to_string().len() > SMALL_REQUEST_SIZE_LIMIT.get(),
+        "the payload must exceed the small limit to prove the ceiling is what changed"
+    );
+    send_json(&mut ws, request).await;
+
+    let events = recv_until_completed(&mut ws).await;
+    assert_eq!(events.last().unwrap()["type"], "response.completed");
+    assert_eq!(mock.request_bodies().await.len(), 1);
 }
 
 #[tokio::test]

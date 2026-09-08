@@ -9,7 +9,7 @@ use crate::app::AppState;
 
 pub async fn conversations(State(state): State<AppState>, req: Request) -> Response {
     let (_, body) = req.into_parts();
-    let bytes = match read_bytes(body).await {
+    let bytes = match read_bytes(body, state.max_request_body_size).await {
         Ok(b) => b,
         Err(e) => return e,
     };

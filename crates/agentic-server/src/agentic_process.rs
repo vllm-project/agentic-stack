@@ -40,6 +40,12 @@ pub fn server_args(source: &SourceOptions, common: &CommonOptions) -> Vec<OsStri
         OsString::from("--llm-ready-interval-s"),
         OsString::from(common.llm_ready_interval_s.to_string()),
     ]);
+    if let Some(max_request_body_size_bytes) = common.max_request_body_size_bytes {
+        args.extend([
+            OsString::from("--max-request-body-size-bytes"),
+            OsString::from(max_request_body_size_bytes.to_string()),
+        ]);
+    }
     if let Some(api_key) = &common.api_key {
         args.extend([OsString::from("--openai-api-key"), OsString::from(api_key)]);
     }
@@ -574,6 +580,36 @@ mod tests {
         assert!(
             args.windows(2)
                 .any(|pair| pair == ["--db-url", "sqlite://./agentic_api.db"])
+        );
+    }
+
+    #[test]
+    fn request_size_limit_is_forwarded_only_when_configured() {
+        let source = SourceOptions {
+            upstream: Some("http://127.0.0.1:8000".to_owned()),
+            model: None,
+            llm_port: 8000,
+        };
+
+        let defaults = server_args(&source, &CommonOptions::default());
+        assert!(
+            !defaults
+                .iter()
+                .any(|argument| argument == "--max-request-body-size-bytes")
+        );
+
+        let configured = server_args(
+            &source,
+            &CommonOptions {
+                max_request_body_size_bytes: std::num::NonZeroUsize::new(4_096),
+                ..CommonOptions::default()
+            },
+        );
+        let configured: Vec<_> = configured.iter().map(OsString::as_os_str).collect();
+        assert!(
+            configured
+                .windows(2)
+                .any(|pair| pair == ["--max-request-body-size-bytes", "4096"])
         );
     }
 

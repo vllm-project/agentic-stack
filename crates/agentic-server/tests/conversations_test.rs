@@ -2,7 +2,7 @@ mod common;
 
 use http::StatusCode;
 
-use common::{spawn_gateway, spawn_mock_llm, test_config, test_state};
+use common::{spawn_gateway, spawn_mock_llm, test_config, test_state, test_state_with_max_request_body_size};
 
 #[tokio::test]
 async fn test_conversations_store_false_returns_400() {
@@ -64,4 +64,27 @@ async fn test_conversations_no_content_type_still_defaults_store_true() {
         !resp.status().is_client_error(),
         "expected executor path, got client error"
     );
+}
+
+/// The request-size ceiling is one gateway-wide policy, so it also bounds the
+/// small bodies this endpoint accepts.
+#[tokio::test]
+async fn test_conversations_honours_the_configured_request_size_limit() {
+    // Arrange
+    let (llm_url, _h1) = spawn_mock_llm().await;
+    let limit = std::num::NonZeroUsize::new(500).expect("nonzero");
+    let state = test_state_with_max_request_body_size(&test_config(&llm_url), limit);
+    let (gw_url, _h2) = spawn_gateway(state).await;
+
+    // Act
+    let resp = reqwest::Client::new()
+        .post(format!("{gw_url}/v1/conversations"))
+        .header("Content-Type", "application/json")
+        .body("x".repeat(limit.get() + 1))
+        .send()
+        .await
+        .unwrap();
+
+    // Assert
+    assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
