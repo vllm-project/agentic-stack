@@ -6,6 +6,8 @@ import socket
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from subprocess import TimeoutExpired
@@ -386,41 +388,33 @@ def test_wait_for_vllm_ready_accepts_authenticated_models_response(
     assert ModelsHandler.auth_headers == ["Bearer secret-token"]
 
 
-def test_wait_for_vllm_ready_recovers_from_transient_connection_failures(monkeypatch: pytest.MonkeyPatch) -> None:
-    port = reserve_tcp_port()
-    base_url = f"http://127.0.0.1:{port}"
-    server_ready = threading.Event()
-    stop_server = threading.Event()
+def test_wait_for_vllm_ready_recovers_from_transient_connection_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    models_server: tuple[ThreadingHTTPServer, str],
+) -> None:
+    _, base_url = models_server
+    original_urlopen = urllib.request.urlopen
+    attempts = 0
 
-    def delayed_server() -> None:
-        time.sleep(0.1)
-        server = ThreadingHTTPServer(("127.0.0.1", port), ModelsHandler)
-        server.timeout = 0.05
-        server_ready.set()
-        try:
-            while not stop_server.is_set():
-                server.handle_request()
-        finally:
-            server.server_close()
+    def transient_urlopen(request: urllib.request.Request, *, timeout: float) -> Any:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise urllib.error.URLError(ConnectionRefusedError("simulated connection refusal"))
+        return original_urlopen(request, timeout=timeout)
 
-    thread = threading.Thread(target=delayed_server, daemon=True)
-    thread.start()
-    try:
-        wait_for_vllm_ready(
-            base_url=base_url,
-            api_key=None,
-            process=DummyProcess([None] * 20),
-            timeout=1.0,
-            interval=0.02,
-        )
-    finally:
-        stop_server.set()
-        if server_ready.wait(timeout=1):
-            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
-                pass
-        thread.join(timeout=1)
+    monkeypatch.setattr("agentic_api.process.urllib.request.urlopen", transient_urlopen)
 
-    assert ModelsHandler.requests_seen >= 1
+    wait_for_vllm_ready(
+        base_url=base_url,
+        api_key=None,
+        process=DummyProcess([None] * 20),
+        timeout=0.5,
+        interval=0.01,
+    )
+
+    assert attempts == 3
+    assert ModelsHandler.requests_seen == 1
 
 
 def test_wait_for_vllm_ready_times_out_without_leaking_api_key() -> None:
