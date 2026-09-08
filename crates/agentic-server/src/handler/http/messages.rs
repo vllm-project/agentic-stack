@@ -11,13 +11,14 @@ use agentic_core::executor::{
     validate_native_web_search_request,
 };
 use agentic_core::proxy::{
-    ProxyAuth, ProxyBody, ProxyRequest, ProxyResponse, error_response_for_auth, proxy_request_with_path,
-    upstream_request_headers,
+    ProxyAuth, ProxyRequest, error_response_for_auth, proxy_request_with_path, upstream_request_headers,
 };
 use agentic_core::tool::ToolRegistry;
 use agentic_core::types::messages::{MessagesRequest, has_gateway_tool, registry_tools};
 
-use super::super::common::{convert_response, read_bytes_with_auth, sse_response_with_headers};
+use super::super::common::{
+    convert_response, read_bytes_with_auth, sse_response_with_headers, upstream_error_response,
+};
 use crate::app::AppState;
 
 async fn proxy_messages(
@@ -44,20 +45,8 @@ async fn proxy_messages(
 /// Preserve upstream Messages errors verbatim; render local executor failures
 /// as an Anthropic error envelope, consistent with the proxy path (E14).
 fn messages_error_response(err: ExecutorError) -> Response {
-    if let ExecutorError::LLMRequest {
-        status,
-        body,
-        mut headers,
-    } = err
-    {
-        headers
-            .entry(http::header::CONTENT_TYPE)
-            .or_insert(http::HeaderValue::from_static("application/json"));
-        return convert_response(ProxyResponse {
-            status,
-            headers,
-            body: ProxyBody::Full(Bytes::from(body)),
-        });
+    if let ExecutorError::LLMRequest { status, body, headers } = err {
+        return upstream_error_response(status, body, headers);
     }
     convert_response(error_response_for_auth(
         err.http_status(),

@@ -25,13 +25,32 @@ pub fn convert_response(resp: ProxyResponse) -> Response {
     }
 }
 
+/// Forward an upstream error verbatim: its status, body, and processed metadata headers.
+///
+/// The headers were already filtered by `processed_response_headers` when the inference
+/// call captured them, so hop-by-hop and stale representation headers are gone while
+/// `retry-after`, request IDs, and rate-limit metadata remain. `content-type` is only
+/// defaulted to JSON when the upstream did not label its body, so a plain-text error is
+/// not relabelled as JSON.
+pub fn upstream_error_response(status: StatusCode, body: String, mut headers: HeaderMap) -> Response {
+    headers
+        .entry(http::header::CONTENT_TYPE)
+        .or_insert(http::HeaderValue::from_static("application/json"));
+    convert_response(ProxyResponse {
+        status,
+        headers,
+        body: ProxyBody::Full(Bytes::from(body)),
+    })
+}
+
 /// # Panics
 /// Panics if the response builder produces an invalid response (unreachable in practice).
 pub fn executor_error_response(err: ExecutorError) -> Response {
-    let status = err.http_status();
-    if !matches!(err, ExecutorError::LLMRequest { .. }) {
-        warn!("executor error ({status}): {err}");
+    if let ExecutorError::LLMRequest { status, body, headers } = err {
+        return upstream_error_response(status, body, headers);
     }
+    let status = err.http_status();
+    warn!("executor error ({status}): {err}");
     Response::builder()
         .status(status)
         .header("Content-Type", "application/json")
