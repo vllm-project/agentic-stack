@@ -246,7 +246,11 @@ pub struct ModelsParams {
         ("client_version" = Option<String>, Query, description = "Codex CLI version; triggers Codex-compatible model list shape"),
     ),
     responses(
-        (status = 200, description = "Model list", body = crate::openapi::ModelsResponse),
+        (status = 200, description = "OpenAI model list (default) or Codex catalog (when client_version is set)",
+            content(
+                (crate::openapi::ModelsResponse = "application/json"),
+                (crate::openapi::CodexModelsResponse = "application/json"),
+            )),
         (status = 502, description = "Upstream unavailable", body = crate::openapi::ApiErrorResponse),
     ),
     security(("bearer_auth" = [])),

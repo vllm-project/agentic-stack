@@ -104,9 +104,12 @@ use utoipa::OpenApi;
         AnthropicErrorResponse,
         AnthropicError,
         MessagesResponse,
+        CountTokensRequest,
         CountTokensResponse,
         ModelsResponse,
         ModelObject,
+        CodexModelsResponse,
+        CodexModelObject,
         CreateConversationRequest,
         ConversationResponse,
     )),
@@ -180,6 +183,19 @@ pub struct MessagesResponse {
     pub usage: serde_json::Value,
 }
 
+/// Request body for Anthropic's `count_tokens` endpoint.
+///
+/// Unlike [`MessagesRequest`], `max_tokens` is not required for token counting.
+#[derive(serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct CountTokensRequest {
+    pub model: String,
+    pub messages: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<serde_json::Value>>,
+}
+
 /// Response from Anthropic's `count_tokens` endpoint (proxied from upstream).
 #[derive(serde::Serialize, utoipa::ToSchema)]
 pub struct CountTokensResponse {
@@ -199,6 +215,19 @@ pub struct ModelObject {
     pub id: String,
     pub object: String,
     pub owned_by: Option<String>,
+}
+
+/// Codex-compatible model list returned when `client_version` is present.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct CodexModelsResponse {
+    pub models: Vec<CodexModelObject>,
+}
+
+/// Single model entry in the Codex catalog.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct CodexModelObject {
+    pub slug: String,
+    pub display_name: String,
 }
 
 /// Request body for POST /v1/conversations.
@@ -412,6 +441,30 @@ mod tests {
         validate(
             "ApiErrorResponse",
             &serde_json::json!({"error": {"message": "bad", "type": "invalid_request_error", "code": null}}),
+        );
+
+        // -- ModelsResponse: OpenAI and Codex shapes --
+        validate(
+            "ModelsResponse",
+            &serde_json::json!({"object": "list", "data": [{"id": "m1", "object": "model"}]}),
+        );
+        validate(
+            "CodexModelsResponse",
+            &serde_json::json!({"models": [{"slug": "m1", "display_name": "Model One"}]}),
+        );
+        validate(
+            "CodexModelsResponse",
+            &serde_json::json!({"models": []}),
+        );
+
+        // -- CountTokensRequest: max_tokens not required --
+        validate(
+            "CountTokensRequest",
+            &serde_json::json!({"model": "test", "messages": []}),
+        );
+        validate(
+            "CountTokensRequest",
+            &serde_json::json!({"model": "test", "messages": [{"role": "user", "content": "hi"}], "system": "you are helpful"}),
         );
 
         // -- InputItem: every variant the deserializer accepts --
