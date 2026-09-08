@@ -2,6 +2,40 @@
 
 use super::*;
 use crate::types::io::ResponsesInput;
+use std::sync::atomic::AtomicBool;
+use std::task::{Context, Poll, Wake, Waker};
+
+/// Observe the handoff synchronously, as a newly scheduled waiter could on a
+/// different executor thread. No sleeps or probabilistic task ordering are used.
+struct HandoffObserver {
+    budget: Arc<CheckpointBudget>,
+    reservation_bytes: usize,
+    used_on_wake: AtomicUsize,
+    reserved_on_wake: AtomicBool,
+    wake_count: AtomicUsize,
+}
+
+impl HandoffObserver {
+    fn new(group: &ResponseSessionGroup, reservation_bytes: usize) -> Arc<Self> {
+        Arc::new(Self {
+            budget: Arc::clone(&group.budget),
+            reservation_bytes,
+            used_on_wake: AtomicUsize::new(usize::MAX),
+            reserved_on_wake: AtomicBool::new(false),
+            wake_count: AtomicUsize::new(0),
+        })
+    }
+}
+
+impl Wake for HandoffObserver {
+    fn wake(self: Arc<Self>) {
+        self.used_on_wake
+            .store(self.budget.used.load(Ordering::Acquire), Ordering::Release);
+        let reservation = self.budget.reserve(self.reservation_bytes);
+        self.reserved_on_wake.store(reservation.is_ok(), Ordering::Release);
+        self.wake_count.fetch_add(1, Ordering::AcqRel);
+    }
+}
 
 fn group(limit: usize) -> ResponseSessionGroup {
     ResponseSessionGroup::new(
@@ -37,6 +71,76 @@ fn complete(session: &ResponseSession, id: &str) {
     let lease = session.begin(None).unwrap();
     let checkpoint = capture(&lease, id).unwrap();
     lease.publish(checkpoint).unwrap();
+}
+
+#[test]
+fn aggregate_budget_handoff_cancellation_releases_parent_before_waking_waiters() {
+    let bytes = root_size();
+    let group = group(bytes);
+    let session = group.new_session().unwrap();
+    complete(&session, "resp_1");
+    let lease = session.begin(Some("resp_1")).unwrap();
+    let observer = HandoffObserver::new(&group, bytes);
+    let waker = Waker::from(Arc::clone(&observer));
+    let mut context = Context::from_waker(&waker);
+    let mut idle = Box::pin(session.wait_until_idle());
+    assert!(idle.as_mut().poll(&mut context).is_pending());
+
+    drop(lease);
+
+    assert_eq!(observer.wake_count.load(Ordering::Acquire), 1);
+    assert_eq!(observer.used_on_wake.load(Ordering::Acquire), 0);
+    assert!(observer.reserved_on_wake.load(Ordering::Acquire));
+    assert!(matches!(idle.as_mut().poll(&mut context), Poll::Ready(Ok(()))));
+    complete(&session, "resp_2");
+    assert_eq!(used(&group), bytes);
+}
+
+#[test]
+fn aggregate_budget_handoff_publication_releases_replaced_parent_before_waking_waiters() {
+    let bytes = root_size();
+    let group = group(3 * bytes);
+    let session = group.new_session().unwrap();
+    complete(&session, "resp_1");
+    let lease = session.begin(Some("resp_1")).unwrap();
+    let checkpoint = capture(&lease, "resp_2").unwrap();
+    let checkpoint_bytes = size(&checkpoint);
+    let observer = HandoffObserver::new(&group, 3 * bytes - checkpoint_bytes);
+    let waker = Waker::from(Arc::clone(&observer));
+    let mut context = Context::from_waker(&waker);
+    let mut idle = Box::pin(session.wait_until_idle());
+    assert!(idle.as_mut().poll(&mut context).is_pending());
+
+    lease.publish(checkpoint).unwrap();
+
+    assert_eq!(observer.wake_count.load(Ordering::Acquire), 1);
+    assert_eq!(observer.used_on_wake.load(Ordering::Acquire), checkpoint_bytes);
+    assert!(observer.reserved_on_wake.load(Ordering::Acquire));
+    assert!(matches!(idle.as_mut().poll(&mut context), Poll::Ready(Ok(()))));
+    assert!(session.begin(Some("resp_2")).unwrap().parent.is_some());
+}
+
+#[test]
+fn aggregate_budget_handoff_keeps_a_shared_parent_charged() {
+    let bytes = root_size();
+    let group = group(bytes);
+    let source = group.new_session().unwrap();
+    let target = group.new_session().unwrap();
+    complete(&source, "resp_1");
+    let fork = target.begin(Some("resp_1")).unwrap();
+    let observer = HandoffObserver::new(&group, 1);
+    let waker = Waker::from(Arc::clone(&observer));
+    let mut context = Context::from_waker(&waker);
+    let mut idle = Box::pin(target.wait_until_idle());
+    assert!(idle.as_mut().poll(&mut context).is_pending());
+
+    drop(fork);
+
+    assert_eq!(observer.wake_count.load(Ordering::Acquire), 1);
+    assert_eq!(observer.used_on_wake.load(Ordering::Acquire), bytes);
+    assert!(!observer.reserved_on_wake.load(Ordering::Acquire));
+    assert!(matches!(idle.as_mut().poll(&mut context), Poll::Ready(Ok(()))));
+    assert!(source.begin(Some("resp_1")).unwrap().parent.is_some());
 }
 
 #[test]

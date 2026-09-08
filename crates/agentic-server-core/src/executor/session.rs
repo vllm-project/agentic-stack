@@ -157,6 +157,8 @@ impl ResponseSession {
     /// This is not cancellation: callers must first drop the execution stream
     /// or otherwise stop its worker. It prevents a subsequent serial request
     /// racing the asynchronous disposal triggered by dropping that stream.
+    /// The ending lease releases its parent reference before becoming idle;
+    /// other sessions may still keep that shared checkpoint alive and charged.
     ///
     /// # Errors
     ///
@@ -440,6 +442,9 @@ impl ResponseContinuation {
                 return Err(ExecutorError::InvalidRequest("response session has closed".to_owned()));
             }
             state.latest = Some(Arc::new(checkpoint));
+            // Return this lease's parent charge before another turn can observe
+            // an idle slot, including a waiter resumed by notify_waiters below.
+            self.parent = None;
             state.active = false;
         }
         self.finished = true;
@@ -462,6 +467,9 @@ impl Drop for ResponseContinuation {
         }) {
             state.latest = None;
         }
+        // Field destructors run after Drop returns, too late for a waiter that
+        // can immediately reuse the slot and reserve the released capacity.
+        self.parent = None;
         state.active = false;
         drop(state);
         self.idle.notify_waiters();
