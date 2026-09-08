@@ -6,12 +6,72 @@ use crate::types::event::MessageStatus;
 use crate::types::io::input::latest_compaction_window;
 use crate::types::io::{
     CompactionItem, InputContent, InputItem, InputMessage, InputMessageContent, OutputItem, ResponseUsage,
-    ResponsesInput,
+    ResponsesInput, ToolCallOutput, ToolOutputContent,
 };
 use crate::types::request_response::{CompactRequest, CompactedResponse, RequestPayload, ResponsePayload};
 use crate::utils::common::{serialize_to_string, utcnow_str, uuid7_str};
 
 const COMPACTION_PROMPT: &str = "You are performing a CONTEXT CHECKPOINT COMPACTION. Create a concise handoff summary that preserves current progress, decisions, constraints, unresolved work, and critical references for the next model. Return only the summary.";
+const ESTIMATED_BYTES_PER_TOKEN: u64 = 4;
+const ESTIMATED_INPUT_OVERHEAD_TOKENS: u64 = 1;
+const ESTIMATED_ITEM_OVERHEAD_TOKENS: u64 = 12;
+const ESTIMATED_CONTENT_PART_OVERHEAD_TOKENS: u64 = 7;
+const ESTIMATED_JSON_VALUE_OVERHEAD_TOKENS: u64 = 1;
+
+/// Fixed model-agnostic allowance for one image, including its content-part framing.
+///
+/// Actual vision-token usage depends on the model, processor, image dimensions, and detail
+/// setting. A conservative fixed budget avoids treating images as free without mistaking their
+/// base64 transport encoding for model-visible text.
+const ESTIMATED_IMAGE_TOKENS: u64 = 1_024;
+
+#[derive(Default)]
+struct InputTokenEstimate {
+    text_bytes: u64,
+    fixed_tokens: u64,
+}
+
+impl InputTokenEstimate {
+    fn add_text(&mut self, text: &str) {
+        let bytes = u64::try_from(text.len()).unwrap_or(u64::MAX);
+        self.text_bytes = self.text_bytes.saturating_add(bytes);
+    }
+
+    fn add_optional_text(&mut self, text: Option<&str>) {
+        if let Some(text) = text {
+            self.add_text(text);
+        }
+    }
+
+    const fn add_tokens(&mut self, tokens: u64) {
+        self.fixed_tokens = self.fixed_tokens.saturating_add(tokens);
+    }
+
+    fn add_json_value(&mut self, value: &serde_json::Value) {
+        self.add_tokens(ESTIMATED_JSON_VALUE_OVERHEAD_TOKENS);
+        match value {
+            serde_json::Value::String(text) => self.add_text(text),
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    self.add_json_value(value);
+                }
+            }
+            serde_json::Value::Object(values) => {
+                for (key, value) in values {
+                    self.add_text(key);
+                    self.add_json_value(value);
+                }
+            }
+            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
+        }
+    }
+
+    fn total_tokens(self) -> u64 {
+        let text_tokens =
+            self.text_bytes / ESTIMATED_BYTES_PER_TOKEN + u64::from(self.text_bytes % ESTIMATED_BYTES_PER_TOKEN != 0);
+        self.fixed_tokens.saturating_add(text_tokens)
+    }
+}
 
 fn retained_user_window(items: &[InputItem]) -> Vec<InputItem> {
     let window = latest_compaction_window(items);
@@ -123,15 +183,127 @@ fn completed_summary_text(response: &ResponsePayload) -> ExecutorResult<String> 
     })
 }
 
+fn add_message_content(estimate: &mut InputTokenEstimate, content: &InputMessageContent) {
+    match content {
+        InputMessageContent::Text(text) => estimate.add_text(text),
+        InputMessageContent::Parts(parts) => {
+            for part in parts {
+                match part {
+                    InputContent::InputText(text)
+                    | InputContent::OutputText(text)
+                    | InputContent::ReasoningText(text) => {
+                        estimate.add_tokens(ESTIMATED_CONTENT_PART_OVERHEAD_TOKENS);
+                        estimate.add_text(&text.text);
+                    }
+                    InputContent::InputImage(_) => estimate.add_tokens(ESTIMATED_IMAGE_TOKENS),
+                    InputContent::Unknown => estimate.add_tokens(ESTIMATED_CONTENT_PART_OVERHEAD_TOKENS),
+                }
+            }
+        }
+    }
+}
+
+fn add_tool_call_output(estimate: &mut InputTokenEstimate, output: &ToolCallOutput) {
+    match output {
+        ToolCallOutput::Text(text) => estimate.add_text(text),
+        ToolCallOutput::Content(parts) => {
+            for part in parts {
+                match part {
+                    ToolOutputContent::InputText(text) => {
+                        estimate.add_tokens(ESTIMATED_CONTENT_PART_OVERHEAD_TOKENS);
+                        estimate.add_text(&text.text);
+                    }
+                    ToolOutputContent::InputImage(_) => estimate.add_tokens(ESTIMATED_IMAGE_TOKENS),
+                    ToolOutputContent::InputFile(file) => {
+                        estimate.add_tokens(ESTIMATED_CONTENT_PART_OVERHEAD_TOKENS);
+                        estimate.add_optional_text(file.file_data.as_deref());
+                        estimate.add_optional_text(file.file_id.as_deref());
+                        estimate.add_optional_text(file.file_url.as_deref());
+                        estimate.add_optional_text(file.filename.as_deref());
+                        estimate.add_optional_text(file.detail.as_deref());
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn add_input_item(estimate: &mut InputTokenEstimate, item: &InputItem) {
+    if matches!(item, InputItem::McpListTools(_) | InputItem::CompactionTrigger) {
+        return;
+    }
+    estimate.add_tokens(ESTIMATED_ITEM_OVERHEAD_TOKENS);
+
+    match item {
+        InputItem::Message(message) => {
+            estimate.add_optional_text(message.id.as_deref());
+            estimate.add_text(&message.role);
+            add_message_content(estimate, &message.content);
+        }
+        InputItem::FunctionCall(call) => {
+            estimate.add_optional_text(call.id.as_deref());
+            estimate.add_text(&call.call_id);
+            estimate.add_text(&call.name);
+            estimate.add_optional_text(call.namespace.as_deref());
+            estimate.add_text(&call.arguments);
+        }
+        InputItem::FunctionCallOutput(output) => {
+            estimate.add_text(&output.call_id);
+            add_tool_call_output(estimate, &output.output);
+        }
+        InputItem::CustomToolCall(call) => {
+            estimate.add_text(&call.id);
+            estimate.add_text(&call.call_id);
+            estimate.add_text(&call.name);
+            estimate.add_text(&call.input);
+        }
+        InputItem::CustomToolCallOutput(output) => {
+            estimate.add_text(&output.call_id);
+            estimate.add_optional_text(output.name.as_deref());
+            add_tool_call_output(estimate, &output.output);
+        }
+        InputItem::Reasoning(reasoning) => {
+            estimate.add_text(&reasoning.id);
+            estimate.add_optional_text(reasoning.status.as_deref());
+            for content in &reasoning.content {
+                estimate.add_tokens(ESTIMATED_CONTENT_PART_OVERHEAD_TOKENS);
+                estimate.add_text(&content.text);
+            }
+            for summary in &reasoning.summary {
+                estimate.add_json_value(summary);
+            }
+            if let Some(encrypted_content) = &reasoning.encrypted_content {
+                estimate.add_json_value(encrypted_content);
+            }
+        }
+        InputItem::Compaction(compaction) => {
+            // `model_input` presents the checkpoint as one assistant output-text message.
+            estimate.add_text("assistant");
+            estimate.add_tokens(ESTIMATED_CONTENT_PART_OVERHEAD_TOKENS);
+            estimate.add_text(&compaction.encrypted_content);
+        }
+        InputItem::Unknown | InputItem::McpListTools(_) | InputItem::CompactionTrigger => {}
+    }
+}
+
 /// Estimate the current model-facing context size without requiring a model-specific tokenizer.
 ///
-/// The approximation deliberately includes JSON structure and rounds up at four UTF-8 bytes per
-/// token. It is deterministic, inexpensive, and errs slightly toward compacting early.
+/// Textual fields are aggregated at four UTF-8 bytes per token, with fixed allowances for
+/// Responses framing. Images receive [`ESTIMATED_IMAGE_TOKENS`] each; their URLs and inline bytes
+/// are deliberately excluded because vision-token usage is unrelated to base64 transport size.
 #[must_use]
 pub(crate) fn estimate_input_tokens(input: &ResponsesInput) -> u64 {
-    let serialized = serialize_to_string(&input.model_input()).unwrap_or_default();
-    let bytes = u64::try_from(serialized.len()).unwrap_or(u64::MAX);
-    bytes.saturating_add(3) / 4
+    let mut estimate = InputTokenEstimate::default();
+    estimate.add_tokens(ESTIMATED_INPUT_OVERHEAD_TOKENS);
+    match input {
+        ResponsesInput::Text(text) => estimate.add_text(text),
+        ResponsesInput::Items(_) => {
+            for item in input.model_items() {
+                add_input_item(&mut estimate, item);
+            }
+        }
+    }
+    estimate.total_tokens()
 }
 
 fn request_payload(model: String, input: ResponsesInput, instructions: Option<String>) -> RequestPayload {
@@ -310,14 +482,19 @@ mod tests {
     use axum::routing::post;
 
     use crate::executor::modes::{ConversationHandler, ResponseHandler};
-    use crate::executor::request::ExecutionContext;
+    use crate::executor::request::{ExecutionContext, RequestContext};
     use crate::storage::{ConversationStore, InOutItem, ResponseMetadata, ResponseStore, create_pool_with_schema};
     use crate::types::event::MessageStatus;
     use crate::types::io::{
-        CompactionItem, FunctionToolResultMessage, InputItem, InputMessage, InputMessageContent, ResponsesInput,
+        CompactionItem, CustomToolCallOutputMessage, FunctionToolResultMessage, InputContent, InputImageContent,
+        InputItem, InputMessage, InputMessageContent, ResponsesInput, ToolCallOutput, ToolOutputContent,
     };
+    use crate::types::request_response::ContextManagement;
 
-    use super::{build_compacted_window, compact_response, completed_summary_text, estimate_input_tokens};
+    use super::{
+        ESTIMATED_IMAGE_TOKENS, build_compacted_window, compact_response, completed_summary_text,
+        estimate_input_tokens, maybe_compact_context, request_payload,
+    };
 
     fn user_message(text: &str) -> InputItem {
         InputItem::Message(InputMessage {
@@ -326,6 +503,66 @@ mod tests {
             status: None,
             content: InputMessageContent::Text(text.to_owned()),
         })
+    }
+
+    fn inline_image(encoded_bytes: usize) -> InputImageContent {
+        InputImageContent {
+            file_id: None,
+            image_url: Some(format!("data:image/png;base64,{}", "A".repeat(encoded_bytes))),
+            detail: Some("auto".to_owned()),
+        }
+    }
+
+    fn image_message(encoded_bytes: usize) -> InputItem {
+        InputItem::Message(InputMessage {
+            id: None,
+            role: "user".to_owned(),
+            status: None,
+            content: InputMessageContent::Parts(vec![InputContent::InputImage(inline_image(encoded_bytes))]),
+        })
+    }
+
+    fn function_image_output(encoded_bytes: usize) -> InputItem {
+        InputItem::FunctionCallOutput(FunctionToolResultMessage {
+            call_id: "call_view_image".to_owned(),
+            output: ToolCallOutput::Content(vec![ToolOutputContent::InputImage(inline_image(encoded_bytes))]),
+        })
+    }
+
+    fn custom_image_output(encoded_bytes: usize) -> InputItem {
+        InputItem::CustomToolCallOutput(CustomToolCallOutputMessage {
+            call_id: "call_view_image".to_owned(),
+            name: Some("view_image".to_owned()),
+            output: ToolCallOutput::Content(vec![ToolOutputContent::InputImage(inline_image(encoded_bytes))]),
+        })
+    }
+
+    fn context_with_threshold(input: ResponsesInput, threshold: u64) -> RequestContext {
+        let original_request = request_payload("test-model".to_owned(), ResponsesInput::Items(Vec::new()), None);
+        let mut enriched_request = request_payload("test-model".to_owned(), input, None);
+        enriched_request.context_management = Some(vec![ContextManagement {
+            type_: "compaction".to_owned(),
+            compact_threshold: Some(threshold),
+        }]);
+        RequestContext {
+            original_request,
+            enriched_request,
+            new_input_items: Vec::new(),
+            response_id: "resp_test".to_owned(),
+            conversation_id: None,
+            conversation_version: None,
+        }
+    }
+
+    fn assert_text_growth(cases: impl IntoIterator<Item = (&'static str, serde_json::Value, serde_json::Value)>) {
+        for (label, short, long) in cases {
+            let short: ResponsesInput = serde_json::from_value(short).expect("valid short input");
+            let long: ResponsesInput = serde_json::from_value(long).expect("valid long input");
+            assert!(
+                estimate_input_tokens(&long) > estimate_input_tokens(&short),
+                "{label} should contribute to the estimate"
+            );
+        }
     }
 
     async fn mock_execution_context(response_store: ResponseStore) -> (ExecutionContext, tokio::task::JoinHandle<()>) {
@@ -438,6 +675,260 @@ mod tests {
         ]);
 
         assert!(estimate_input_tokens(&input) > 0);
+    }
+
+    #[test]
+    fn inline_image_payload_size_does_not_affect_user_message_estimate() {
+        let small = estimate_input_tokens(&ResponsesInput::Items(vec![image_message(100 * 1_024)]));
+        let large = estimate_input_tokens(&ResponsesInput::Items(vec![image_message(5 * 1_024 * 1_024)]));
+
+        assert_eq!(small, large);
+    }
+
+    #[test]
+    fn inline_image_payload_size_does_not_affect_structured_tool_output_estimate() {
+        for make_output in [
+            function_image_output as fn(usize) -> InputItem,
+            custom_image_output as fn(usize) -> InputItem,
+        ] {
+            let small = estimate_input_tokens(&ResponsesInput::Items(vec![make_output(100 * 1_024)]));
+            let large = estimate_input_tokens(&ResponsesInput::Items(vec![make_output(5 * 1_024 * 1_024)]));
+
+            assert_eq!(small, large);
+        }
+    }
+
+    #[test]
+    fn each_image_adds_the_fixed_image_budget() {
+        let estimate_with_images = |count| {
+            let parts = (0..count).map(|_| InputContent::InputImage(inline_image(1))).collect();
+            estimate_input_tokens(&ResponsesInput::Items(vec![InputItem::Message(InputMessage {
+                id: None,
+                role: "user".to_owned(),
+                status: None,
+                content: InputMessageContent::Parts(parts),
+            })]))
+        };
+
+        let without_image = estimate_with_images(0);
+        let one_image = estimate_with_images(1);
+        let two_images = estimate_with_images(2);
+
+        assert_eq!(one_image - without_image, ESTIMATED_IMAGE_TOKENS);
+        assert_eq!(two_images - one_image, ESTIMATED_IMAGE_TOKENS);
+    }
+
+    #[test]
+    fn message_and_tool_textual_fields_increase_estimates() {
+        let long_text = "substantial context ".repeat(256);
+        assert_text_growth([
+            (
+                "message text",
+                serde_json::json!([{"role": "user", "content": "x"}]),
+                serde_json::json!([{"role": "user", "content": long_text}]),
+            ),
+            (
+                "message content part",
+                serde_json::json!([{
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "x"}]
+                }]),
+                serde_json::json!([{
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": long_text}]
+                }]),
+            ),
+            (
+                "function arguments",
+                serde_json::json!([{
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "lookup",
+                    "arguments": "{}"
+                }]),
+                serde_json::json!([{
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "lookup",
+                    "arguments": long_text
+                }]),
+            ),
+            (
+                "function call output",
+                serde_json::json!([{
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "x"
+                }]),
+                serde_json::json!([{
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": long_text
+                }]),
+            ),
+            (
+                "custom tool input",
+                serde_json::json!([{
+                    "type": "custom_tool_call",
+                    "call_id": "call_1",
+                    "name": "shell",
+                    "input": "x"
+                }]),
+                serde_json::json!([{
+                    "type": "custom_tool_call",
+                    "call_id": "call_1",
+                    "name": "shell",
+                    "input": long_text
+                }]),
+            ),
+            (
+                "structured custom tool output",
+                serde_json::json!([{
+                    "type": "custom_tool_call_output",
+                    "call_id": "call_1",
+                    "output": [{"type": "input_text", "text": "x"}]
+                }]),
+                serde_json::json!([{
+                    "type": "custom_tool_call_output",
+                    "call_id": "call_1",
+                    "output": [{"type": "input_text", "text": long_text}]
+                }]),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn reasoning_textual_fields_increase_estimates() {
+        let long_text = "substantial reasoning context ".repeat(256);
+        assert_text_growth([
+            (
+                "assistant reasoning text",
+                serde_json::json!([{
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "content": [{"type": "reasoning_text", "text": "x"}],
+                    "summary": []
+                }]),
+                serde_json::json!([{
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "content": [{"type": "reasoning_text", "text": long_text}],
+                    "summary": []
+                }]),
+            ),
+            (
+                "reasoning summary",
+                serde_json::json!([{
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "content": [],
+                    "summary": [{"type": "summary_text", "text": "x"}]
+                }]),
+                serde_json::json!([{
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "content": [],
+                    "summary": [{"type": "summary_text", "text": long_text}]
+                }]),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn text_only_estimate_remains_close_to_json_size_baseline() {
+        let input: ResponsesInput = serde_json::from_value(serde_json::json!([
+            {"role": "user", "content": "hello context"},
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "lookup",
+                "arguments": "{\"topic\":\"compaction\"}"
+            },
+            {"type": "function_call_output", "call_id": "call_1", "output": "tool context"}
+        ]))
+        .expect("valid text-only input");
+        let serialized = serde_json::to_string(&input.model_input()).expect("model input serializes");
+        let serialized_bytes = u64::try_from(serialized.len()).expect("serialized fixture length fits in u64");
+        let json_size_estimate = serialized_bytes.div_ceil(4);
+        let typed_estimate = estimate_input_tokens(&input);
+
+        assert!(
+            typed_estimate.abs_diff(json_size_estimate) <= json_size_estimate.div_ceil(4),
+            "typed estimate {typed_estimate} should remain within 25% of JSON estimate {json_size_estimate}"
+        );
+    }
+
+    #[test]
+    fn estimate_uses_only_the_effective_compacted_window() {
+        let input_with_stale_text = |stale_text: String| {
+            ResponsesInput::Items(vec![
+                user_message(&stale_text),
+                InputItem::Compaction(CompactionItem {
+                    id: Some("cmp_1".to_owned()),
+                    encrypted_content: "durable summary".to_owned(),
+                }),
+                user_message("continue"),
+            ])
+        };
+
+        let short = input_with_stale_text("old".to_owned());
+        let large = input_with_stale_text("old".repeat(100_000));
+
+        assert_eq!(estimate_input_tokens(&short), estimate_input_tokens(&large));
+    }
+
+    #[tokio::test]
+    async fn automatic_compaction_ignores_image_bytes_but_triggers_for_text_and_preserves_image() {
+        let large_image_input = ResponsesInput::Items(vec![image_message(5 * 1_024 * 1_024)]);
+        let image_estimate = estimate_input_tokens(&large_image_input);
+        let threshold = image_estimate.saturating_add(100);
+        let (exec_ctx, server) = mock_execution_context(ResponseStore::disabled()).await;
+        let mut image_context = context_with_threshold(large_image_input, threshold);
+
+        assert!(
+            maybe_compact_context(&mut image_context, &exec_ctx, None)
+                .await
+                .expect("image-only threshold check succeeds")
+                .is_none()
+        );
+
+        let retained_image = inline_image(100 * 1_024);
+        let expected_url = retained_image.image_url.clone().expect("inline image URL");
+        let text_input = ResponsesInput::Items(vec![
+            InputItem::Message(InputMessage {
+                id: None,
+                role: "user".to_owned(),
+                status: None,
+                content: InputMessageContent::Parts(vec![InputContent::InputImage(retained_image)]),
+            }),
+            user_message(&"genuine textual context ".repeat(1_000)),
+        ]);
+        assert!(estimate_input_tokens(&text_input) > threshold);
+        let mut text_context = context_with_threshold(text_input, threshold);
+
+        assert!(
+            maybe_compact_context(&mut text_context, &exec_ctx, None)
+                .await
+                .expect("long text compacts")
+                .is_some()
+        );
+        let ResponsesInput::Items(compacted) = &text_context.enriched_request.input else {
+            panic!("compaction should produce item input");
+        };
+        let retained_url = compacted.iter().find_map(|item| {
+            let InputItem::Message(message) = item else {
+                return None;
+            };
+            let InputMessageContent::Parts(parts) = &message.content else {
+                return None;
+            };
+            parts.iter().find_map(|part| match part {
+                InputContent::InputImage(image) => image.image_url.as_deref(),
+                _ => None,
+            })
+        });
+        assert_eq!(retained_url, Some(expected_url.as_str()));
+        server.abort();
     }
 
     #[test]

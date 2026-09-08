@@ -90,9 +90,11 @@ greater than `compact_threshold`. Inference then continues using the compacted w
 executor configuration and is not sent to vLLM. If compaction runs, the response usage is the saturating sum of every
 summary call and all answer/tool-loop inference rounds.
 
-The current estimate is deterministic JSON size divided by four, rounded up. It is not a model-specific tokenizer, so
-choose a threshold with headroom. An entry without `compact_threshold` is ignored because this server has no global
-default threshold.
+The estimate is deterministic but is not a model-specific tokenizer. Textual fields are aggregated as UTF-8 bytes,
+divided by four and rounded up, with fixed allowances for Responses item and content-part framing. Each image receives
+a fixed 1,024-token allowance, independent of its URL, inline base64 size, dimensions, or `detail` setting. Actual
+vision-token usage depends on the model and image processor, so choose a threshold with headroom. An entry without
+`compact_threshold` is ignored because this server has no global default threshold.
 
 ## Local plaintext limitation
 

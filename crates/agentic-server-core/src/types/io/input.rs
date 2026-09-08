@@ -293,14 +293,6 @@ impl CompactionWindow {
                     && message.id.is_some()
                     && message.status == Some(MessageStatus::Completed))
     }
-
-    pub(crate) fn retained_user_items(self, items: &[InputItem]) -> impl Iterator<Item = &InputItem> {
-        items
-            .iter()
-            .enumerate()
-            .filter(move |(index, item)| self.retains_user_item(*index, item))
-            .map(|(_, item)| item)
-    }
 }
 
 #[must_use]
@@ -319,6 +311,25 @@ pub(crate) fn latest_compaction_window(items: &[InputItem]) -> Option<Compaction
 }
 
 impl ResponsesInput {
+    /// Iterate over the items in the canonical context sent to vLLM without cloning them.
+    pub(crate) fn model_items(&self) -> impl Iterator<Item = &InputItem> {
+        let items = match self {
+            Self::Text(_) => &[][..],
+            Self::Items(items) => items.as_slice(),
+        };
+        let window = latest_compaction_window(items);
+
+        items
+            .iter()
+            .enumerate()
+            .filter(move |(index, item)| {
+                item.is_model_visible()
+                    && window
+                        .is_none_or(|window| *index >= window.latest_index() || window.retains_user_item(*index, item))
+            })
+            .map(|(_, item)| item)
+    }
+
     #[must_use]
     pub fn contains_compaction(&self) -> bool {
         matches!(self, Self::Items(items) if items.iter().any(|item| matches!(item, InputItem::Compaction(_))))
@@ -342,18 +353,16 @@ impl ResponsesInput {
             return Cow::Borrowed(self);
         };
 
-        let Some(window) = latest_compaction_window(items) else {
+        if latest_compaction_window(items).is_none() {
             if items.iter().any(|item| !item.is_model_visible()) {
-                let stripped = items.iter().filter(|item| item.is_model_visible()).cloned().collect();
+                let stripped = self.model_items().cloned().collect();
                 return Cow::Owned(Self::Items(stripped));
             }
             return Cow::Borrowed(self);
-        };
+        }
 
-        let model_items = window
-            .retained_user_items(items)
-            .chain(items[window.latest_index()..].iter())
-            .filter(|item| item.is_model_visible())
+        let model_items = self
+            .model_items()
             .map(|item| match item {
                 InputItem::Compaction(compaction) => InputItem::Message(InputMessage {
                     id: None,
