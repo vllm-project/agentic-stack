@@ -270,7 +270,7 @@ async fn a_function_call_stream_passes_strict_validation() {
         r#"data: {"type":"response.in_progress","response":{"id":"resp_upstream","status":"in_progress"}}"#,
         r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"","status":"in_progress"}}"#,
         r#"data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"{\"q\":"}"#,
-        r#"data: {"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","name":"lookup","arguments":"{\"q\":\"rust\"}"}"#,
+        r#"data: {"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","arguments":"{\"q\":\"rust\"}"}"#,
         r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"rust\"}","status":"completed"}}"#,
         r#"data: {"type":"response.completed","response":{"id":"resp_upstream","status":"completed","output":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"rust\"}","status":"completed"}]}}"#,
     ]
@@ -287,12 +287,12 @@ async fn a_function_call_stream_passes_strict_validation() {
 
 #[tokio::test]
 async fn relayed_json_tool_call_ids_are_validated_before_persistence() {
-    assert_relayed_tool_call_ids_are_validated(false).await;
+    Box::pin(assert_relayed_tool_call_ids_are_validated(false)).await;
 }
 
 #[tokio::test]
 async fn relayed_sse_tool_call_ids_are_validated_before_persistence() {
-    assert_relayed_tool_call_ids_are_validated(true).await;
+    Box::pin(assert_relayed_tool_call_ids_are_validated(true)).await;
 }
 
 async fn assert_relayed_tool_call_ids_are_validated(stream: bool) {
@@ -402,12 +402,12 @@ async fn assert_relayed_tool_call_ids_are_validated(stream: bool) {
 
 #[tokio::test]
 async fn relayed_json_call_id_cannot_reuse_continued_history() {
-    assert_relayed_call_id_cannot_reuse_continued_history(false).await;
+    Box::pin(assert_relayed_call_id_cannot_reuse_continued_history(false)).await;
 }
 
 #[tokio::test]
 async fn relayed_sse_call_id_cannot_reuse_continued_history() {
-    assert_relayed_call_id_cannot_reuse_continued_history(true).await;
+    Box::pin(assert_relayed_call_id_cannot_reuse_continued_history(true)).await;
 }
 
 async fn assert_relayed_call_id_cannot_reuse_continued_history(stream: bool) {

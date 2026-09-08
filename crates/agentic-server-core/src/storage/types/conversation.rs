@@ -3,20 +3,34 @@
 use super::super::models::Conversation as StorageDbConversation;
 use super::item::InOutItem;
 
-/// Version of a conversation's stored item history.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Version of a conversation's persisted turns.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConversationVersion {
-    /// The conversation has no stored items.
+    /// The conversation has no stored items or responses.
     Empty,
-    /// The sequence number of the last stored item.
+    /// The sequence number of the last stored item in a legacy conversation.
+    ///
+    /// Rows persisted before the response link was introduced have no exact
+    /// response identity, but their item sequence remains a valid checkpoint.
     LastSequence(i64),
+    /// The response that committed the latest turn and its final item sequence.
+    ///
+    /// `last_sequence` is `None` when the turn persisted no items.
+    LastResponse {
+        response_id: String,
+        last_sequence: Option<i64>,
+    },
 }
 
 impl ConversationVersion {
-    pub(crate) const fn from_last_sequence(last_sequence: Option<i64>) -> Self {
-        match last_sequence {
-            Some(sequence) => Self::LastSequence(sequence),
-            None => Self::Empty,
+    pub(crate) fn from_snapshot(last_sequence: Option<i64>, latest_response_id: Option<String>) -> Self {
+        match (last_sequence, latest_response_id) {
+            (last_sequence, Some(response_id)) => Self::LastResponse {
+                response_id,
+                last_sequence,
+            },
+            (Some(sequence), None) => Self::LastSequence(sequence),
+            (None, None) => Self::Empty,
         }
     }
 }
@@ -26,7 +40,7 @@ impl ConversationVersion {
 pub struct ConversationSnapshot {
     /// Rehydrated input and output items in stored order.
     pub items: Vec<InOutItem>,
-    /// Version derived from the last stored item sequence.
+    /// Version derived from the final item sequence and latest response identity.
     pub version: ConversationVersion,
 }
 
@@ -59,6 +73,7 @@ impl From<ConversationData> for StorageDbConversation {
             id: data.conversation_id,
             metadata: data.metadata,
             created_at: data.created_at,
+            latest_response_id: None,
         }
     }
 }
@@ -73,6 +88,7 @@ mod tests {
             id: "conv_123".to_string(),
             metadata: None,
             created_at: 1_704_067_200,
+            latest_response_id: None,
         };
 
         let conversation: ConversationData = db_row.into();

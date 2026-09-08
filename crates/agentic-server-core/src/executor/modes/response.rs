@@ -70,16 +70,27 @@ impl ResponseHandler {
     /// # Errors
     /// Returns `ExecutorError` if the store is disabled or the database operation fails.
     pub async fn execute_turn(&self, mut ctx: RequestContext, output_items: Vec<OutputItem>) -> ExecutorResult<()> {
-        let continuation = ctx.continuation.take();
-        let write_durable = continuation.is_none() || ctx.original_request.store;
         let metadata = ResponseMetadata {
-            model: ctx.enriched_request.model,
-            previous_response_id: ctx.original_request.previous_response_id,
-            effective_tools: ctx.enriched_request.tools,
-            effective_tool_choice: ctx.enriched_request.tool_choice.unwrap_or_default(),
-            effective_instructions: ctx.enriched_request.instructions,
+            model: std::mem::take(&mut ctx.enriched_request.model),
+            previous_response_id: ctx.original_request.previous_response_id.take(),
+            effective_tools: ctx.enriched_request.tools.take(),
+            tool_search_loaded_tools: None,
+            effective_tool_choice: ctx.enriched_request.tool_choice.take().unwrap_or_default(),
+            effective_instructions: ctx.enriched_request.instructions.take(),
         };
 
+        self.execute_turn_with_metadata(ctx, output_items, metadata).await
+    }
+
+    /// Persists a response using metadata prepared by request-scoped tool behavior.
+    pub(crate) async fn execute_turn_with_metadata(
+        &self,
+        mut ctx: RequestContext,
+        output_items: Vec<OutputItem>,
+        metadata: ResponseMetadata,
+    ) -> ExecutorResult<()> {
+        let continuation = ctx.continuation.take();
+        let write_durable = continuation.is_none() || ctx.original_request.store;
         let mut new_items = Vec::with_capacity(ctx.new_input_items.len() + output_items.len());
         new_items.extend(ctx.new_input_items.into_iter().map(InOutItem::Input));
         new_items.extend(

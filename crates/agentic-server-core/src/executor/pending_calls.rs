@@ -64,6 +64,8 @@ pub(super) fn pending_calls(items: &[InputItem]) -> ExecutorResult<Vec<PendingCa
             }
             InputItem::Message(_)
             | InputItem::Reasoning(_)
+            | InputItem::ToolSearchCall(_)
+            | InputItem::ToolSearchOutput(_)
             | InputItem::McpListTools(_)
             | InputItem::Compaction(_)
             | InputItem::CompactionTrigger

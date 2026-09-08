@@ -15,12 +15,13 @@ use agentic_core::{
 };
 use either::Either;
 use futures::StreamExt;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::fmt::Write as _;
 use std::sync::Arc;
 use support::{
-    MockResponse, TestFixture, collect_stream, expected_text, load_cassette, make_request, output_text,
-    request_input_texts, text_response, unwrap_blocking,
+    MockResponse, TestFixture, collect_stream, expected_text, function_call_response, load_cassette, make_request,
+    output_text, request_input_texts, text_response, tool_search_function_declarations, tool_search_output,
+    tool_search_request, unwrap_blocking,
 };
 
 const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/cassettes/text_only/responses");
@@ -581,7 +582,7 @@ async fn test_mcp_namespace_showcase_round_trip_rehydrates_calls_tools_and_outpu
     assert_flat_mcp_showcase_tools(&requests[1]["tools"]);
 
     let input = requests[1]["input"].as_array().expect("rehydrated input array");
-    assert_namespaced_calls(
+    assert_flat_namespaced_calls(
         input,
         &["echo_text", "add_numbers", "make_slug", "repo_file_head", "search_repo"],
     );
@@ -631,6 +632,274 @@ async fn test_store_false_with_previous_response_id_hydrates_but_does_not_persis
     )
     .await;
     assert!(result.is_err(), "store=false response should not be persisted");
+}
+
+#[tokio::test]
+async fn tool_search_previous_response_continuation_omits_tools_after_first_turn() {
+    let fixture = TestFixture::new_with_responses(vec![
+        function_call_response("fc_search", "call_search", "tool_search", r#"{"query":"weather"}"#),
+        function_call_response("fc_weather", "call_weather", "get_weather", r#"{"city":"Paris"}"#),
+        text_response("weather complete"),
+    ])
+    .await;
+    let declarations = tool_search_function_declarations("get_weather", "Get weather");
+
+    let first = unwrap_blocking(
+        execute(
+            tool_search_request("find weather", Some(declarations), true, None, None),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("stored search turn"),
+    );
+    let search_call = serde_json::to_value(&first.output[0]).expect("public search call");
+    assert_eq!(search_call["type"], "tool_search_call");
+
+    let second = unwrap_blocking(
+        execute(
+            tool_search_request(
+                json!([tool_search_output("call_search", "get_weather", "Get weather")]),
+                None,
+                true,
+                Some(first.id.clone()),
+                None,
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("search-output continuation"),
+    );
+    let weather_call = serde_json::to_value(&second.output[0]).expect("public weather call");
+    assert_eq!(weather_call["name"], "get_weather");
+
+    let third = unwrap_blocking(
+        execute(
+            tool_search_request(
+                json!([{
+                    "type": "function_call_output",
+                    "call_id": "call_weather",
+                    "output": "sunny"
+                }]),
+                None,
+                true,
+                Some(second.id.clone()),
+                None,
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("loaded-function continuation"),
+    );
+    assert_eq!(output_text(&third), "weather complete");
+
+    let requests = fixture.request_bodies().await;
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[1]["input"][1]["type"], "function_call");
+    assert_eq!(requests[1]["input"][1]["name"], "tool_search");
+    assert!(
+        requests[1]["tools"]
+            .as_array()
+            .expect("inherited tools")
+            .iter()
+            .any(|tool| { tool["name"] == "get_weather" && tool.get("defer_loading").is_none() })
+    );
+    assert!(
+        requests[1]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["name"] == "tool_search")
+    );
+    assert!(
+        requests[2]["tools"]
+            .as_array()
+            .expect("replayed tools")
+            .iter()
+            .any(|tool| { tool["name"] == "get_weather" && tool.get("defer_loading").is_none() })
+    );
+    assert!(
+        !requests
+            .iter()
+            .any(|body| body.to_string().contains("tool_search_call"))
+    );
+    assert!(
+        !requests
+            .iter()
+            .any(|body| body.to_string().contains("tool_search_output"))
+    );
+}
+
+#[tokio::test]
+async fn tool_search_branch_from_earlier_response_does_not_inherit_later_loaded_definition() {
+    let fixture = TestFixture::new_with_responses(vec![
+        function_call_response("fc_search", "call_search", "tool_search", r#"{"query":"weather"}"#),
+        text_response("loaded branch"),
+        text_response("empty branch"),
+    ])
+    .await;
+    let declarations = json!([
+        {
+            "type": "tool_search",
+            "execution": "client",
+            "description": "Find a tool",
+            "parameters": {"type": "object"}
+        },
+        {
+            "type": "function",
+            "name": "get_weather",
+            "description": "Get weather",
+            "parameters": {"type": "object"},
+            "defer_loading": true
+        }
+    ]);
+    let first = unwrap_blocking(
+        execute(
+            tool_search_request("find weather", Some(declarations), true, None, None),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("search turn"),
+    );
+
+    let loaded_branch = unwrap_blocking(
+        execute(
+            tool_search_request(
+                json!([{
+                    "type": "tool_search_output",
+                    "call_id": "call_search",
+                    "tools": [{
+                        "type": "function",
+                        "name": "get_weather",
+                        "description": "Get weather",
+                        "parameters": {"type": "object"},
+                        "defer_loading": true
+                    }]
+                }]),
+                None,
+                true,
+                Some(first.id.clone()),
+                None,
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("loaded branch"),
+    );
+    assert_eq!(output_text(&loaded_branch), "loaded branch");
+
+    let empty_branch = unwrap_blocking(
+        execute(
+            tool_search_request(
+                json!([{
+                    "type": "tool_search_output",
+                    "call_id": "call_search",
+                    "tools": []
+                }]),
+                None,
+                true,
+                Some(first.id),
+                None,
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("independent empty branch"),
+    );
+    assert_eq!(output_text(&empty_branch), "empty branch");
+
+    let requests = fixture.request_bodies().await;
+    let loaded_tools = requests[1]["tools"].as_array().expect("loaded branch tools");
+    let empty_tools = requests[2]["tools"].as_array().expect("empty branch tools");
+    assert!(loaded_tools.iter().any(|tool| tool["name"] == "get_weather"));
+    assert!(!empty_tools.iter().any(|tool| tool["name"] == "get_weather"));
+}
+
+#[tokio::test]
+async fn tool_search_store_false_manual_replay_completes_without_reusable_response() {
+    let fixture = TestFixture::new_with_responses(vec![
+        function_call_response("fc_search", "call_search", "tool_search", r#"{"query":"weather"}"#),
+        function_call_response("fc_weather", "call_weather", "get_weather", r#"{"city":"Paris"}"#),
+        text_response("manual replay complete"),
+    ])
+    .await;
+    let declarations = json!([
+        {
+            "type": "tool_search",
+            "execution": "client",
+            "description": "Find a tool",
+            "parameters": {"type": "object"}
+        },
+        {
+            "type": "function",
+            "name": "get_weather",
+            "description": "Get weather",
+            "parameters": {"type": "object"},
+            "defer_loading": true
+        }
+    ]);
+    let user = json!({"type": "message", "role": "user", "content": "find weather"});
+    let first = unwrap_blocking(
+        execute(
+            tool_search_request(json!([user.clone()]), Some(declarations), false, None, None),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("stateless search call"),
+    );
+    let search_call = serde_json::to_value(&first.output[0]).unwrap();
+    let search_output = json!({
+        "type": "tool_search_output",
+        "call_id": "call_search",
+        "tools": [{
+            "type": "function",
+            "name": "get_weather",
+            "description": "Get weather",
+            "parameters": {"type": "object"},
+            "defer_loading": true
+        }]
+    });
+    let second_input = json!([user.clone(), search_call, search_output]);
+    let second = unwrap_blocking(
+        execute(
+            tool_search_request(second_input.clone(), None, false, None, None),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("stateless loaded call"),
+    );
+    let mut final_input = second_input.as_array().unwrap().clone();
+    final_input.push(serde_json::to_value(&second.output[0]).unwrap());
+    final_input.push(json!({
+        "type": "function_call_output",
+        "call_id": "call_weather",
+        "output": "sunny"
+    }));
+    let final_response = unwrap_blocking(
+        execute(
+            tool_search_request(Value::Array(final_input), None, false, None, None),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("stateless final response"),
+    );
+    assert_eq!(output_text(&final_response), "manual replay complete");
+
+    let lookup_ctx = RequestContext {
+        original_request: make_request("lookup", true, false, Some(final_response.id.clone()), None),
+        enriched_request: make_request("lookup", true, false, Some(final_response.id), None),
+        new_input_items: Vec::new(),
+        response_id: "resp_lookup".to_owned(),
+        conversation_id: None,
+        conversation_version: None,
+        continuation: None,
+    };
+    let error = fixture
+        .exec_ctx
+        .resp_handler
+        .get(&lookup_ctx)
+        .await
+        .expect_err("store:false response ID must not be reusable");
+    assert!(matches!(error, agentic_core::executor::ExecutorError::Storage(source) if source.is_not_found()));
 }
 
 #[tokio::test]
@@ -863,6 +1132,20 @@ fn assert_namespaced_calls(items: &[Value], expected_names: &[&str]) {
                     && item.get("name").and_then(Value::as_str) == Some(expected_name)
             }),
             "missing namespaced function call mcp__agentic_fixture.{expected_name}"
+        );
+    }
+}
+
+fn assert_flat_namespaced_calls(items: &[Value], expected_names: &[&str]) {
+    for expected_name in expected_names {
+        let flat_name = format!("agentic_ns__mcp__agentic_fixture__{expected_name}");
+        assert!(
+            items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("function_call")
+                    && item.get("name").and_then(Value::as_str) == Some(&flat_name)
+                    && item.get("namespace").is_none()
+            }),
+            "missing private flat function call {flat_name}"
         );
     }
 }

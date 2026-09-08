@@ -392,6 +392,76 @@ pub fn text_response(text: &str) -> MockResponse {
     )
 }
 
+pub fn function_call_response(id: &str, call_id: &str, name: &str, arguments: &str) -> MockResponse {
+    MockResponse::Json(
+        serde_json::json!({
+            "id": format!("resp_upstream_{id}"),
+            "object": "response",
+            "created_at": 0,
+            "model": "test-model",
+            "status": "completed",
+            "output": [{
+                "id": id,
+                "type": "function_call",
+                "call_id": call_id,
+                "name": name,
+                "arguments": arguments,
+                "status": "completed"
+            }],
+            "usage": null,
+            "incomplete_details": null,
+            "error": null,
+            "previous_response_id": null,
+            "conversation_id": null,
+            "instructions": null
+        })
+        .to_string(),
+    )
+}
+
+pub fn tool_search_function_declarations(name: &str, description: &str) -> Value {
+    serde_json::json!([
+        {
+            "type": "tool_search",
+            "execution": "client",
+            "description": "Find a tool",
+            "parameters": {"type": "object"}
+        },
+        deferred_function_tool(name, description)
+    ])
+}
+
+pub fn deferred_function_tool(name: &str, description: &str) -> Value {
+    serde_json::json!({
+        "type": "function",
+        "name": name,
+        "description": description,
+        "parameters": {"type": "object"},
+        "defer_loading": true
+    })
+}
+
+pub fn tool_search_output(call_id: &str, name: &str, description: &str) -> Value {
+    serde_json::json!({
+        "type": "tool_search_output",
+        "call_id": call_id,
+        "tools": [deferred_function_tool(name, description)]
+    })
+}
+
+pub fn tool_search_request(
+    input: impl Serialize,
+    tools: Option<Value>,
+    store: bool,
+    previous_response_id: Option<String>,
+    conversation_id: Option<String>,
+) -> RequestPayload {
+    let mut request = make_request(input, store, false, previous_response_id, conversation_id);
+    request.tools = tools.map(|tools| serde_json::from_value(tools).expect("valid tool-search declarations"));
+    request.parallel_tool_calls = Some(false);
+    request
+}
+
 pub fn request_input_texts(body: &Value) -> Vec<String> {
     match &body["input"] {
         Value::String(text) => vec![text.clone()],
@@ -480,6 +550,7 @@ pub fn output_text(payload: &ResponsePayload) -> String {
         .filter_map(|item| match item {
             OutputItem::Message(msg) => Some(msg.content.iter().map(|c| c.text.as_str()).collect::<String>()),
             OutputItem::FunctionCall(_)
+            | OutputItem::ToolSearchCall(_)
             | OutputItem::CustomToolCall(_)
             | OutputItem::WebSearchCall(_)
             | OutputItem::McpCall(_)

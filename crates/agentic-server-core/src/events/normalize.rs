@@ -5,18 +5,27 @@ use crate::utils::common::{deserialize_from_str_opt, deserialize_from_value_opt}
 
 /// Normalize a raw SSE data line into a typed [`EventFrame`].
 ///
-/// Expects input in the form `data: {...}` (the `data: ` prefix is required).
+/// Expects an SSE `data:` field, with or without the optional space after the
+/// colon.
 /// Returns `None` for non-data lines, empty lines, and the `data: [DONE]`
 /// sentinel.
 #[must_use]
 pub fn normalize_sse_line(line: &str) -> Option<EventFrame> {
-    let data_str = line.strip_prefix("data: ")?;
+    let data_str = line.strip_prefix("data:")?;
+    let data_str = data_str.strip_prefix(' ').unwrap_or(data_str);
     if data_str == "[DONE]" {
         return None;
     }
 
     let json: Value = deserialize_from_str_opt(data_str)?;
     normalize_sse_value(json)
+}
+
+/// Whether a line carries an SSE data payload that should normalize to a frame.
+pub(crate) fn is_data_frame(line: &str) -> bool {
+    line.strip_prefix("data:")
+        .map(str::trim)
+        .is_some_and(|payload| !payload.is_empty() && payload != "[DONE]")
 }
 
 /// Normalizes an already parsed SSE payload.
@@ -90,6 +99,15 @@ fn json_str_opt(json: &Value, key: &str) -> Option<String> {
     json[key].as_str().map(ToString::to_string)
 }
 
+fn output_item_id(item: &Value) -> String {
+    item["id"]
+        .as_str()
+        .filter(|id| !id.is_empty())
+        .or_else(|| item["item_id"].as_str().filter(|id| !id.is_empty()))
+        .unwrap_or_default()
+        .to_owned()
+}
+
 fn json_u32(json: &Value, key: &str) -> u32 {
     u32::try_from(json[key].as_u64().unwrap_or(0)).unwrap_or(u32::MAX)
 }
@@ -109,7 +127,7 @@ fn extract_response_payload(json: &Value) -> EventPayload {
 fn extract_output_item_added(json: &Value) -> EventPayload {
     let item = &json["item"];
     EventPayload::OutputItemAdded {
-        item_id: json_str(item, "id"),
+        item_id: output_item_id(item),
         item_type: SSEItemType::from(json_str(item, "type")),
         output_index: json_u32(json, "output_index"),
         name: json_str_opt(item, "name"),
@@ -119,12 +137,18 @@ fn extract_output_item_added(json: &Value) -> EventPayload {
 }
 
 fn extract_output_item_done(json: &Value) -> EventPayload {
-    let item = &json["item"];
+    let mut item = json["item"].clone();
+    let item_id = output_item_id(&item);
+    if !item_id.is_empty() && item["id"].as_str().is_none_or(str::is_empty) {
+        if let Some(item) = item.as_object_mut() {
+            item.insert("id".to_owned(), Value::String(item_id.clone()));
+        }
+    }
     EventPayload::OutputItemDone {
-        item_id: json_str(item, "id"),
-        item_type: SSEItemType::from(json_str(item, "type")),
+        item_id,
+        item_type: SSEItemType::from(json_str(&item, "type")),
         output_index: json_u32(json, "output_index"),
-        item: item.clone(),
+        item,
     }
 }
 

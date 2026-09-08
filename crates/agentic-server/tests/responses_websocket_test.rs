@@ -29,7 +29,7 @@ use agentic_core::storage::{
 };
 use agentic_core::tool::{WebSearchHandler, model_visible_namespace_member_name};
 use agentic_core::types::RequestPayload;
-use agentic_core::types::io::{InputItem, ResponsesInput};
+use agentic_core::types::io::{CompactionItem, InputItem, ResponsesInput};
 use agentic_core::types::tools::ResponsesTool;
 use agentic_server::app::{AppState, WebSocketTracker};
 
@@ -593,6 +593,86 @@ fn sse_function_call_response(response_id: &str, call_name: &str) -> String {
     format!("data: {created}\n\ndata: {added}\n\ndata: {done}\n\ndata: {completed}\n\ndata: [DONE]\n\n")
 }
 
+fn sse_tool_search_call_response() -> String {
+    let created = json!({
+        "type": "response.created",
+        "response": {
+            "id": "resp_search", "status": "in_progress",
+            "tools": [{"type": "function", "name": "tool_search", "parameters": {"type": "object"}}]
+        }
+    });
+    let in_progress = json!({
+        "type": "response.in_progress",
+        "response": {
+            "id": "resp_search", "status": "in_progress",
+            "tools": [{"type": "function", "name": "tool_search", "parameters": {"type": "object"}}]
+        }
+    });
+    let added = json!({
+        "type": "response.output_item.added", "output_index": 0,
+        "item": {"id": "fc_search", "type": "function_call", "status": "in_progress",
+            "name": "tool_search", "call_id": "call_search", "arguments": ""}
+    });
+    let delta = json!({
+        "type": "response.function_call_arguments.delta", "output_index": 0,
+        "item_id": "fc_search", "delta": "{\"query\":\"weather\"}"
+    });
+    let arguments_done = json!({
+        "type": "response.function_call_arguments.done", "output_index": 0,
+        "item_id": "fc_search", "name": "tool_search", "arguments": "{\"query\":\"weather\"}"
+    });
+    let done = json!({
+        "type": "response.output_item.done", "output_index": 0,
+        "item": {"id": "fc_search", "type": "function_call", "status": "completed",
+            "name": "tool_search", "call_id": "call_search", "arguments": "{\"query\":\"weather\"}"}
+    });
+    let completed = json!({
+        "type": "response.completed", "response": {"id": "resp_search", "status": "completed", "usage": null}
+    });
+    format!(
+        "data: {created}\n\ndata: {in_progress}\n\ndata: {added}\n\ndata: {delta}\n\ndata: {arguments_done}\n\ndata: {done}\n\ndata: {completed}\n\ndata: [DONE]\n\n"
+    )
+}
+
+fn sse_weather_function_call_response() -> String {
+    let created = json!({
+        "type": "response.created", "response": {"id": "resp_weather", "status": "in_progress"}
+    });
+    let added = json!({
+        "type": "response.output_item.added", "output_index": 0,
+        "item": {"id": "fc_weather", "type": "function_call", "status": "in_progress",
+            "name": "get_weather", "call_id": "call_weather", "arguments": ""}
+    });
+    let done = json!({
+        "type": "response.output_item.done", "output_index": 0,
+        "item": {"id": "fc_weather", "type": "function_call", "status": "completed",
+            "name": "get_weather", "call_id": "call_weather", "arguments": "{\"city\":\"Paris\"}"}
+    });
+    let completed = json!({
+        "type": "response.completed", "response": {"id": "resp_weather", "status": "completed", "usage": null}
+    });
+    format!("data: {created}\n\ndata: {added}\n\ndata: {done}\n\ndata: {completed}\n\ndata: [DONE]\n\n")
+}
+
+fn tool_search_declaration() -> Value {
+    json!({
+        "type": "tool_search",
+        "execution": "client",
+        "description": "Search the client catalog",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string"}}}
+    })
+}
+
+fn deferred_weather_function() -> Value {
+    json!({
+        "type": "function",
+        "name": "get_weather",
+        "description": "Get weather",
+        "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
+        "defer_loading": true
+    })
+}
+
 fn sse_custom_tool_call_response() -> String {
     let created = json!({
         "type": "response.created",
@@ -824,6 +904,391 @@ async fn test_websocket_generate_false_prewarm_redacts_mcp_runtime_credentials()
 
     assert!(tool.headers.is_none());
     assert!(tool.authorization.is_none());
+}
+
+#[tokio::test]
+async fn test_websocket_generate_false_rejects_mismatched_search_output_without_persistence() {
+    let mock = MockResponsesServer::start(vec![]).await;
+    let fixture = storage_backed_state(&mock.url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let mut ws = connect_responses_ws(&gateway_url).await;
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "input": [
+                {
+                    "type": "tool_search_call",
+                    "id": "tsc_1",
+                    "call_id": "call_search_1",
+                    "arguments": {"query": "weather"}
+                },
+                {
+                    "type": "tool_search_output",
+                    "call_id": "call_mismatch",
+                    "tools": [{
+                        "type": "mcp",
+                        "server_label": "private",
+                        "server_url": "https://mcp.example.test/mcp",
+                        "headers": {"Authorization": "Bearer must-not-persist"}
+                    }]
+                }
+            ],
+            "tools": [],
+            "generate": false,
+            "store": false,
+            "stream": true
+        }),
+    )
+    .await;
+
+    let events = recv_until_completed(&mut ws).await;
+    let error = events.last().expect("terminal tool-search error");
+    assert_eq!(error["type"], "error");
+    assert_eq!(error["status"], StatusCode::BAD_REQUEST.as_u16());
+    assert_eq!(error["error"]["type"], "invalid_request_error");
+    assert!(mock.request_bodies().await.is_empty());
+
+    let response_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM responses")
+        .fetch_one(fixture.pool.as_ref())
+        .await
+        .expect("response count");
+    let item_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM items")
+        .fetch_one(fixture.pool.as_ref())
+        .await
+        .expect("item count");
+    assert_eq!(response_count, 0, "fail-closed request must not persist a response");
+    assert_eq!(item_count, 0, "fail-closed request must not persist tool-search items");
+}
+
+fn assert_public_ws_search_lifecycle(first: &[Value]) -> String {
+    let expected_public_tools = json!([tool_search_declaration(), deferred_weather_function()]);
+    let response_tool_envelopes = first
+        .iter()
+        .filter_map(|event| event.get("response"))
+        .filter_map(|response| response.get("tools"))
+        .collect::<Vec<_>>();
+    assert!(!response_tool_envelopes.is_empty());
+    assert!(
+        response_tool_envelopes
+            .iter()
+            .all(|tools| *tools == &expected_public_tools)
+    );
+    assert!(first.iter().all(|event| {
+        event["response"]["tools"].as_array().is_none_or(|tools| {
+            tools
+                .iter()
+                .all(|tool| !(tool["type"] == "function" && tool["name"] == "tool_search"))
+        })
+    }));
+    assert_eq!(
+        first
+            .iter()
+            .map(|event| event["sequence_number"].as_u64())
+            .collect::<Vec<_>>(),
+        (0..u64::try_from(first.len()).unwrap()).map(Some).collect::<Vec<_>>()
+    );
+    assert!(first.iter().all(|event| {
+        !matches!(
+            event["type"].as_str(),
+            Some("response.function_call_arguments.delta" | "response.function_call_arguments.done" | "error")
+        )
+    }));
+    let lifecycle = first
+        .iter()
+        .filter(|event| {
+            matches!(
+                event["type"].as_str(),
+                Some("response.output_item.added" | "response.output_item.done")
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(lifecycle.len(), 2);
+    assert_eq!(lifecycle[0]["item"]["type"], "tool_search_call");
+    assert_eq!(lifecycle[1]["item"]["type"], "tool_search_call");
+    assert_eq!(lifecycle[0]["item"]["id"], lifecycle[1]["item"]["id"]);
+    assert_eq!(lifecycle[0]["output_index"], lifecycle[1]["output_index"]);
+    let first_terminal = first.last().expect("first terminal");
+    assert_eq!(first_terminal["response"]["output"][0], lifecycle[1]["item"]);
+    first_terminal["response"]["id"].as_str().unwrap().to_owned()
+}
+
+async fn assert_ws_search_persistence(requests: &[Value], pool: &DbPool) {
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[0]["tools"].as_array().map(Vec::len), Some(1));
+    assert_eq!(requests[0]["tools"][0]["name"], "tool_search");
+    assert!(
+        requests[1]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["name"] == "get_weather")
+    );
+    assert!(requests[1]["input"].as_array().unwrap().iter().any(|item| {
+        item["type"] == "function_call" && item["name"] == "tool_search" && item["call_id"] == "call_search"
+    }));
+    assert!(
+        requests[2]["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| { item["type"] == "function_call_output" && item["call_id"] == "call_weather" })
+    );
+    let stored_items = sqlx::query_scalar::<_, String>("SELECT data FROM items ORDER BY created_at, seq")
+        .fetch_all(pool)
+        .await
+        .expect("stored public items");
+    assert!(stored_items.iter().any(|item| item.contains("tool_search_call")));
+    assert!(stored_items.iter().any(|item| item.contains("tool_search_output")));
+    assert!(
+        stored_items
+            .iter()
+            .all(|item| !item.contains("\"name\":\"tool_search\""))
+    );
+}
+
+#[tokio::test]
+async fn test_websocket_tool_search_streaming_continuation_is_public_and_persisted() {
+    let mock = MockResponsesServer::start(vec![
+        sse_tool_search_call_response(),
+        sse_weather_function_call_response(),
+        sse_response("resp_final", "msg_final", "PARIS_WEATHER_OK"),
+    ])
+    .await;
+    let fixture = storage_backed_state(&mock.url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let mut ws = connect_responses_ws(&gateway_url).await;
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "input": "find weather",
+            "tools": [tool_search_declaration(), deferred_weather_function()],
+            "parallel_tool_calls": false,
+            "store": true,
+            "stream": true
+        }),
+    )
+    .await;
+    let first = recv_until_completed(&mut ws).await;
+    let first_response_id = assert_public_ws_search_lifecycle(&first);
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "previous_response_id": first_response_id,
+            "input": [{
+                "type": "tool_search_output",
+                "call_id": "call_search",
+                "tools": [deferred_weather_function()]
+            }],
+            "store": true,
+            "stream": true
+        }),
+    )
+    .await;
+    let second = recv_until_completed(&mut ws).await;
+    let second_terminal = second.last().expect("second terminal");
+    assert_eq!(second_terminal["response"]["output"][0]["type"], "function_call");
+    assert_eq!(second_terminal["response"]["output"][0]["name"], "get_weather");
+    let second_response_id = second_terminal["response"]["id"].as_str().unwrap().to_owned();
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "previous_response_id": second_response_id,
+            "input": [{
+                "type": "function_call_output",
+                "call_id": "call_weather",
+                "output": "sunny"
+            }],
+            "store": true,
+            "stream": true
+        }),
+    )
+    .await;
+    let third = recv_until_completed(&mut ws).await;
+    assert_eq!(
+        third.last().unwrap()["response"]["output"][0]["content"][0]["text"],
+        "PARIS_WEATHER_OK"
+    );
+
+    let requests = mock.request_bodies().await;
+    assert_ws_search_persistence(&requests, fixture.pool.as_ref()).await;
+}
+
+#[tokio::test]
+async fn test_websocket_generate_false_persists_valid_tool_search_state_for_reuse() {
+    let mock = MockResponsesServer::start(vec![sse_weather_function_call_response()]).await;
+    let fixture = storage_backed_state(&mock.url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let mut ws = connect_responses_ws(&gateway_url).await;
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "input": [
+                {
+                    "type": "tool_search_call", "id": "tsc_prewarm", "call_id": "call_prewarm",
+                    "arguments": {"query": "weather"}
+                },
+                {
+                    "type": "tool_search_output", "call_id": "call_prewarm",
+                    "tools": [deferred_weather_function()]
+                }
+            ],
+            "tools": [tool_search_declaration(), deferred_weather_function()],
+            "parallel_tool_calls": false,
+            "generate": false,
+            "store": false,
+            "stream": true
+        }),
+    )
+    .await;
+    let prewarm = recv_until_completed(&mut ws).await;
+    assert!(
+        mock.request_bodies().await.is_empty(),
+        "generate:false must not run inference"
+    );
+    let response_id = prewarm.last().unwrap()["response"]["id"].as_str().unwrap().to_owned();
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "previous_response_id": response_id,
+            "input": "call the loaded weather tool",
+            "store": true,
+            "stream": true
+        }),
+    )
+    .await;
+    let response = recv_until_completed(&mut ws).await;
+    assert_eq!(response.last().unwrap()["response"]["output"][0]["name"], "get_weather");
+
+    let requests = mock.request_bodies().await;
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["name"] == "get_weather")
+    );
+    assert!(
+        requests[0]["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["type"] == "function_call_output")
+    );
+}
+
+#[tokio::test]
+async fn websocket_empty_prewarm_replaces_compacted_conversation_tool_search_state() {
+    let mock = MockResponsesServer::start(vec![sse_tool_search_call_response()]).await;
+    let fixture = storage_backed_state(&mock.url).await;
+    let (gateway_url, _gateway) = spawn_gateway(fixture.state.clone()).await;
+    let conversation_id = create_conversation(&gateway_url).await;
+    let conversation_store = ConversationStore::new(Arc::clone(&fixture.pool));
+    conversation_store
+        .persist(
+            &conversation_id,
+            "resp_before_prewarm",
+            None,
+            vec![InOutItem::Input(InputItem::Compaction(CompactionItem {
+                id: Some("cmp_before_prewarm".to_owned()),
+                encrypted_content: "Existing compacted conversation state".to_owned(),
+            }))],
+            &ResponseMetadata::default(),
+        )
+        .await
+        .expect("seed compacted conversation state");
+    let mut ws = connect_responses_ws(&gateway_url).await;
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "conversation_id": conversation_id,
+            "input": [],
+            "tools": [tool_search_declaration(), deferred_weather_function()],
+            "parallel_tool_calls": false,
+            "generate": false,
+            "store": false,
+            "stream": true
+        }),
+    )
+    .await;
+    let prewarm = recv_until_completed(&mut ws).await;
+    let prewarm_response_id = prewarm.last().unwrap()["response"]["id"]
+        .as_str()
+        .expect("prewarm response ID")
+        .to_owned();
+    assert!(
+        mock.request_bodies().await.is_empty(),
+        "generate:false must not run inference"
+    );
+    let item_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM items WHERE conversation_id = $1")
+        .bind(&conversation_id)
+        .fetch_one(fixture.pool.as_ref())
+        .await
+        .expect("conversation item count");
+    assert_eq!(item_count, 1, "an empty prewarm must not advance item history");
+    let prewarm_checkpoint: String = sqlx::query_scalar("SELECT latest_response_id FROM conversations WHERE id = $1")
+        .bind(&conversation_id)
+        .fetch_one(fixture.pool.as_ref())
+        .await
+        .expect("prewarm conversation checkpoint");
+    assert_eq!(prewarm_checkpoint, prewarm_response_id);
+
+    send_json(
+        &mut ws,
+        json!({
+            "type": "response.create",
+            "model": "test-model",
+            "conversation_id": conversation_id,
+            "input": "find the weather tool",
+            "store": true,
+            "stream": true
+        }),
+    )
+    .await;
+    let response = recv_until_completed(&mut ws).await;
+    assert_eq!(
+        response.last().unwrap()["response"]["output"][0]["type"],
+        "tool_search_call"
+    );
+
+    let requests = mock.request_bodies().await;
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["type"] == "function" && tool["name"] == "tool_search")
+    );
+    assert!(
+        requests[0]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|tool| tool["name"] != "get_weather"),
+        "deferred definitions remain withheld until the client returns them"
+    );
 }
 
 #[tokio::test]

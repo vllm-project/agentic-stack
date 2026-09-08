@@ -1,7 +1,8 @@
 //! Conversation storage handler — owns all conversation store operations.
 
 use crate::storage::{
-    ConversationData, ConversationSnapshot, ConversationStore, InOutItem, ResponseMetadata, StorageError,
+    ConversationData, ConversationSnapshot, ConversationStore, ConversationVersion, InOutItem, ResponseMetadata,
+    StorageError,
 };
 use crate::types::io::OutputItem;
 
@@ -91,30 +92,60 @@ impl ConversationHandler {
             .map_err(ExecutorError::Storage)
     }
 
+    /// Loads metadata for the persisted turn matching a captured conversation version.
+    ///
+    /// # Errors
+    /// Returns `ExecutorError` if `conversation_id` is absent, the store is
+    /// disabled, or the database query fails.
+    pub(crate) async fn response_metadata_at_version(
+        &self,
+        ctx: &RequestContext,
+        version: &ConversationVersion,
+    ) -> ExecutorResult<Option<ResponseMetadata>> {
+        let conv_id = ctx.original_request.conversation_id.as_deref().ok_or_else(|| {
+            ExecutorError::InvalidRequest("conversation_id is required for response metadata lookup".into())
+        })?;
+        self.store
+            .response_metadata_at_version(conv_id, version)
+            .await
+            .map_err(ExecutorError::Storage)
+    }
+
     /// Persists one conversation turn — only the new items from this turn.
     ///
     /// Takes `ctx` and `output_items` by value so fields can be moved directly
-    /// into [`ResponseMetadata`] without cloning. The store tracks sequence
+    /// into [`ResponseMetadata`]. The store tracks sequence
     /// numbers and appends, so prior history must not be re-inserted.
     ///
     /// # Errors
     /// Returns `ExecutorError` if `conversation_id` is absent on the context,
     /// the store is disabled, or the database operation fails.
-    pub async fn execute_turn(&self, ctx: RequestContext, output_items: Vec<OutputItem>) -> ExecutorResult<()> {
+    pub async fn execute_turn(&self, mut ctx: RequestContext, output_items: Vec<OutputItem>) -> ExecutorResult<()> {
+        let metadata = ResponseMetadata {
+            model: std::mem::take(&mut ctx.enriched_request.model),
+            previous_response_id: ctx.original_request.previous_response_id.take(),
+            effective_tools: ctx.enriched_request.tools.take(),
+            tool_search_loaded_tools: None,
+            effective_tool_choice: ctx.enriched_request.tool_choice.take().unwrap_or_default(),
+            effective_instructions: ctx.enriched_request.instructions.take(),
+        };
+
+        self.execute_turn_with_metadata(ctx, output_items, metadata).await
+    }
+
+    /// Persists a conversation turn using metadata prepared by request-scoped tool behavior.
+    pub(crate) async fn execute_turn_with_metadata(
+        &self,
+        ctx: RequestContext,
+        output_items: Vec<OutputItem>,
+        metadata: ResponseMetadata,
+    ) -> ExecutorResult<()> {
         let conversation_id = ctx
             .conversation_id
             .ok_or_else(|| ExecutorError::InvalidRequest("conversation_id is required for execute_turn".into()))?;
         let conversation_version = ctx
             .conversation_version
             .ok_or_else(|| ExecutorError::InvalidRequest("conversation version is required for execute_turn".into()))?;
-
-        let metadata = ResponseMetadata {
-            model: ctx.enriched_request.model,
-            previous_response_id: ctx.original_request.previous_response_id,
-            effective_tools: ctx.enriched_request.tools,
-            effective_tool_choice: ctx.enriched_request.tool_choice.unwrap_or_default(),
-            effective_instructions: ctx.enriched_request.instructions,
-        };
 
         let mut new_items = Vec::with_capacity(ctx.new_input_items.len() + output_items.len());
         new_items.extend(ctx.new_input_items.into_iter().map(InOutItem::Input));
@@ -140,7 +171,7 @@ impl ConversationHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{ConversationVersion, create_pool_with_schema};
+    use crate::storage::{ConversationVersion, ResponseMetadata, create_pool_with_schema};
     use crate::types::io::ResponsesInput;
     use crate::types::request_response::RequestPayload;
 
@@ -256,7 +287,13 @@ mod tests {
 
         let snapshot = store.rehydrate_snapshot(&conversation.conversation_id).await?;
         assert_eq!(snapshot.items.len(), 1);
-        assert_eq!(snapshot.version, ConversationVersion::LastSequence(0));
+        assert_eq!(
+            snapshot.version,
+            ConversationVersion::LastResponse {
+                response_id: "resp_test".to_owned(),
+                last_sequence: Some(0),
+            }
+        );
         Ok(())
     }
 
