@@ -175,6 +175,10 @@ and normalized gateway tool output, so a slow consumer cannot turn a fixed event
 buffer into unbounded retained memory. MCP discovery participates in the same 16-permit
 materialization window as gateway calls and is capped at 64 server declarations and
 128 discovered tools per request.
+The WebSocket transport queues only serialized, size-checked events, capped at
+1 MiB each including routing metadata, in its 64-entry outbound queue. Local
+completion validates both lifecycle events before persistence. Authentication is
+rechecked at request dispatch so queued work cannot start after identity expiry.
 Errors are modeled by a dedicated `WsError` enum (`handler/websocket/error.rs`) rather
 than reusing the HTTP JSON-error path, since some failure modes (a dead socket) must
 not attempt to write a response.

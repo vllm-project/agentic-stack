@@ -1044,6 +1044,113 @@ async fn every_v1_route_rejects_missing_credentials() {
 }
 
 #[tokio::test]
+async fn authenticated_websocket_rechecks_queued_named_lane_after_identity_expiry() {
+    assert_queued_request_rejected_after_expiry(Some("queued-lane")).await;
+}
+
+#[tokio::test]
+async fn authenticated_websocket_rechecks_queued_default_lane_after_identity_expiry() {
+    assert_queued_request_rejected_after_expiry(None).await;
+}
+
+async fn assert_queued_request_rejected_after_expiry(stream_id: Option<&str>) {
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Notify;
+
+    let (issuer, private_key, _, _, _provider) = spawn_oidc_provider().await;
+    let authenticator = discover_test_authenticator(&issuer).await;
+    let arrived = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let upstream = spawn_router(Router::new().route(
+        "/v1/responses",
+        post({
+            let arrived = Arc::clone(&arrived);
+            let release = Arc::clone(&release);
+            let calls = Arc::clone(&calls);
+            move |_body: Bytes| {
+                let arrived = Arc::clone(&arrived);
+                let release = Arc::clone(&release);
+                let calls = Arc::clone(&calls);
+                async move {
+                    if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                        arrived.notify_one();
+                        release.notified().await;
+                    }
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(json!({"error": {"message": "upstream unavailable"}})),
+                    )
+                }
+            }
+        }),
+    ))
+    .await;
+    let gateway = spawn_gateway(authenticator, &format!("http://{}", upstream.address)).await;
+    // Exercise expiry including the configured 60-second clock skew.
+    let expires_at = jsonwebtoken::get_current_timestamp().saturating_sub(55);
+    let token = identity_token(&issuer, TEST_AUDIENCE, expires_at, "test-key", &private_key);
+    let mut request = format!("ws://{}/v1/responses", gateway.address)
+        .into_client_request()
+        .unwrap();
+    request.headers_mut().insert(
+        reqwest::header::AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+    );
+    let (mut ws, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    let mut payload = json!({"type": "response.create", "model": "test-model", "input": "hello"});
+    if let Some(stream_id) = stream_id {
+        payload["stream_id"] = json!(stream_id);
+    }
+    ws.send(TungsteniteMessage::Text(payload.to_string().into()))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), arrived.notified())
+        .await
+        .expect("first request reached inference");
+    ws.send(TungsteniteMessage::Text(payload.to_string().into()))
+        .await
+        .unwrap();
+    ws.send(TungsteniteMessage::Ping(vec![1].into())).await.unwrap();
+    // The pong proves the server read the second request while the first is gated.
+    let pong = tokio::time::timeout(Duration::from_secs(2), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(pong, TungsteniteMessage::Pong(_)));
+    assert!(
+        jsonwebtoken::get_current_timestamp() <= expires_at + 60,
+        "requests must queue before expiry"
+    );
+    while jsonwebtoken::get_current_timestamp() <= expires_at + 60 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    release.notify_one();
+    let mut events = Vec::new();
+    for _ in 0..2 {
+        let frame = tokio::time::timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        events.push(serde_json::from_str::<Value>(&frame.into_text().unwrap()).unwrap());
+    }
+    assert_eq!(events[0]["status"], 503);
+    assert_eq!(
+        events[1]["code"], "invalid_token",
+        "queued work must be rejected at dispatch"
+    );
+    assert_eq!(events[1].get("stream_id").and_then(Value::as_str), stream_id);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "expired queued work must never reach inference"
+    );
+}
+
+#[tokio::test]
 async fn authenticated_websocket_rejects_requests_after_identity_expiry() {
     let (issuer, private_key, _public_jwk, _jwks_requests, _provider) = spawn_oidc_provider().await;
     let authenticator = discover_test_authenticator(&issuer).await;

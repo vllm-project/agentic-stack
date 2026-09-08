@@ -729,6 +729,64 @@ fn web_search_function_call_sse_response() -> String {
 }
 
 #[tokio::test]
+async fn websocket_generate_false_rejects_oversized_events_before_persistence() {
+    assert_oversized_local_completion_rejected(false).await;
+}
+
+#[tokio::test]
+async fn websocket_generate_false_checks_completed_event_before_persistence_or_delivery() {
+    assert_oversized_local_completion_rejected(true).await;
+}
+
+async fn assert_oversized_local_completion_rejected(only_completion_oversized: bool) {
+    let fixture = storage_backed_state("http://127.0.0.1:9").await;
+    let (gateway_url, gateway) = spawn_gateway(fixture.state.clone()).await;
+    let mut ws = connect_responses_ws(&gateway_url).await;
+    let mut payload = json!({
+        "type": "response.create", "model": "test-model", "input": [],
+        "generate": false, "stream_id": "oversized-local", "instructions": ""
+    });
+    let instruction_bytes = if only_completion_oversized {
+        send_json(&mut ws, payload.clone()).await;
+        let baseline = recv_until_completed(&mut ws).await;
+        assert_eq!(baseline.len(), 2);
+        let created_bytes = baseline[0].to_string().len();
+        assert!(baseline[1].to_string().len() > created_bytes);
+        // Fill the created event exactly to the wire limit. The completed event
+        // is larger because it includes usage, so both must be checked up front.
+        1024 * 1024 - created_bytes
+    } else {
+        2 * 1024 * 1024
+    };
+    payload["instructions"] = json!("x".repeat(instruction_bytes));
+    payload["input"] = json!("must not be stored");
+    send_json(&mut ws, payload).await;
+    let event = recv_json(&mut ws).await;
+    assert_eq!(
+        event["type"], "error",
+        "no lifecycle event may be emitted for an oversized local response"
+    );
+    assert_eq!(event["stream_id"], "oversized-local");
+    assert!(event["error"]["message"].as_str().unwrap().contains("exceeded"));
+    assert!(event.to_string().len() <= 1024 * 1024);
+    let responses = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM responses")
+        .fetch_one(fixture.pool.as_ref())
+        .await
+        .unwrap();
+    assert_eq!(
+        responses,
+        i64::from(only_completion_oversized),
+        "rejected response must not be persisted"
+    );
+    let items = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM items")
+        .fetch_one(fixture.pool.as_ref())
+        .await
+        .unwrap();
+    assert_eq!(items, 0, "rejected response must not leave orphaned items");
+    gateway.abort();
+}
+
+#[tokio::test]
 async fn test_websocket_generate_false_prewarm_persists_context_without_inference() {
     let mock = MockResponsesServer::start(vec![sse_response("resp_upstream_1", "msg_upstream_1", "READY")]).await;
     let fixture = storage_backed_state(&mock.url).await;

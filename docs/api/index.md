@@ -100,6 +100,11 @@ backward compatibility. A connection accepts at most 64 outstanding requests and
 until capacity is available. Upstream SSE lines are limited to 256 KiB, normalized
 executor events are limited to 1 MiB, and each request shares a 1 MiB response
 budget across MCP discovery, upstream rounds, and normalized gateway tool output.
+Every outbound WebSocket event, including `stream_id`, is limited to 1 MiB of
+serialized JSON. Local `generate: false` requests validate both lifecycle events
+before storing the response or emitting either event. OIDC identity expiry is
+checked again when queued work starts, including work in the default lane;
+expired work receives a tagged `invalid_token` event without reaching inference.
 
 Invalid requests are returned as JSON WebSocket error events:
 

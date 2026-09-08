@@ -30,9 +30,26 @@ use crate::auth::AuthenticatedPrincipal;
 type WsSender = SplitSink<WebSocket, Message>;
 
 const WS_OUTBOUND_BUFFER: usize = 64;
+const WS_MAX_EVENT_BYTES: usize = 1024 * 1024;
 const WS_MAX_OUTSTANDING_REQUESTS: usize = 64;
 const WS_MAX_OUTSTANDING_BYTES: usize = 12 * 1024 * 1024;
 const WS_MAX_STREAM_ID_CHARS: usize = 256;
+
+/// Serialized and size-checked before entering the bounded outbound queue.
+struct WsOutboundEvent(String);
+
+impl WsOutboundEvent {
+    fn new(value: Value, stream_id: Option<&StreamId>) -> Result<Self, WsError> {
+        let value = attach_stream_id(value, stream_id)?;
+        let text = serde_json::to_string(&value).map_err(WsError::SerializeJson)?;
+        if text.len() > WS_MAX_EVENT_BYTES {
+            return Err(WsError::from(ExecutorError::StreamError(format!(
+                "websocket event exceeded {WS_MAX_EVENT_BYTES} bytes"
+            ))));
+        }
+        Ok(Self(text))
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq)]
 #[serde(try_from = "String")]
@@ -142,7 +159,8 @@ impl WsByteBudget {
 struct WsMultiplexer {
     state: Arc<AppState>,
     auth: Option<String>,
-    outbound_tx: mpsc::Sender<Value>,
+    principal: Option<Arc<AuthenticatedPrincipal>>,
+    outbound_tx: mpsc::Sender<WsOutboundEvent>,
     lanes: HashMap<Option<StreamId>, VecDeque<WsWorkItem>>,
     request_tasks: JoinSet<RequestCompletion>,
     queued_requests: usize,
@@ -154,12 +172,14 @@ impl WsMultiplexer {
     fn new(
         state: Arc<AppState>,
         auth: Option<String>,
-        outbound_tx: mpsc::Sender<Value>,
+        principal: Option<AuthenticatedPrincipal>,
+        outbound_tx: mpsc::Sender<WsOutboundEvent>,
         shutdown_token: CancellationToken,
     ) -> Self {
         Self {
             state,
             auth,
+            principal: principal.map(Arc::new),
             outbound_tx,
             lanes: HashMap::new(),
             request_tasks: JoinSet::new(),
@@ -248,11 +268,21 @@ impl WsMultiplexer {
     fn spawn(&mut self, lane: Option<StreamId>, work: WsWorkItem) {
         let state = Arc::clone(&self.state);
         let auth = self.auth.clone();
+        let principal = self.principal.clone();
         let outbound_tx = self.outbound_tx.clone();
         let shutdown_token = self.shutdown_token.clone();
         let stream_id = work.stream_id().cloned();
         let input_bytes = work.input_bytes();
         self.request_tasks.spawn(async move {
+            // Admission may precede dispatch by an entire inference/tool round.
+            // Recheck here for both new lanes and work dequeued by schedule_next.
+            if let Some(event) = websocket_identity_error_event(principal.as_deref()) {
+                return RequestCompletion {
+                    lane,
+                    input_bytes,
+                    result: queue_ws_json(&outbound_tx, event, stream_id.as_ref()).await,
+                };
+            }
             let result = match work {
                 WsWorkItem::Execute { request, .. } => {
                     handle_ws_request(*request, &state, auth, &outbound_tx, &shutdown_token).await
@@ -321,7 +351,7 @@ async fn responses_ws_loop(
     let (mut sender, mut receiver) = socket.split();
     let auth = extract_bearer(&headers, state.openai_api_key.as_deref());
     let (outbound_tx, mut outbound_rx) = mpsc::channel(WS_OUTBOUND_BUFFER);
-    let mut multiplexer = WsMultiplexer::new(state, auth, outbound_tx, shutdown_token.clone());
+    let mut multiplexer = WsMultiplexer::new(state, auth, principal, outbound_tx, shutdown_token.clone());
     let mut draining = false;
     let mut client_disconnected = false;
 
@@ -341,7 +371,7 @@ async fn responses_ws_loop(
                 let Some(value) = outbound else {
                     continue;
                 };
-                if send_ws_json(&mut sender, value).await.is_err() {
+                if send_ws_event(&mut sender, value).await.is_err() {
                     client_disconnected = true;
                     break;
                 }
@@ -374,7 +404,6 @@ async fn responses_ws_loop(
                             message,
                             &mut sender,
                             &mut multiplexer,
-                            principal.as_ref(),
                             &mut draining,
                         )
                         .await
@@ -406,7 +435,6 @@ async fn handle_ws_client_message(
     message: Message,
     sender: &mut WsSender,
     multiplexer: &mut WsMultiplexer,
-    principal: Option<&AuthenticatedPrincipal>,
     draining: &mut bool,
 ) -> bool {
     match message {
@@ -415,10 +443,10 @@ async fn handle_ws_client_message(
             true
         }
         Message::Text(text) => {
-            if let Some(event) = websocket_identity_error_event(principal) {
+            if let Some(event) = websocket_identity_error_event(multiplexer.principal.as_deref()) {
                 let stream_id = stream_id_from_text(&text);
-                let send_succeeded = match attach_stream_id(event, stream_id.as_ref()) {
-                    Ok(event) => send_ws_json(sender, event).await.is_ok(),
+                let send_succeeded = match WsOutboundEvent::new(event, stream_id.as_ref()) {
+                    Ok(event) => send_ws_event(sender, event).await.is_ok(),
                     Err(error) => {
                         warn!(%error, "failed to build websocket identity error event");
                         false
@@ -575,7 +603,7 @@ async fn handle_ws_request(
     request: WsRequest,
     state: &AppState,
     auth: Option<String>,
-    outbound_tx: &mpsc::Sender<Value>,
+    outbound_tx: &mpsc::Sender<WsOutboundEvent>,
     shutdown_token: &CancellationToken,
 ) -> Result<(), WsError> {
     let WsRequest {
@@ -607,7 +635,7 @@ async fn handle_ws_request(
 }
 
 async fn complete_without_inference(
-    outbound_tx: &mpsc::Sender<Value>,
+    outbound_tx: &mpsc::Sender<WsOutboundEvent>,
     state: &AppState,
     payload: RequestPayload,
     stream_id: Option<&StreamId>,
@@ -624,6 +652,12 @@ async fn complete_without_inference(
         Some(ResponseUsage::default()),
     );
 
+    // Validate both lifecycle events, including routing metadata, before any
+    // persistence or delivery. Completion metadata can exceed the limit even
+    // when the created event fits.
+    let created_event = WsOutboundEvent::new(created_event, stream_id)?;
+    let completed_event = WsOutboundEvent::new(completed_event, stream_id)?;
+
     #[cfg(debug_assertions)]
     state.websocket_tracker.pause_local_completion_after_rehydration().await;
     persist_turn(
@@ -634,8 +668,8 @@ async fn complete_without_inference(
     )
     .await?;
 
-    queue_ws_json(outbound_tx, created_event, stream_id).await?;
-    queue_ws_json(outbound_tx, completed_event, stream_id).await
+    outbound_tx.send(created_event).await.map_err(|_| WsError::SendFailed)?;
+    outbound_tx.send(completed_event).await.map_err(|_| WsError::SendFailed)
 }
 
 fn empty_response_event(
@@ -667,7 +701,7 @@ fn empty_response_event(
 }
 
 async fn stream_ws_response(
-    outbound_tx: &mpsc::Sender<Value>,
+    outbound_tx: &mpsc::Sender<WsOutboundEvent>,
     mut stream: BoxStream,
     stream_id: Option<&StreamId>,
 ) -> Result<(), WsError> {
@@ -686,7 +720,7 @@ fn sse_json_data_lines(chunk: &str) -> impl Iterator<Item = &str> {
 }
 
 async fn forward_ws_stream_chunk(
-    outbound_tx: &mpsc::Sender<Value>,
+    outbound_tx: &mpsc::Sender<WsOutboundEvent>,
     chunk: &str,
     stream_id: Option<&StreamId>,
 ) -> Result<(), WsError> {
@@ -714,18 +748,18 @@ fn attach_stream_id(mut value: Value, stream_id: Option<&StreamId>) -> Result<Va
 }
 
 async fn queue_ws_json(
-    outbound_tx: &mpsc::Sender<Value>,
+    outbound_tx: &mpsc::Sender<WsOutboundEvent>,
     value: Value,
     stream_id: Option<&StreamId>,
 ) -> Result<(), WsError> {
     outbound_tx
-        .send(attach_stream_id(value, stream_id)?)
+        .send(WsOutboundEvent::new(value, stream_id)?)
         .await
         .map_err(|_| WsError::SendFailed)
 }
 
 async fn queue_ws_error(
-    outbound_tx: &mpsc::Sender<Value>,
+    outbound_tx: &mpsc::Sender<WsOutboundEvent>,
     err: WsError,
     stream_id: Option<&StreamId>,
 ) -> Result<(), WsError> {
@@ -746,13 +780,12 @@ async fn send_ws_error(sender: &mut WsSender, err: &WsError, stream_id: Option<&
     let Some(frame) = err.to_ws_frame() else {
         return Err(WsError::SendFailed);
     };
-    send_ws_json(sender, attach_stream_id(frame, stream_id)?).await
+    send_ws_event(sender, WsOutboundEvent::new(frame, stream_id)?).await
 }
 
-async fn send_ws_json(sender: &mut WsSender, value: Value) -> Result<(), WsError> {
-    let text = serde_json::to_string(&value).map_err(WsError::SerializeJson)?;
+async fn send_ws_event(sender: &mut WsSender, event: WsOutboundEvent) -> Result<(), WsError> {
     sender
-        .send(Message::Text(text.into()))
+        .send(Message::Text(event.0.into()))
         .await
         .map_err(|_| WsError::SendFailed)
 }
@@ -769,12 +802,42 @@ mod tests {
 
     use super::{
         StreamId, WS_MAX_OUTSTANDING_BYTES, WS_MAX_OUTSTANDING_REQUESTS, WS_MAX_STREAM_ID_CHARS, WsByteBudget, WsError,
-        attach_stream_id, close_ws, keep_if_running, parse_ws_request, sse_json_data_lines,
-        websocket_identity_error_event,
+        attach_stream_id, close_ws, forward_ws_stream_chunk, keep_if_running, parse_ws_request, queue_ws_json,
+        sse_json_data_lines, websocket_identity_error_event,
     };
     use crate::auth::AuthenticatedPrincipal;
 
     struct CloseErrorSink;
+
+    #[tokio::test]
+    async fn outbound_event_limit_counts_routing_metadata_and_json_escaping() {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        // The JSON envelope {"text":"","type":"test"} occupies 25 bytes.
+        let event = json!({"text": "x".repeat(1024 * 1024 - 25), "type": "test"});
+        queue_ws_json(&sender, event.clone(), None)
+            .await
+            .expect("exact limit is accepted");
+        assert_eq!(receiver.recv().await.unwrap().0.len(), 1024 * 1024);
+
+        let stream_id = StreamId::try_from("🦀").unwrap();
+        let chunk = format!("data: {event}\n\n");
+        assert!(
+            forward_ws_stream_chunk(&sender, &chunk, Some(&stream_id))
+                .await
+                .is_err()
+        );
+        assert!(
+            receiver.try_recv().is_err(),
+            "routing metadata must count toward the limit"
+        );
+
+        let escaped = json!({"type": "test", "text": "\n".repeat(512 * 1024)});
+        assert!(queue_ws_json(&sender, escaped, None).await.is_err());
+        assert!(
+            receiver.try_recv().is_err(),
+            "escaped JSON bytes must count toward the limit"
+        );
+    }
 
     #[test]
     fn sse_json_data_lines_accept_named_and_data_only_frames() {
