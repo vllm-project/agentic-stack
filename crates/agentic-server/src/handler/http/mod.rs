@@ -1,7 +1,7 @@
-mod conversations;
-mod messages;
-mod models;
-mod responses;
+pub(crate) mod conversations;
+pub(crate) mod messages;
+pub(crate) mod models;
+pub(crate) mod responses;
 
 pub use conversations::conversations;
 pub use messages::{count_tokens, messages};

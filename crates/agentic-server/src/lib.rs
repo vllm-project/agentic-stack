@@ -5,3 +5,5 @@ pub mod agentic_process;
 pub mod app;
 pub mod auth;
 pub mod handler;
+#[cfg(feature = "openapi")]
+pub mod openapi;

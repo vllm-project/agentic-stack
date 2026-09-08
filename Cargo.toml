@@ -45,3 +45,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 toml = "0.8"
 tokio-tungstenite = "0.29"
 url = "2"
+utoipa = { version = "5", features = ["chrono", "uuid"] }
+utoipa-axum = "0.2"
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }

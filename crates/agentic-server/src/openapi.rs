@@ -1,0 +1,904 @@
+// Feature-gated OpenAPI spec assembly and Swagger UI router.
+#![cfg(feature = "openapi")]
+
+use utoipa::OpenApi;
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "vLLM Agentic API",
+        description = "Stateful agentic layer for vLLM — OpenAI-compatible Responses API and Anthropic-compatible Messages API.",
+        license(name = "Apache-2.0"),
+    ),
+    paths(
+        crate::handler::http::models::health,
+        crate::handler::http::models::ready,
+        crate::handler::http::models::models,
+        crate::handler::http::responses::responses,
+        crate::handler::http::responses::compact_response,
+        crate::handler::http::conversations::conversations,
+        crate::handler::http::messages::messages,
+        crate::handler::http::messages::count_tokens,
+    ),
+    components(schemas(
+        agentic_core::types::request_response::RequestPayload,
+        agentic_core::types::request_response::ResponsePayload,
+        agentic_core::types::request_response::CompactRequest,
+        agentic_core::types::request_response::CompactedResponse,
+        agentic_core::types::request_response::ContextManagement,
+        agentic_core::types::request_response::IncompleteDetails,
+        agentic_core::types::request_response::ResponseTextConfig,
+        agentic_core::types::request_response::ResponseTextFormat,
+        agentic_core::types::request_response::ReasoningConfig,
+        agentic_core::types::io::ResponsesInput,
+        agentic_core::types::io::InputItem,
+        agentic_core::types::io::InputMessage,
+        agentic_core::types::io::InputMessageContent,
+        agentic_core::types::io::InputTextContent,
+        agentic_core::types::io::InputImageContent,
+        agentic_core::types::io::InputFileContent,
+        agentic_core::types::io::InputContent,
+        agentic_core::types::io::InputFunctionToolCall,
+        agentic_core::types::io::FunctionToolResultMessage,
+        agentic_core::types::io::ToolCallOutput,
+        agentic_core::types::io::ToolOutputContent,
+        agentic_core::types::io::CompactionItem,
+        agentic_core::types::io::CustomToolCallOutputMessage,
+        agentic_core::types::io::OutputItem,
+        agentic_core::types::io::OutputTextContent,
+        agentic_core::types::io::OutputMessage,
+        agentic_core::types::io::FunctionToolCall,
+        agentic_core::types::io::CustomToolCall,
+        agentic_core::types::io::WebSearchCall,
+        agentic_core::types::io::WebSearchAction,
+        agentic_core::types::io::WebSearchActionSearch,
+        agentic_core::types::io::WebSearchActionOpenPage,
+        agentic_core::types::io::WebSearchActionFindInPage,
+        agentic_core::types::io::WebSearchSource,
+        agentic_core::types::io::McpCall,
+        agentic_core::types::io::McpCallError,
+        agentic_core::types::io::McpToolExecutionError,
+        agentic_core::types::io::McpToolExecutionErrorContent,
+        agentic_core::types::io::McpListTools,
+        agentic_core::types::io::McpListTool,
+        agentic_core::types::io::ReasoningOutput,
+        agentic_core::types::io::ReasoningTextContent,
+        agentic_core::types::io::ResponseUsage,
+        agentic_core::types::io::InputTokenDetails,
+        agentic_core::types::io::OutputTokenDetails,
+        agentic_core::types::io::FunctionTool,
+        agentic_core::types::io::ToolChoice,
+        agentic_core::types::io::AllowedTool,
+        agentic_core::types::io::AllowedToolsMode,
+        agentic_core::types::io::GatewayCallStatus,
+        agentic_core::types::io::McpCallStatus,
+        agentic_core::types::event::ResponseStatus,
+        agentic_core::types::event::MessageStatus,
+        agentic_core::types::tools::ResponsesTool,
+        agentic_core::types::tools::FunctionToolParam,
+        agentic_core::types::tools::CustomToolParam,
+        agentic_core::types::tools::McpToolParam,
+        agentic_core::types::tools::WebSearchToolParam,
+        agentic_core::types::tools::WebSearchContextSize,
+        agentic_core::types::tools::WebSearchFilters,
+        agentic_core::types::tools::WebSearchUserLocation,
+        agentic_core::types::tools::FileSearchToolParam,
+        agentic_core::types::tools::CodeInterpreterToolParam,
+        agentic_core::types::tools::CodexNamespaceToolParam,
+        agentic_core::types::tools::CodexNamespaceMember,
+        agentic_core::types::tools::NonEmptyToolName,
+        agentic_core::types::messages::MessagesRequest,
+        agentic_core::types::messages::MessageParam,
+        agentic_core::types::messages::MessageContent,
+        agentic_core::types::messages::ContentBlock,
+        agentic_core::types::messages::SystemPrompt,
+        agentic_core::types::messages::SystemBlock,
+        agentic_core::types::messages::ToolParam,
+        agentic_core::types::messages::ToolResultContent,
+        agentic_core::types::messages::ToolResultBlock,
+        agentic_core::types::messages::OutputConfig,
+        agentic_core::types::messages::ReasoningEffort,
+        agentic_core::types::messages::ReasoningEffortLevel,
+        ApiErrorResponse,
+        ApiError,
+        AnthropicErrorResponse,
+        AnthropicError,
+        MessagesResponse,
+        CountTokensRequest,
+        CountTokensResponse,
+        ModelsResponse,
+        ModelObject,
+        CodexModelsResponse,
+        CodexModelObject,
+        CreateConversationRequest,
+        ConversationResponse,
+    )),
+    modifiers(&SecurityAddon),
+    tags(
+        (name = "health", description = "Health and readiness probes"),
+        (name = "models", description = "Model listing"),
+        (name = "responses", description = "OpenAI-compatible Responses API"),
+        (name = "conversations", description = "Conversation management"),
+        (name = "messages", description = "Anthropic-compatible Messages API"),
+    )
+)]
+pub struct ApiDoc;
+
+struct SecurityAddon;
+
+impl utoipa::Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "bearer_auth",
+                utoipa::openapi::security::SecurityScheme::Http(utoipa::openapi::security::Http::new(
+                    utoipa::openapi::security::HttpAuthScheme::Bearer,
+                )),
+            );
+        }
+    }
+}
+
+/// OpenAI-style error envelope for Responses/Models endpoints.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct ApiErrorResponse {
+    pub error: ApiError,
+}
+
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct ApiError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub error_type: String,
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub param: Option<String>,
+}
+
+/// Anthropic-style error envelope for Messages endpoints.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct AnthropicErrorResponse {
+    #[serde(rename = "type")]
+    pub response_type: String,
+    pub error: AnthropicError,
+}
+
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct AnthropicError {
+    #[serde(rename = "type")]
+    pub error_type: String,
+    pub message: String,
+}
+
+/// Anthropic Messages API response (proxied from upstream).
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct MessagesResponse {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub response_type: String,
+    pub role: String,
+    pub model: String,
+    pub content: Vec<serde_json::Value>,
+    pub stop_reason: Option<String>,
+    pub usage: serde_json::Value,
+}
+
+/// Request body for Anthropic's `count_tokens` endpoint.
+///
+/// Unlike [`MessagesRequest`], `max_tokens` is not required for token counting.
+#[derive(serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct CountTokensRequest {
+    pub model: String,
+    pub messages: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<serde_json::Value>>,
+}
+
+/// Response from Anthropic's `count_tokens` endpoint (proxied from upstream).
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct CountTokensResponse {
+    pub input_tokens: u64,
+}
+
+/// OpenAI-compatible model list returned by the upstream LLM service.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct ModelsResponse {
+    pub object: String,
+    pub data: Vec<ModelObject>,
+}
+
+/// Single model entry in the models list.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct ModelObject {
+    pub id: String,
+    pub object: String,
+    pub owned_by: Option<String>,
+}
+
+/// Codex-compatible model list returned when `client_version` is present.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct CodexModelsResponse {
+    pub models: Vec<CodexModelObject>,
+}
+
+/// Single model entry in the Codex catalog.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct CodexModelObject {
+    pub slug: String,
+    pub display_name: String,
+}
+
+/// Request body for POST /v1/conversations.
+#[derive(serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct CreateConversationRequest {
+    #[serde(default = "default_true")]
+    #[schema(default = true)]
+    pub store: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Response from POST /v1/conversations.
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct ConversationResponse {
+    pub id: String,
+    pub created_at: i64,
+    pub object: String,
+    pub metadata: serde_json::Value,
+}
+
+pub fn swagger_ui_router<S>() -> axum::Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    let router: axum::Router<()> = utoipa_swagger_ui::SwaggerUi::new("/swagger-ui")
+        .url("/openapi.json", ApiDoc::openapi())
+        .into();
+    router.with_state(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use utoipa::OpenApi;
+
+    #[test]
+    fn spec_contains_expected_paths() {
+        let spec = ApiDoc::openapi();
+        let paths: Vec<&str> = spec.paths.paths.keys().map(String::as_str).collect();
+
+        for expected in [
+            "/health",
+            "/ready",
+            "/v1/models",
+            "/v1/responses",
+            "/v1/responses/compact",
+            "/v1/conversations",
+            "/v1/messages",
+            "/v1/messages/count_tokens",
+        ] {
+            assert!(paths.contains(&expected), "missing path: {expected}");
+        }
+    }
+
+    #[test]
+    fn spec_contains_core_schemas() {
+        let spec = ApiDoc::openapi();
+        let schemas = spec
+            .components
+            .as_ref()
+            .expect("components must exist")
+            .schemas
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for expected in [
+            "RequestPayload",
+            "ResponsePayload",
+            "MessagesRequest",
+            "ApiErrorResponse",
+        ] {
+            assert!(schemas.iter().any(|s| s == expected), "missing schema: {expected}");
+        }
+    }
+
+    #[test]
+    fn spec_has_security_scheme() {
+        let spec = ApiDoc::openapi();
+        let schemes = &spec
+            .components
+            .as_ref()
+            .expect("components must exist")
+            .security_schemes;
+        assert!(
+            schemes.contains_key("bearer_auth"),
+            "bearer_auth security scheme missing"
+        );
+    }
+
+    #[test]
+    fn spec_serializes_to_valid_json() {
+        let spec = ApiDoc::openapi();
+        let json = serde_json::to_string_pretty(&spec).expect("spec must serialize to JSON");
+        assert!(json.contains("\"openapi\""));
+        assert!(json.contains("\"3."));
+    }
+
+    #[test]
+    fn spec_schema_refs_resolve() {
+        let spec = ApiDoc::openapi();
+        let json = serde_json::to_value(&spec).expect("spec must serialize");
+        let schemas = json["components"]["schemas"].as_object().expect("schemas must exist");
+
+        let spec_str = serde_json::to_string(&json).unwrap();
+        let prefix = "#/components/schemas/";
+        let mut unresolved = Vec::new();
+        for (idx, _) in spec_str.match_indices(prefix) {
+            let rest = &spec_str[idx + prefix.len()..];
+            let name = rest.split('"').next().unwrap_or("");
+            if !name.is_empty() && !schemas.contains_key(name) {
+                unresolved.push(name.to_owned());
+            }
+        }
+        unresolved.sort();
+        unresolved.dedup();
+        assert!(unresolved.is_empty(), "unresolved $ref schemas: {unresolved:?}");
+    }
+
+    #[test]
+    fn spec_paths_have_operations() {
+        let spec = ApiDoc::openapi();
+        for (path, item) in &spec.paths.paths {
+            let has_op = item.get.is_some()
+                || item.post.is_some()
+                || item.put.is_some()
+                || item.delete.is_some()
+                || item.patch.is_some();
+            assert!(has_op, "path {path} has no operations");
+        }
+    }
+
+    #[test]
+    fn spec_has_required_info_fields() {
+        let spec = ApiDoc::openapi();
+        assert!(!spec.info.title.is_empty(), "info.title must not be empty");
+        assert_eq!(
+            spec.info.version,
+            env!("CARGO_PKG_VERSION"),
+            "info.version should match crate version"
+        );
+        assert!(spec.info.license.is_some(), "info.license should be set");
+    }
+
+    /// Validates that JSON fixtures representing each tagged-enum variant
+    /// pass the hand-written `OpenAPI` schema. Catches schema drift that
+    /// structural tests (ref resolution, meta-schema) cannot.
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn serialized_fixtures_validate_against_component_schemas() {
+        let spec = ApiDoc::openapi();
+        let spec_json = serde_json::to_value(&spec).expect("spec must serialize");
+        let schemas = spec_json["components"]["schemas"]
+            .as_object()
+            .expect("schemas must exist");
+
+        let validate = |schema_name: &str, fixture: &serde_json::Value| {
+            let wrapper = serde_json::json!({
+                "components": { "schemas": schemas },
+                "$ref": format!("#/components/schemas/{schema_name}")
+            });
+            let validator = jsonschema::validator_for(&wrapper)
+                .unwrap_or_else(|e| panic!("failed to compile schema for {schema_name}: {e}"));
+            let errors: Vec<String> = validator
+                .iter_errors(fixture)
+                .map(|e| format!("  {} at {}", e, e.instance_path))
+                .collect();
+            assert!(
+                errors.is_empty(),
+                "{schema_name} fixture failed validation:\n{}\nfixture: {}",
+                errors.join("\n"),
+                serde_json::to_string_pretty(fixture).unwrap()
+            );
+        };
+
+        // -- RequestPayload: serde accepts explicit nulls for Option fields --
+        let minimal = serde_json::json!({"model": "m", "input": "hi"});
+        validate("RequestPayload", &minimal);
+        let with_nulls = serde_json::json!({
+            "model": "m",
+            "input": "hi",
+            "instructions": null,
+            "previous_response_id": null,
+            "conversation_id": null,
+            "tools": null,
+            "tool_choice": null,
+            "include": null,
+            "reasoning": null,
+            "text": null,
+            "temperature": null,
+            "top_p": null,
+            "max_output_tokens": null,
+            "truncation": null,
+            "metadata": null,
+            "parallel_tool_calls": null,
+            "cache_salt": null,
+            "context_management": null,
+        });
+        validate("RequestPayload", &with_nulls);
+        let _: agentic_core::types::request_response::RequestPayload =
+            serde_json::from_value(with_nulls).expect("serde must accept explicit nulls");
+
+        // -- ApiErrorResponse: code may be a string or null --
+        validate(
+            "ApiErrorResponse",
+            &serde_json::json!({"error": {"message": "bad", "type": "invalid_request_error", "code": "missing_field"}}),
+        );
+        validate(
+            "ApiErrorResponse",
+            &serde_json::json!({"error": {"message": "bad", "type": "invalid_request_error", "code": null}}),
+        );
+
+        // -- ModelsResponse: OpenAI and Codex shapes --
+        validate(
+            "ModelsResponse",
+            &serde_json::json!({"object": "list", "data": [{"id": "m1", "object": "model"}]}),
+        );
+        validate(
+            "CodexModelsResponse",
+            &serde_json::json!({"models": [{"slug": "m1", "display_name": "Model One"}]}),
+        );
+        validate("CodexModelsResponse", &serde_json::json!({"models": []}));
+
+        // -- CountTokensRequest: max_tokens not required --
+        validate(
+            "CountTokensRequest",
+            &serde_json::json!({"model": "test", "messages": []}),
+        );
+        validate(
+            "CountTokensRequest",
+            &serde_json::json!({"model": "test", "messages": [{"role": "user", "content": "hi"}], "system": "you are helpful"}),
+        );
+
+        // -- InputItem: every variant the deserializer accepts --
+        let input_items = vec![
+            serde_json::json!({"role": "user", "content": "history"}),
+            serde_json::json!({"type": "message", "role": "user", "content": "hello"}),
+            serde_json::json!({"type": "function_call", "call_id": "c1", "name": "f", "arguments": "{}"}),
+            serde_json::json!({"type": "function_call_output", "call_id": "c1", "output": "ok"}),
+            serde_json::json!({"type": "custom_tool_call", "id": "ct1", "name": "t", "input": "d"}),
+            serde_json::json!({"type": "custom_tool_call_output", "call_id": "c1", "output": "r"}),
+            serde_json::json!({"type": "reasoning", "id": "r1", "content": [{"type": "reasoning_text", "text": "think"}]}),
+            serde_json::json!({"type": "mcp_list_tools", "id": "mlt1", "server_label": "s", "tools": []}),
+            serde_json::json!({"type": "compaction", "id": "cmp1", "encrypted_content": "enc"}),
+            serde_json::json!({"type": "compaction_trigger"}),
+        ];
+        for fixture in &input_items {
+            validate("InputItem", fixture);
+        }
+
+        // -- OutputItem: every variant --
+        let output_items = vec![
+            serde_json::json!({"type": "message", "id": "m1", "role": "assistant", "status": "completed"}),
+            serde_json::json!({"type": "function_call", "id": "fc1", "call_id": "c1", "name": "f", "arguments": "{}", "status": "completed"}),
+            serde_json::json!({"type": "custom_tool_call", "id": "ct1", "name": "t", "input": "d"}),
+            serde_json::json!({"type": "web_search_call", "id": "ws1", "status": "completed", "action": {"type": "search", "query": "q"}}),
+            serde_json::json!({"type": "mcp_call", "id": "mc1", "server_label": "s", "name": "n", "arguments": "{}"}),
+            serde_json::json!({"type": "mcp_list_tools", "id": "mlt1", "server_label": "s", "tools": []}),
+            serde_json::json!({"type": "reasoning", "id": "r1", "content": [{"type": "reasoning_text", "text": "think"}]}),
+            serde_json::json!({"type": "compaction", "encrypted_content": "enc"}),
+        ];
+        for fixture in &output_items {
+            validate("OutputItem", fixture);
+        }
+
+        // -- McpCallError: typed, string, and arbitrary forms --
+        // null is NOT included: McpCallError only appears as Option<McpCallError>
+        // on the wire, so null means None (no error), not Unknown(null).
+        let mcp_errors = vec![
+            serde_json::json!("plain error string"),
+            serde_json::json!({"type": "tool_execution_error", "content": [{"type": "text", "text": "err"}]}),
+            serde_json::json!({"unexpected_key": "arbitrary object"}),
+            serde_json::json!(42),
+            serde_json::json!([1, 2, 3]),
+            serde_json::json!(true),
+        ];
+        for fixture in &mcp_errors {
+            validate("McpCallError", fixture);
+            let _: agentic_core::types::io::McpCallError =
+                serde_json::from_value(fixture.clone()).expect("serde must accept McpCallError form");
+        }
+
+        // -- ResponsesTool: every variant --
+        let tools = vec![
+            serde_json::json!({"type": "function", "name": "f"}),
+            serde_json::json!({"type": "mcp", "server_label": "s"}),
+            serde_json::json!({"type": "web_search_preview"}),
+            serde_json::json!({"type": "file_search"}),
+            serde_json::json!({"type": "code_interpreter"}),
+            serde_json::json!({"type": "namespace", "name": "ns", "tools": []}),
+            serde_json::json!({"type": "custom", "name": "c"}),
+        ];
+        for fixture in &tools {
+            validate("ResponsesTool", fixture);
+        }
+
+        // -- ToolChoice: all accepted forms including legacy --
+        let tool_choices = vec![
+            serde_json::json!("auto"),
+            serde_json::json!("none"),
+            serde_json::json!("required"),
+            serde_json::json!({"type": "function", "name": "get_weather"}),
+            serde_json::json!({"type": "function", "name": "f", "namespace": "ns"}),
+            serde_json::json!({"type": "custom", "name": "apply_patch"}),
+            serde_json::json!({"type": "allowed_tools", "mode": "required", "tools": [{"type": "function", "name": "f"}]}),
+            serde_json::json!({"function": {"name": "legacy_fn"}}),
+        ];
+        for fixture in &tool_choices {
+            validate("ToolChoice", fixture);
+            let _: agentic_core::types::io::ToolChoice =
+                serde_json::from_value(fixture.clone()).expect("serde must accept ToolChoice form");
+        }
+        // Negative: empty name must be rejected by both schema and serde.
+        let empty_name = serde_json::json!({"type": "function", "name": ""});
+        assert!(
+            serde_json::from_value::<agentic_core::types::io::ToolChoice>(empty_name.clone()).is_err(),
+            "serde must reject empty tool name"
+        );
+        let wrapper = serde_json::json!({
+            "components": { "schemas": schemas },
+            "$ref": "#/components/schemas/ToolChoice"
+        });
+        let validator = jsonschema::validator_for(&wrapper).unwrap();
+        assert!(
+            validator.iter_errors(&empty_name).next().is_some(),
+            "schema must reject empty tool name"
+        );
+
+        // Serde aliases for WebSearch must validate against the schema AND round-trip.
+        for alias in ["web_search", "web_search_preview_2025_03_11", "web_search_2025_08_26"] {
+            let fixture = serde_json::json!({"type": alias});
+            validate("ResponsesTool", &fixture);
+            let _: agentic_core::types::tools::ResponsesTool =
+                serde_json::from_value(fixture).expect("alias must deserialize");
+        }
+
+        // -- OutputItem: nullable fields present from real vLLM fixtures --
+        let reasoning_nulls = serde_json::json!({
+            "type": "reasoning", "id": "rs_abc", "summary": [],
+            "content": [{"text": "Let me think...", "type": "reasoning_text"}],
+            "encrypted_content": null, "status": null
+        });
+        validate("OutputItem", &reasoning_nulls);
+        let _: agentic_core::types::io::OutputItem =
+            serde_json::from_value(reasoning_nulls).expect("serde must accept reasoning with nulls");
+
+        validate(
+            "OutputItem",
+            &serde_json::json!({
+                "type": "custom_tool_call", "id": "ctc_1", "call_id": "call_1",
+                "name": "apply_patch", "input": "patch"
+            }),
+        );
+        validate(
+            "OutputItem",
+            &serde_json::json!({
+                "type": "function_call", "id": "fc_1", "call_id": "call_1",
+                "name": "run", "namespace": "mcp__shell",
+                "arguments": "{\"cmd\":\"pwd\"}", "status": "completed"
+            }),
+        );
+        validate(
+            "OutputItem",
+            &serde_json::json!({
+                "type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+                "content": [{"annotations": [], "text": "hello", "type": "output_text"}]
+            }),
+        );
+        validate(
+            "OutputItem",
+            &serde_json::json!({
+                "type": "mcp_call", "id": "mcp_1", "server_label": "counter",
+                "name": "increment", "arguments": "{}", "status": "completed",
+                "output": "1", "approval_request_id": null, "error": null
+            }),
+        );
+
+        // -- ResponsesTool: full field sets from codebase fixtures --
+        let mcp_full = serde_json::json!({
+            "type": "mcp", "server_label": "repo",
+            "server_url": "http://localhost:9001/mcp",
+            "headers": {"X-Request-ID": "request-1"},
+            "authorization": "token",
+            "allowed_tools": ["read_file"],
+            "require_approval": "never"
+        });
+        validate("ResponsesTool", &mcp_full);
+        let _: agentic_core::types::tools::ResponsesTool =
+            serde_json::from_value(mcp_full).expect("serde must accept MCP with full fields");
+
+        let fn_full = serde_json::json!({
+            "type": "function", "name": "get_weather",
+            "description": "Get weather for a city",
+            "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
+            "x-extra": "kept"
+        });
+        validate("ResponsesTool", &fn_full);
+        let _: agentic_core::types::tools::ResponsesTool =
+            serde_json::from_value(fn_full).expect("serde must accept function with extras");
+
+        let custom_fmt = serde_json::json!({
+            "type": "custom", "name": "apply_patch", "description": "Apply a patch.",
+            "format": {"type": "grammar", "syntax": "lark", "definition": "start: patch"}
+        });
+        validate("ResponsesTool", &custom_fmt);
+        let _: agentic_core::types::tools::ResponsesTool =
+            serde_json::from_value(custom_fmt).expect("serde must accept custom with format");
+
+        let ns_tool = serde_json::json!({
+            "type": "namespace", "name": "mcp__shell",
+            "tools": [{"type": "function", "name": "run", "parameters": {"type": "object"}}]
+        });
+        validate("ResponsesTool", &ns_tool);
+        let _: agentic_core::types::tools::ResponsesTool =
+            serde_json::from_value(ns_tool).expect("serde must accept namespace with tools");
+
+        validate(
+            "ResponsesTool",
+            &serde_json::json!({"type": "file_search", "vector_store_ids": ["vs_abc"]}),
+        );
+
+        // -- InputItem: structured custom tool output --
+        let structured_output = serde_json::json!({
+            "type": "custom_tool_call_output", "call_id": "call_1",
+            "output": [
+                {"type": "input_text", "text": "diagram"},
+                {"type": "input_image", "image_url": "data:image/png;base64,abc", "detail": "low"}
+            ]
+        });
+        validate("InputItem", &structured_output);
+        let _: agentic_core::types::io::InputItem =
+            serde_json::from_value(structured_output).expect("serde must accept structured output");
+
+        // -- RequestPayload: reasoning and text configurations --
+        let with_reasoning = serde_json::json!({
+            "model": "m", "input": "hello",
+            "reasoning": {"effort": "high", "generate_summary": "concise"}
+        });
+        validate("RequestPayload", &with_reasoning);
+        let _: agentic_core::types::request_response::RequestPayload =
+            serde_json::from_value(with_reasoning).expect("serde must accept reasoning config");
+
+        let with_text = serde_json::json!({
+            "model": "m", "input": "hello",
+            "text": {
+                "format": {"type": "json_schema", "name": "weather",
+                    "schema": {"type": "object", "properties": {"city": {"type": "string"}}}},
+                "verbosity": "low"
+            }
+        });
+        validate("RequestPayload", &with_text);
+        let _: agentic_core::types::request_response::RequestPayload =
+            serde_json::from_value(with_text).expect("serde must accept text config");
+
+        // -- MessagesRequest: output_config --
+        let msg_with_config = serde_json::json!({
+            "model": "m", "max_tokens": 1,
+            "messages": [{"role": "user", "content": "hi"}],
+            "output_config": {"effort": "high", "format": {"type": "json"}}
+        });
+        validate("MessagesRequest", &msg_with_config);
+        let _: agentic_core::types::messages::MessagesRequest =
+            serde_json::from_value(msg_with_config).expect("serde must accept output_config");
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn option_fields_accept_explicit_null_in_every_component_schema() {
+        let spec = ApiDoc::openapi();
+        let spec_json = serde_json::to_value(&spec).expect("spec must serialize");
+        let schemas = spec_json["components"]["schemas"]
+            .as_object()
+            .expect("schemas must exist");
+
+        let mut failures: Vec<String> = Vec::new();
+        let mut check = |schema_name: &str, fixture: &serde_json::Value| {
+            let wrapper = serde_json::json!({
+                "components": { "schemas": schemas },
+                "$ref": format!("#/components/schemas/{schema_name}")
+            });
+            let validator = jsonschema::validator_for(&wrapper)
+                .unwrap_or_else(|e| panic!("failed to compile schema for {schema_name}: {e}"));
+            let errors: Vec<String> = validator
+                .iter_errors(fixture)
+                .map(|e| format!("    {} at {}", e, e.instance_path))
+                .collect();
+            if !errors.is_empty() {
+                failures.push(format!(
+                    "  {schema_name}:\n{}\n    fixture: {}",
+                    errors.join("\n"),
+                    serde_json::to_string(fixture).unwrap()
+                ));
+            }
+        };
+
+        // -- McpCall: all four Option fields --
+        check(
+            "McpCall",
+            &serde_json::json!({
+                "id": "mcp_1", "server_label": "s", "name": "n", "arguments": "{}",
+                "status": null, "approval_request_id": null, "output": null, "error": null
+            }),
+        );
+
+        // -- ReasoningOutput: encrypted_content and status --
+        check(
+            "ReasoningOutput",
+            &serde_json::json!({
+                "id": "r1", "content": [], "summary": [],
+                "encrypted_content": null, "status": null
+            }),
+        );
+
+        // -- CustomToolCall: status --
+        check(
+            "CustomToolCall",
+            &serde_json::json!({
+                "id": "ct1", "call_id": "c1", "name": "t", "input": "d", "status": null
+            }),
+        );
+
+        // -- FunctionToolCall: namespace --
+        check(
+            "FunctionToolCall",
+            &serde_json::json!({
+                "id": "fc1", "call_id": "c1", "name": "f", "arguments": "{}", "status": "completed",
+                "namespace": null
+            }),
+        );
+
+        // -- InputMessage: id and status --
+        check(
+            "InputMessage",
+            &serde_json::json!({
+                "role": "user", "content": "hi", "id": null, "status": null
+            }),
+        );
+
+        // -- CompactionItem: id --
+        check(
+            "CompactionItem",
+            &serde_json::json!({
+                "encrypted_content": "enc", "id": null
+            }),
+        );
+
+        // -- IncompleteDetails: reason --
+        check("IncompleteDetails", &serde_json::json!({"reason": null}));
+
+        // -- InputImageContent: all fields optional --
+        check(
+            "InputImageContent",
+            &serde_json::json!({
+                "file_id": null, "image_url": null, "detail": null
+            }),
+        );
+
+        // -- InputFileContent: all fields optional --
+        check(
+            "InputFileContent",
+            &serde_json::json!({
+                "file_data": null, "file_id": null, "file_url": null,
+                "filename": null, "detail": null
+            }),
+        );
+
+        // -- WebSearchSource: title --
+        check(
+            "WebSearchSource",
+            &serde_json::json!({"url": "http://x", "title": null}),
+        );
+
+        // -- McpToolExecutionErrorContent: annotations and meta --
+        check(
+            "McpToolExecutionErrorContent",
+            &serde_json::json!({
+                "type": "text", "text": "err", "annotations": null, "meta": null
+            }),
+        );
+
+        // -- FunctionToolParam: description, parameters, strict, defer_loading --
+        check(
+            "FunctionToolParam",
+            &serde_json::json!({
+                "name": "f", "description": null, "parameters": null,
+                "strict": null, "defer_loading": null
+            }),
+        );
+
+        // -- CustomToolParam: description and format --
+        check(
+            "CustomToolParam",
+            &serde_json::json!({
+                "name": "c", "description": null, "format": null
+            }),
+        );
+
+        // -- McpToolParam: all optional fields --
+        check(
+            "McpToolParam",
+            &serde_json::json!({
+                "server_label": "s", "server_url": null, "connector_id": null,
+                "headers": null, "authorization": null,
+                "allowed_tools": null, "require_approval": null
+            }),
+        );
+
+        // -- WebSearchToolParam: all optional fields --
+        check(
+            "WebSearchToolParam",
+            &serde_json::json!({
+                "search_context_size": null, "filters": null, "user_location": null
+            }),
+        );
+
+        // -- FileSearchToolParam: vector_store_ids --
+        check("FileSearchToolParam", &serde_json::json!({"vector_store_ids": null}));
+
+        // -- ReasoningConfig: all optional fields --
+        check(
+            "ReasoningConfig",
+            &serde_json::json!({
+                "context": null, "effort": null, "generate_summary": null,
+                "mode": null, "summary": null
+            }),
+        );
+
+        // -- ResponseTextConfig: format and verbosity --
+        check(
+            "ResponseTextConfig",
+            &serde_json::json!({
+                "format": null, "verbosity": null
+            }),
+        );
+
+        // -- McpCall with non-null status (also test valid enum value) --
+        check(
+            "McpCall",
+            &serde_json::json!({
+                "id": "mcp_2", "server_label": "s", "name": "n", "arguments": "{}",
+                "status": "completed", "output": "ok", "approval_request_id": null, "error": null
+            }),
+        );
+
+        assert!(
+            failures.is_empty(),
+            "Optional fields that reject explicit null:\n{}",
+            failures.join("\n\n")
+        );
+    }
+
+    #[test]
+    fn spec_validates_against_openapi_3_1_meta_schema() {
+        let meta_schema: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/openapi-3.1-schema.json")).expect("meta-schema must parse");
+        let validator = jsonschema::validator_for(&meta_schema).expect("meta-schema must compile");
+
+        let spec = ApiDoc::openapi();
+        let spec_json = serde_json::to_value(&spec).expect("spec must serialize");
+
+        let errors: Vec<String> = validator
+            .iter_errors(&spec_json)
+            .map(|e| format!("{} at {}", e, e.instance_path))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "OpenAPI spec failed meta-schema validation:\n{}",
+            errors.join("\n")
+        );
+    }
+}

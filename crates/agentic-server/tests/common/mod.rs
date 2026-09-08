@@ -60,6 +60,7 @@ pub async fn spawn_mock_llm() -> (String, tokio::task::JoinHandle<()>) {
 }
 
 /// Spawn the gateway router bound to a random port.
+#[allow(dead_code)]
 pub async fn spawn_gateway(state: AppState) -> (String, tokio::task::JoinHandle<()>) {
     let router = build_router(state, &ServerConfig::from_env());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
