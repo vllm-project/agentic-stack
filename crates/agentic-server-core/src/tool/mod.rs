@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod normalize;
 pub mod ownership;
 pub mod registry;
+pub mod tool_search;
 pub mod web_search;
 
 pub use codex::{CodexNamespaceHandler, NamespaceMap, model_visible_namespace_member_name};
@@ -22,4 +23,6 @@ pub use handler::{GatewayExecutor, GatewayToolEventPlan, ToolError, ToolHandler,
 pub use mcp::{McpClient, McpClientPool, McpDiscoveredHandler, McpError, McpHandler, McpOperation, McpServerEntry};
 pub use ownership::{GatewayBinding, ToolOwnership};
 pub use registry::{GatewayDispatchResult, ToolEntry, ToolRegistry, ToolType};
+pub(crate) use tool_search::ToolSearchMetadata;
+pub use tool_search::{ToolSearchHandler, ToolSearchState};
 pub use web_search::WebSearchHandler;

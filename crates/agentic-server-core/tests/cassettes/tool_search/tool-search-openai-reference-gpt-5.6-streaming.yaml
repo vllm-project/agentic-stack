@@ -1,0 +1,701 @@
+turns:
+- filename: t1
+  request:
+    body:
+      input: First call tool_search exactly once to find both a current-weather function
+        and a travel time-zone function. Do not call any other tool yet.
+      max_output_tokens: 4096
+      model: gpt-5.6
+      parallel_tool_calls: false
+      store: true
+      stream: true
+      tool_choice: required
+      tools:
+      - description: Search the client tool catalog for tools that can satisfy the
+          request.
+        execution: client
+        parameters:
+          additionalProperties: false
+          properties:
+            query:
+              description: A concise description of the needed capabilities.
+              type: string
+          required:
+          - query
+          type: object
+        type: tool_search
+      - defer_loading: true
+        description: Get the current weather for a city
+        name: get_weather
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - defer_loading: true
+        description: Get the exchange rate between two currencies
+        name: get_exchange_rate
+        parameters:
+          additionalProperties: false
+          properties:
+            base:
+              type: string
+            quote:
+              type: string
+          required:
+          - base
+          - quote
+          type: object
+        strict: true
+        type: function
+      - defer_loading: true
+        description: Search for hotels in a city
+        name: search_hotels
+        parameters:
+          additionalProperties: false
+          properties:
+            city:
+              type: string
+          required:
+          - city
+          type: object
+        strict: true
+        type: function
+      - description: Travel location tools
+        name: travel
+        tools:
+        - defer_loading: true
+          description: Get the IANA time zone for a city
+          name: get_timezone
+          parameters:
+            additionalProperties: false
+            properties:
+              city:
+                type: string
+            required:
+            - city
+            type: object
+          strict: true
+          type: function
+        - defer_loading: true
+          description: Get latitude and longitude for a city
+          name: get_coordinates
+          parameters:
+            additionalProperties: false
+            properties:
+              city:
+                type: string
+            required:
+            - city
+            type: object
+          strict: true
+          type: function
+        - defer_loading: true
+          description: Calculate the distance between two cities
+          name: calculate_distance
+          parameters:
+            additionalProperties: false
+            properties:
+              destination:
+                type: string
+              origin:
+                type: string
+            required:
+            - origin
+            - destination
+            type: object
+          strict: true
+          type: function
+        type: namespace
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_09b6d06342202e77006a8e5a92598887d08852a79bcc7fc981","object":"response","created_at":1787714194,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"required","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","defer_loading":true,"description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Get
+      the exchange rate between two currencies","name":"get_exchange_rate","output_schema":null,"parameters":{"type":"object","properties":{"base":{"type":"string"},"quote":{"type":"string"}},"required":["base","quote"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Search
+      for hotels in a city","name":"search_hotels","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"tool_search","description":"Search
+      the client tool catalog for tools that can satisfy the request.","execution":"client","parameters":{"type":"object","properties":{"query":{"type":"string","description":"A
+      concise description of the needed capabilities."}},"required":["query"],"additionalProperties":false}},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","defer_loading":true,"description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Get
+      latitude and longitude for a city","name":"get_coordinates","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Calculate
+      the distance between two cities","name":"calculate_distance","output_schema":null,"parameters":{"type":"object","properties":{"origin":{"type":"string"},"destination":{"type":"string"}},"required":["origin","destination"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_09b6d06342202e77006a8e5a92598887d08852a79bcc7fc981","object":"response","created_at":1787714194,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"required","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","defer_loading":true,"description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Get
+      the exchange rate between two currencies","name":"get_exchange_rate","output_schema":null,"parameters":{"type":"object","properties":{"base":{"type":"string"},"quote":{"type":"string"}},"required":["base","quote"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Search
+      for hotels in a city","name":"search_hotels","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"tool_search","description":"Search
+      the client tool catalog for tools that can satisfy the request.","execution":"client","parameters":{"type":"object","properties":{"query":{"type":"string","description":"A
+      concise description of the needed capabilities."}},"required":["query"],"additionalProperties":false}},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","defer_loading":true,"description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Get
+      latitude and longitude for a city","name":"get_coordinates","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Calculate
+      the distance between two cities","name":"calculate_distance","output_schema":null,"parameters":{"type":"object","properties":{"origin":{"type":"string"},"destination":{"type":"string"}},"required":["origin","destination"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"tsc_09b6d06342202e77006a8e5a94076087d0b8b974aa62486abc","type":"tool_search_call","status":"in_progress","arguments":{},"call_id":"call_3SyAHfZ8PhLjASVy8iEFa2AQ","execution":"client"},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"tsc_09b6d06342202e77006a8e5a94076087d0b8b974aa62486abc","type":"tool_search_call","status":"completed","arguments":{"query":"Find
+      both (1) a function that returns current weather for a location and (2) a travel
+      time-zone function that determines a destination''s time zone or local time
+      for travel planning."},"call_id":"call_3SyAHfZ8PhLjASVy8iEFa2AQ","execution":"client"},"output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_09b6d06342202e77006a8e5a92598887d08852a79bcc7fc981","object":"response","created_at":1787714194,"status":"completed","background":false,"completed_at":1787714196,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"tsc_09b6d06342202e77006a8e5a94076087d0b8b974aa62486abc","type":"tool_search_call","status":"completed","arguments":{"query":"Find
+      both (1) a function that returns current weather for a location and (2) a travel
+      time-zone function that determines a destination''s time zone or local time
+      for travel planning."},"call_id":"call_3SyAHfZ8PhLjASVy8iEFa2AQ","execution":"client"}],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"required","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","defer_loading":true,"description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Get
+      the exchange rate between two currencies","name":"get_exchange_rate","output_schema":null,"parameters":{"type":"object","properties":{"base":{"type":"string"},"quote":{"type":"string"}},"required":["base","quote"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Search
+      for hotels in a city","name":"search_hotels","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"tool_search","description":"Search
+      the client tool catalog for tools that can satisfy the request.","execution":"client","parameters":{"type":"object","properties":{"query":{"type":"string","description":"A
+      concise description of the needed capabilities."}},"required":["query"],"additionalProperties":false}},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","defer_loading":true,"description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Get
+      latitude and longitude for a city","name":"get_coordinates","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"function","defer_loading":true,"description":"Calculate
+      the distance between two cities","name":"calculate_distance","output_schema":null,"parameters":{"type":"object","properties":{"origin":{"type":"string"},"destination":{"type":"string"}},"required":["origin","destination"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":166,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":56,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":222},"user":null,"metadata":{}},"sequence_number":4}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t2
+  request:
+    body:
+      input:
+      - call_id: call_3SyAHfZ8PhLjASVy8iEFa2AQ
+        execution: client
+        status: completed
+        tools:
+        - defer_loading: true
+          description: Get the current weather for a city
+          name: get_weather
+          parameters:
+            additionalProperties: false
+            properties:
+              city:
+                type: string
+            required:
+            - city
+            type: object
+          strict: true
+          type: function
+        - description: Travel location tools
+          name: travel
+          tools:
+          - defer_loading: true
+            description: Get the IANA time zone for a city
+            name: get_timezone
+            parameters:
+              additionalProperties: false
+              properties:
+                city:
+                  type: string
+              required:
+              - city
+              type: object
+            strict: true
+            type: function
+          type: namespace
+        type: tool_search_output
+      - content: Now call get_weather exactly once with {"city":"Paris"}. Do not call
+          any other tool.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: gpt-5.6
+      parallel_tool_calls: false
+      previous_response_id: resp_09b6d06342202e77006a8e5a92598887d08852a79bcc7fc981
+      store: true
+      stream: true
+      tool_choice:
+        name: get_weather
+        type: function
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_09b6d06342202e77006a8e5a95861887d0bd00969c33f529ca","object":"response","created_at":1787714197,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_09b6d06342202e77006a8e5a92598887d08852a79bcc7fc981","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":{"type":"function","name":"get_weather"},"tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_09b6d06342202e77006a8e5a95861887d0bd00969c33f529ca","object":"response","created_at":1787714197,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_09b6d06342202e77006a8e5a92598887d08852a79bcc7fc981","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":{"type":"function","name":"get_weather"},"tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_09b6d06342202e77006a8e5a9687c087d08411dc30df8f3051","type":"function_call","status":"in_progress","arguments":"","call_id":"call_cUesiZFNF0gLgnw5j85LzWC0","name":"get_weather"},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"","item_id":"fc_09b6d06342202e77006a8e5a9687c087d08411dc30df8f3051","obfuscation":"5rVjKITNgMDH4z","output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"city","item_id":"fc_09b6d06342202e77006a8e5a9687c087d08411dc30df8f3051","obfuscation":"oJCzUK8Gkyt6","output_index":0,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"\":\"","item_id":"fc_09b6d06342202e77006a8e5a9687c087d08411dc30df8f3051","obfuscation":"U1Zq3q7lNKvLd","output_index":0,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"Paris","item_id":"fc_09b6d06342202e77006a8e5a9687c087d08411dc30df8f3051","obfuscation":"reFrhFQOt1s","output_index":0,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"\"}","item_id":"fc_09b6d06342202e77006a8e5a9687c087d08411dc30df8f3051","obfuscation":"Bdyq0fhBBSjZz4","output_index":0,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"Paris\"}","item_id":"fc_09b6d06342202e77006a8e5a9687c087d08411dc30df8f3051","output_index":0,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_09b6d06342202e77006a8e5a9687c087d08411dc30df8f3051","type":"function_call","status":"completed","arguments":"{\"city\":\"Paris\"}","call_id":"call_cUesiZFNF0gLgnw5j85LzWC0","name":"get_weather"},"output_index":0,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_09b6d06342202e77006a8e5a95861887d0bd00969c33f529ca","object":"response","created_at":1787714197,"status":"completed","background":false,"completed_at":1787714198,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"fc_09b6d06342202e77006a8e5a9687c087d08411dc30df8f3051","type":"function_call","status":"completed","arguments":"{\"city\":\"Paris\"}","call_id":"call_cUesiZFNF0gLgnw5j85LzWC0","name":"get_weather"}],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_09b6d06342202e77006a8e5a92598887d08852a79bcc7fc981","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":{"type":"function","name":"get_weather"},"tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":305,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":18,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":323},"user":null,"metadata":{}},"sequence_number":10}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t3
+  request:
+    body:
+      input:
+      - call_id: call_cUesiZFNF0gLgnw5j85LzWC0
+        output: '{"city":"Paris","condition":"clear","temperature_c":21}'
+        type: function_call_output
+      - content: Now call the loaded travel namespace member get_timezone exactly
+          once with {"city":"Paris"}. Do not call any other tool.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: gpt-5.6
+      parallel_tool_calls: false
+      previous_response_id: resp_09b6d06342202e77006a8e5a95861887d0bd00969c33f529ca
+      store: true
+      stream: true
+      tool_choice: auto
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_09b6d06342202e77006a8e5a97688887d089b8d9eed0314f80","object":"response","created_at":1787714199,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_09b6d06342202e77006a8e5a95861887d0bd00969c33f529ca","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_09b6d06342202e77006a8e5a97688887d089b8d9eed0314f80","object":"response","created_at":1787714199,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_09b6d06342202e77006a8e5a95861887d0bd00969c33f529ca","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"fc_09b6d06342202e77006a8e5a98f23087d09eeb5d379d9284cd","type":"function_call","status":"in_progress","arguments":"","call_id":"call_gP1EXR0KtNa0MCfzjh5fCsZQ","name":"get_timezone","namespace":"travel"},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"{\"","item_id":"fc_09b6d06342202e77006a8e5a98f23087d09eeb5d379d9284cd","obfuscation":"UtCM30Dyqigyxv","output_index":0,"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"city","item_id":"fc_09b6d06342202e77006a8e5a98f23087d09eeb5d379d9284cd","obfuscation":"xXypsqWj1DjX","output_index":0,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"\":\"","item_id":"fc_09b6d06342202e77006a8e5a98f23087d09eeb5d379d9284cd","obfuscation":"losPggMyhFmvT","output_index":0,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"Paris","item_id":"fc_09b6d06342202e77006a8e5a98f23087d09eeb5d379d9284cd","obfuscation":"iS39SPucwq2","output_index":0,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.delta
+
+      '
+    - 'data: {"type":"response.function_call_arguments.delta","delta":"\"}","item_id":"fc_09b6d06342202e77006a8e5a98f23087d09eeb5d379d9284cd","obfuscation":"5pUHuZkUbpKdXV","output_index":0,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.function_call_arguments.done
+
+      '
+    - 'data: {"type":"response.function_call_arguments.done","arguments":"{\"city\":\"Paris\"}","item_id":"fc_09b6d06342202e77006a8e5a98f23087d09eeb5d379d9284cd","output_index":0,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"fc_09b6d06342202e77006a8e5a98f23087d09eeb5d379d9284cd","type":"function_call","status":"completed","arguments":"{\"city\":\"Paris\"}","call_id":"call_gP1EXR0KtNa0MCfzjh5fCsZQ","name":"get_timezone","namespace":"travel"},"output_index":0,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_09b6d06342202e77006a8e5a97688887d089b8d9eed0314f80","object":"response","created_at":1787714199,"status":"completed","background":false,"completed_at":1787714201,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"fc_09b6d06342202e77006a8e5a98f23087d09eeb5d379d9284cd","type":"function_call","status":"completed","arguments":"{\"city\":\"Paris\"}","call_id":"call_gP1EXR0KtNa0MCfzjh5fCsZQ","name":"get_timezone","namespace":"travel"}],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_09b6d06342202e77006a8e5a95861887d0bd00969c33f529ca","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":377,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":18,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":395},"user":null,"metadata":{}},"sequence_number":10}
+
+      '
+    - '
+
+      '
+    status_code: 200
+- filename: t4
+  request:
+    body:
+      input:
+      - call_id: call_gP1EXR0KtNa0MCfzjh5fCsZQ
+        output: '{"city":"Paris","iana_timezone":"Europe/Paris"}'
+        type: function_call_output
+      - content: Use both function outputs and call no more tools. Reply with exactly
+          PARIS_MIXED_TOOLS_OK.
+        role: user
+        type: message
+      max_output_tokens: 4096
+      model: gpt-5.6
+      parallel_tool_calls: false
+      previous_response_id: resp_09b6d06342202e77006a8e5a97688887d089b8d9eed0314f80
+      store: true
+      stream: true
+      tool_choice: none
+    headers:
+      accept: '*/*'
+      authorization: Bearer ***
+      content-type: application/json
+      user-agent: python-httpx/0.28.1
+    method: POST
+    path: /v1/responses
+    query_params: {}
+  response:
+    headers:
+      content-type: text/event-stream; charset=utf-8
+    sse:
+    - 'event: response.created
+
+      '
+    - 'data: {"type":"response.created","response":{"id":"resp_09b6d06342202e77006a8e5a99cc8087d0a13c2695d1547e2b","object":"response","created_at":1787714201,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_09b6d06342202e77006a8e5a97688887d089b8d9eed0314f80","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"none","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+      '
+    - '
+
+      '
+    - 'event: response.in_progress
+
+      '
+    - 'data: {"type":"response.in_progress","response":{"id":"resp_09b6d06342202e77006a8e5a99cc8087d0a13c2695d1547e2b","object":"response","created_at":1787714201,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_09b6d06342202e77006a8e5a97688887d089b8d9eed0314f80","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"none","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.added
+
+      '
+    - 'data: {"type":"response.output_item.added","item":{"id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","type":"message","status":"in_progress","content":[],"phase":"final_answer","role":"assistant"},"output_index":0,"sequence_number":2}
+
+      '
+    - '
+
+      '
+    - 'event: response.content_part.added
+
+      '
+    - 'data: {"type":"response.content_part.added","content_index":0,"item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","output_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":""},"sequence_number":3}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"PAR","item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","logprobs":[],"obfuscation":"zeoN8KyyCd2VT","output_index":0,"sequence_number":4}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"IS","item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","logprobs":[],"obfuscation":"KE1EZAjDnT4TDM","output_index":0,"sequence_number":5}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"_M","item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","logprobs":[],"obfuscation":"nWDqsrSg1OcL63","output_index":0,"sequence_number":6}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"IX","item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","logprobs":[],"obfuscation":"tAqnIifuPpWOQk","output_index":0,"sequence_number":7}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"ED","item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","logprobs":[],"obfuscation":"dyYFy0raO7i52N","output_index":0,"sequence_number":8}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"_TO","item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","logprobs":[],"obfuscation":"ROBuypXCR2xEk","output_index":0,"sequence_number":9}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"OLS","item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","logprobs":[],"obfuscation":"NR7WSk37DNNsH","output_index":0,"sequence_number":10}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.delta
+
+      '
+    - 'data: {"type":"response.output_text.delta","content_index":0,"delta":"_OK","item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","logprobs":[],"obfuscation":"Yi7XWBauOo8f9","output_index":0,"sequence_number":11}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_text.done
+
+      '
+    - 'data: {"type":"response.output_text.done","content_index":0,"item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","logprobs":[],"output_index":0,"sequence_number":12,"text":"PARIS_MIXED_TOOLS_OK"}
+
+      '
+    - '
+
+      '
+    - 'event: response.content_part.done
+
+      '
+    - 'data: {"type":"response.content_part.done","content_index":0,"item_id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","output_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":"PARIS_MIXED_TOOLS_OK"},"sequence_number":13}
+
+      '
+    - '
+
+      '
+    - 'event: response.output_item.done
+
+      '
+    - 'data: {"type":"response.output_item.done","item":{"id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"PARIS_MIXED_TOOLS_OK"}],"phase":"final_answer","role":"assistant"},"output_index":0,"sequence_number":14}
+
+      '
+    - '
+
+      '
+    - 'event: response.completed
+
+      '
+    - 'data: {"type":"response.completed","response":{"id":"resp_09b6d06342202e77006a8e5a99cc8087d0a13c2695d1547e2b","object":"response","created_at":1787714201,"status":"completed","background":false,"completed_at":1787714202,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":4096,"max_tool_calls":null,"model":"gpt-5.6-sol","moderation":null,"output":[{"id":"msg_09b6d06342202e77006a8e5a9a6f8087d0836ff8285bd57d7c","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"PARIS_MIXED_TOOLS_OK"}],"phase":"final_answer","role":"assistant"}],"parallel_tool_calls":false,"presence_penalty":0.0,"previous_response_id":"resp_09b6d06342202e77006a8e5a97688887d089b8d9eed0314f80","prompt_cache_key":null,"prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"none","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Get
+      the current weather for a city","name":"get_weather","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true},{"type":"namespace","description":"Travel
+      location tools","name":"travel","tools":[{"type":"function","description":"Get
+      the IANA time zone for a city","name":"get_timezone","output_schema":null,"parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false},"strict":true}]}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":444,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":12,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":456},"user":null,"metadata":{}},"sequence_number":15}
+
+      '
+    - '
+
+      '
+    status_code: 200

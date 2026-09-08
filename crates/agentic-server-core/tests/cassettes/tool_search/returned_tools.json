@@ -1,0 +1,43 @@
+[
+  {
+    "type": "function",
+    "name": "get_weather",
+    "description": "Get the current weather for a city",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string"
+        }
+      },
+      "required": ["city"],
+      "additionalProperties": false
+    },
+    "strict": true,
+    "defer_loading": true
+  },
+  {
+    "type": "namespace",
+    "name": "travel",
+    "description": "Travel location tools",
+    "tools": [
+      {
+        "type": "function",
+        "name": "get_timezone",
+        "description": "Get the IANA time zone for a city",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": ["city"],
+          "additionalProperties": false
+        },
+        "strict": true,
+        "defer_loading": true
+      }
+    ]
+  }
+]

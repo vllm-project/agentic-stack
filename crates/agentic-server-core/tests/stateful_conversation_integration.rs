@@ -7,10 +7,12 @@
 mod support;
 
 use agentic_core::executor::{create_conversation, execute};
+use serde_json::json;
 use std::sync::Arc;
 use support::{
-    TestFixture, collect_stream, expected_text, load_cassette, make_request, output_text, request_input_texts,
-    responses_turns, unwrap_blocking,
+    TestFixture, collect_stream, expected_text, function_call_response, load_cassette, make_request, output_text,
+    request_input_texts, responses_turns, text_response, tool_search_function_declarations, tool_search_output,
+    tool_search_request, unwrap_blocking,
 };
 
 const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/cassettes/text_only/conversation");
@@ -54,6 +56,204 @@ async fn test_two_turn_nonstreaming_conversation() {
     assert_ne!(p2.id, p1.id);
     assert_eq!(p2.status, "completed");
     assert_eq!(output_text(&p2), expected_text(t2));
+}
+
+#[tokio::test]
+async fn tool_search_conversation_continuation_rebuilds_loaded_tools_from_history() {
+    let fixture = TestFixture::new_with_responses(vec![
+        function_call_response("fc_search", "call_search", "tool_search", r#"{"query":"weather"}"#),
+        function_call_response("fc_weather", "call_weather", "get_weather", r#"{"city":"Paris"}"#),
+        text_response("conversation weather complete"),
+    ])
+    .await;
+    let conversation_id = create_conversation(&fixture.exec_ctx)
+        .await
+        .expect("create conversation")
+        .conversation_id;
+    let declarations = tool_search_function_declarations("get_weather", "Get weather");
+
+    let first = unwrap_blocking(
+        execute(
+            tool_search_request(
+                "find weather",
+                Some(declarations),
+                true,
+                None,
+                Some(conversation_id.clone()),
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("conversation search turn"),
+    );
+    assert_eq!(
+        serde_json::to_value(&first.output[0]).unwrap()["type"],
+        "tool_search_call"
+    );
+
+    let second = unwrap_blocking(
+        execute(
+            tool_search_request(
+                json!([tool_search_output("call_search", "get_weather", "Get weather")]),
+                None,
+                true,
+                None,
+                Some(conversation_id.clone()),
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("conversation search output"),
+    );
+    assert_eq!(serde_json::to_value(&second.output[0]).unwrap()["name"], "get_weather");
+
+    let third = unwrap_blocking(
+        execute(
+            tool_search_request(
+                json!([{
+                    "type": "function_call_output",
+                    "call_id": "call_weather",
+                    "output": "sunny"
+                }]),
+                None,
+                true,
+                None,
+                Some(conversation_id),
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("conversation loaded-function output"),
+    );
+    assert_eq!(output_text(&third), "conversation weather complete");
+
+    let requests = fixture.request_bodies().await;
+    assert_eq!(requests.len(), 3);
+    for request in &requests[1..] {
+        assert!(
+            request["tools"]
+                .as_array()
+                .expect("inherited tools")
+                .iter()
+                .any(|tool| { tool["name"] == "get_weather" && tool.get("defer_loading").is_none() })
+        );
+        assert!(
+            request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|tool| tool["name"] != "tool_search")
+        );
+        assert!(!request.to_string().contains("tool_search_call"));
+        assert!(!request.to_string().contains("tool_search_output"));
+    }
+}
+
+#[tokio::test]
+async fn tool_search_previous_response_branch_cannot_replace_conversation_history() {
+    let fixture = TestFixture::new_with_responses(vec![
+        function_call_response("fc_winner", "call_winner", "tool_search", r#"{"query":"winner"}"#),
+        text_response("winner loaded"),
+        text_response("winner checkpoint"),
+        function_call_response("fc_branch", "call_branch", "tool_search", r#"{"query":"branch"}"#),
+        text_response("branch loaded"),
+        text_response("conversation resumed"),
+    ])
+    .await;
+    let conversation_id = create_conversation(&fixture.exec_ctx)
+        .await
+        .expect("create conversation")
+        .conversation_id;
+
+    let winner_search = unwrap_blocking(
+        execute(
+            tool_search_request(
+                "find winner",
+                Some(tool_search_function_declarations("winner_tool", "Winner tool")),
+                true,
+                None,
+                Some(conversation_id.clone()),
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("conversation search call"),
+    );
+    assert_eq!(
+        serde_json::to_value(&winner_search.output[0]).unwrap()["type"],
+        "tool_search_call"
+    );
+    let winner = unwrap_blocking(
+        execute(
+            tool_search_request(
+                json!([tool_search_output("call_winner", "winner_tool", "Winner tool")]),
+                None,
+                true,
+                None,
+                Some(conversation_id.clone()),
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("conversation loaded state"),
+    );
+    assert_eq!(output_text(&winner), "winner loaded");
+
+    let checkpoint = unwrap_blocking(
+        execute(
+            tool_search_request("checkpoint winner", None, true, None, Some(conversation_id.clone())),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("conversation checkpoint"),
+    );
+    assert_eq!(output_text(&checkpoint), "winner checkpoint");
+
+    let branch_search = unwrap_blocking(
+        execute(
+            tool_search_request(
+                "find branch",
+                Some(tool_search_function_declarations("branch_tool", "Branch tool")),
+                true,
+                Some(checkpoint.id),
+                None,
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("response branch search call"),
+    );
+    let branch = unwrap_blocking(
+        execute(
+            tool_search_request(
+                json!([tool_search_output("call_branch", "branch_tool", "Branch tool")]),
+                None,
+                true,
+                Some(branch_search.id),
+                None,
+            ),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("response branch loaded state"),
+    );
+    assert_eq!(output_text(&branch), "branch loaded");
+
+    let resumed = unwrap_blocking(
+        execute(
+            tool_search_request("resume conversation", None, true, None, Some(conversation_id)),
+            Arc::clone(&fixture.exec_ctx),
+        )
+        .await
+        .expect("conversation continuation"),
+    );
+    assert_eq!(output_text(&resumed), "conversation resumed");
+
+    let requests = fixture.request_bodies().await;
+    let resumed_tools = requests[5]["tools"].as_array().expect("conversation tools");
+    assert!(resumed_tools.iter().any(|tool| tool["name"] == "winner_tool"));
+    assert!(!resumed_tools.iter().any(|tool| tool["name"] == "branch_tool"));
+    assert!(!requests[5].to_string().contains("branch loaded"));
 }
 
 /// Case 7 — two turns, streaming, via `conversation_id`.

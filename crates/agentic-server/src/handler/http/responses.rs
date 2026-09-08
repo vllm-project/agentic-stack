@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use agentic_core::executor::{ExecuteRequest, compact_response as execute_compaction};
 use agentic_core::proxy::{ProxyRequest, proxy_request};
+use agentic_core::tool::ToolSearchHandler;
 use agentic_core::types::request_response::{CompactRequest, RequestPayload, ResponseTextConfig};
 
 use super::super::common::{
@@ -52,8 +53,10 @@ pub async fn responses(State(state): State<AppState>, req: Request) -> Response 
         Err(error) => return executor_error_response(error.into()),
     };
 
+    let has_tool_search_state = ToolSearchHandler::request_has_state(&routing_payload);
     let should_execute = routing_payload.store
         || routing_payload.previous_response_id.is_some()
+        || has_tool_search_state
         || routing_payload.in_process_feature().is_some();
     debug!(
         route = if should_execute { "executor" } else { "proxy" },
@@ -63,6 +66,7 @@ pub async fn responses(State(state): State<AppState>, req: Request) -> Response 
         has_conversation_id = routing_payload.conversation_id.is_some(),
         has_compaction = routing_payload.input.contains_compaction(),
         has_compaction_trigger = routing_payload.input.has_compaction_trigger(),
+        has_tool_search_state,
         context_management = routing_payload.context_management.as_ref().map_or(0, Vec::len),
         tools = routing_payload.tools.as_ref().map_or(0, Vec::len),
         "routing HTTP responses request"

@@ -1,0 +1,9 @@
+[
+  "required",
+  {
+    "type": "function",
+    "name": "get_weather"
+  },
+  "auto",
+  "none"
+]
