@@ -21,6 +21,8 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
+use super::bounded_http::BoundedMcpHttpClient;
+
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -130,7 +132,7 @@ impl McpClient {
             }
             config = config.custom_headers(custom_headers);
         }
-        let transport = StreamableHttpClientTransport::with_client(http_client, config);
+        let transport = StreamableHttpClientTransport::with_client(BoundedMcpHttpClient::new(http_client), config);
         let service = AgenticMcpClientHandler
             .serve(transport)
             .await
@@ -396,6 +398,7 @@ mod tests {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     accepted.store(true, Ordering::SeqCst);
+                    stream.set_nonblocking(false).unwrap();
                     let mut request = [0_u8; 1024];
                     let _ = stream.read(&mut request).unwrap();
                     write!(

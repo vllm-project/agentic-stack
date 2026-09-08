@@ -84,6 +84,7 @@ dependencies = [
  "serde_yaml",
  "serde_yml",
  "sqlx",
+ "sse-stream",
  "thiserror",
  "tokio",
  "tracing",

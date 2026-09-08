@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::future::Future;
+use std::io::{self, Write};
 use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::Semaphore;
 
+use super::handler::MAX_GATEWAY_TOOL_OUTPUT_BYTES;
 use super::handler::{GatewayExecutor, GatewayToolEventPlan, ToolError, ToolHandler, ToolOutput};
 use super::ownership::GatewayBinding;
 use super::registry::{ToolEntry, ToolType};
@@ -20,6 +22,25 @@ use crate::types::tools::{WebSearchContextSize, WebSearchToolParam};
 const YOU_API_KEY: &str = "YOU_API_KEY";
 const YOU_API_BASE_URL: &str = "YOU_API_BASE_URL";
 const MAX_WEB_SEARCH_QUERIES: usize = 5;
+
+#[derive(Default)]
+struct CountingWriter {
+    bytes: usize,
+}
+
+impl Write for CountingWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.bytes = self
+            .bytes
+            .checked_add(buffer.len())
+            .ok_or_else(|| io::Error::other("serialized JSON size overflow"))?;
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
 
 pub(crate) type WebSearchExecutor =
     dyn GatewayExecutor<ToolParams = WebSearchToolParam, ExecutionParams = WebSearchToolParam>;
@@ -207,31 +228,41 @@ impl WebSearchHandler {
         let args = WebSearchArguments::from_json(arguments)?;
         let queries = args.all_queries();
         let args_ref = &args;
-        let responses = futures::stream::iter(queries.iter().cloned())
-            .map(|query| {
-                let provider = Arc::clone(provider);
-                let query_permits = Arc::clone(&self.query_permits);
-                async move {
-                    let _permit = query_permits
-                        .acquire_owned()
-                        .await
-                        .map_err(|error| ToolError::Execution(format!("web_search query scheduler closed: {error}")))?;
-                    provider.search(&query, args_ref, params).await
-                }
-            })
-            .buffered(self.max_concurrent_queries.get())
-            .try_collect::<Vec<_>>()
-            .await?;
+        let mut responses = Box::pin(
+            futures::stream::iter(queries.iter().cloned())
+                .map(|query| {
+                    let provider = Arc::clone(provider);
+                    let query_permits = Arc::clone(&self.query_permits);
+                    async move {
+                        let _permit = query_permits.acquire_owned().await.map_err(|error| {
+                            ToolError::Execution(format!("web_search query scheduler closed: {error}"))
+                        })?;
+                        provider.search(&query, args_ref, params).await
+                    }
+                })
+                .buffered(self.max_concurrent_queries.get()),
+        );
 
         let mut web = Vec::new();
         let mut news = Vec::new();
         let mut metadata = Vec::new();
-        for response in responses {
-            if let Some(results) = response.results.get("web").and_then(Value::as_array) {
-                web.extend(results.iter().cloned());
+        let mut accumulated_bytes = 0usize;
+        while let Some(mut response) = responses.try_next().await? {
+            let mut counter = CountingWriter::default();
+            serde_json::to_writer(&mut counter, &response.results)
+                .and_then(|()| serde_json::to_writer(&mut counter, &response.metadata))
+                .map_err(|error| ToolError::Execution(format!("failed to size web_search output: {error}")))?;
+            accumulated_bytes = accumulated_bytes.saturating_add(counter.bytes);
+            if accumulated_bytes > MAX_GATEWAY_TOOL_OUTPUT_BYTES {
+                return Err(ToolError::Execution(format!(
+                    "web_search output exceeded {MAX_GATEWAY_TOOL_OUTPUT_BYTES} bytes"
+                )));
             }
-            if let Some(results) = response.results.get("news").and_then(Value::as_array) {
-                news.extend(results.iter().cloned());
+            if let Some(results) = response.results.get_mut("web").and_then(Value::as_array_mut) {
+                web.append(results);
+            }
+            if let Some(results) = response.results.get_mut("news").and_then(Value::as_array_mut) {
+                news.append(results);
             }
             metadata.push(response.metadata);
         }
@@ -242,6 +273,11 @@ impl WebSearchHandler {
             "metadata": metadata
         }))
         .map_err(|e| ToolError::Execution(format!("failed to serialize web_search output: {e}")))?;
+        if output.len() > MAX_GATEWAY_TOOL_OUTPUT_BYTES {
+            return Err(ToolError::Execution(format!(
+                "web_search output exceeded {MAX_GATEWAY_TOOL_OUTPUT_BYTES} bytes"
+            )));
+        }
 
         Ok(ToolOutput {
             call_id: call_id.to_owned(),
@@ -320,16 +356,13 @@ impl WebSearchProvider for YouSearchProvider {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
+                let body = read_search_response_limited(resp).await.unwrap_or_default();
                 return Err(ToolError::Execution(format!(
                     "You.com search returned {status}: {body}"
                 )));
             }
 
-            let response_text = resp
-                .text()
-                .await
-                .map_err(|e| ToolError::Execution(format!("failed to read You.com search response: {e}")))?;
+            let response_text = read_search_response_limited(resp).await?;
             let response: Value = serde_json::from_str(&response_text)
                 .map_err(|e| ToolError::Execution(format!("You.com search returned invalid JSON: {e}")))?;
             Ok(WebSearchProviderResponse {
@@ -341,6 +374,22 @@ impl WebSearchProvider for YouSearchProvider {
             })
         })
     }
+}
+
+async fn read_search_response_limited(resp: reqwest::Response) -> Result<String, ToolError> {
+    let mut stream = resp.bytes_stream();
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk =
+            chunk.map_err(|error| ToolError::Execution(format!("failed to read You.com search response: {error}")))?;
+        if chunk.len() > MAX_GATEWAY_TOOL_OUTPUT_BYTES.saturating_sub(body.len()) {
+            return Err(ToolError::Execution(format!(
+                "You.com search response exceeded {MAX_GATEWAY_TOOL_OUTPUT_BYTES} bytes"
+            )));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    String::from_utf8(body).map_err(|_| ToolError::Execution("You.com search response was not valid UTF-8".to_owned()))
 }
 
 impl ToolHandler for WebSearchHandler {
@@ -666,6 +715,9 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
+    use axum::body::Body;
+    use bytes::Bytes;
+
     use super::*;
 
     #[derive(Debug)]
@@ -690,6 +742,28 @@ mod tests {
                         "news": []
                     }),
                     metadata: serde_json::json!({"provider": "mock"}),
+                })
+            })
+        }
+    }
+
+    #[derive(Debug)]
+    struct LargeSearchProvider;
+
+    impl WebSearchProvider for LargeSearchProvider {
+        fn search<'a>(
+            &'a self,
+            _query: &'a str,
+            _args: &'a WebSearchArguments,
+            _config: &'a WebSearchToolParam,
+        ) -> Pin<Box<dyn Future<Output = Result<WebSearchProviderResponse, ToolError>> + Send + 'a>> {
+            Box::pin(async move {
+                Ok(WebSearchProviderResponse {
+                    results: serde_json::json!({
+                        "web": [{"snippet": "x".repeat(600 * 1024)}],
+                        "news": []
+                    }),
+                    metadata: Value::Null,
                 })
             })
         }
@@ -725,6 +799,36 @@ mod tests {
     fn web_search_schema_caps_batched_queries() {
         let parameters = web_search_function_tool().parameters.expect("web_search parameters");
         assert_eq!(parameters["properties"]["queries"]["maxItems"], MAX_WEB_SEARCH_QUERIES);
+    }
+
+    #[tokio::test]
+    async fn you_search_response_body_is_bounded_while_reading() {
+        let chunk = Bytes::from(vec![b'x'; MAX_GATEWAY_TOOL_OUTPUT_BYTES / 2 + 1]);
+        let app = axum::Router::new().route(
+            "/v1/search",
+            axum::routing::get(move || {
+                let chunks = [Ok::<_, std::convert::Infallible>(chunk.clone()), Ok(chunk.clone())];
+                async move { Body::from_stream(futures::stream::iter(chunks)) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind search response limit server");
+        let address = listener.local_addr().expect("search response limit server address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.ok();
+        });
+        let response = reqwest::Client::new()
+            .get(format!("http://{address}/v1/search"))
+            .send()
+            .await
+            .expect("fetch oversized search response");
+
+        let error = read_search_response_limited(response)
+            .await
+            .expect_err("oversized search response must fail");
+        assert!(error.to_string().contains("search response exceeded"));
+        server.abort();
     }
 
     #[tokio::test]
@@ -764,6 +868,22 @@ mod tests {
         assert_eq!(body["queries"], serde_json::json!(["potato", "tomato"]));
         assert_eq!(body["results"]["web"].as_array().unwrap().len(), 2);
         assert_eq!(body["metadata"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn web_search_handler_bounds_aggregate_query_results() {
+        let handler = WebSearchHandler::with_provider(Arc::new(LargeSearchProvider));
+        let error = handler
+            .execute(
+                "call_search",
+                "web_search",
+                r#"{"queries":["potato","tomato"]}"#,
+                &WebSearchToolParam::default(),
+            )
+            .await
+            .expect_err("aggregate query results must be bounded");
+
+        assert!(error.to_string().contains("web_search output exceeded"));
     }
 
     #[tokio::test]

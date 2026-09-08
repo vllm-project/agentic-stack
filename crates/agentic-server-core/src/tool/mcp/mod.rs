@@ -1,3 +1,4 @@
+mod bounded_http;
 pub mod client;
 pub mod handler;
 pub mod pool;

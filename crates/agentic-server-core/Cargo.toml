@@ -33,6 +33,7 @@ rmcp = { workspace = true, features = [
 ] }
 serde.workspace = true
 serde_json.workspace = true
+sse-stream.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
 tracing.workspace = true

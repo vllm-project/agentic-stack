@@ -16,6 +16,11 @@ pub(super) struct StreamEvent {
     pub(super) sequence_number: u64,
 }
 
+/// Executor streams keep only a small number of bounded-size events ahead of
+/// their consumer so downstream backpressure also pauses upstream reads.
+pub(super) const STREAM_EVENT_BUFFER: usize = 1;
+const MAX_STREAM_EVENT_BYTES: usize = 1024 * 1024;
+
 impl GatewayStreamAccumulator {
     #[must_use]
     pub fn new() -> Self {
@@ -48,14 +53,23 @@ impl GatewayStreamAccumulator {
     pub(crate) fn terminal_response_chunk(&mut self, payload: &ResponsePayload) -> ExecutorResult<String> {
         let mut frame = terminal_response_frame(payload)?;
         self.stamp_event(&mut frame, 0);
-        serialize_sse_frame(&frame)
+        checked_stream_event(&frame)
     }
 
+    #[cfg(test)]
     pub(crate) fn executor_error_chunk(&mut self, error: &ExecutorError) -> String {
         let mut frame = executor_error_frame(error);
         self.stamp_event(&mut frame, 0);
-        serialize_sse_frame(&frame)
+        checked_stream_event(&frame)
             .unwrap_or_else(|_| error_sse_chunk(&error.to_string(), frame.sequence_number().unwrap_or(0)))
+    }
+
+    pub(crate) fn executor_error_chunk_at(error: &ExecutorError, sequence_number: u64) -> String {
+        let mut frame = executor_error_frame(error);
+        frame.wire.sequence_number = Some(sequence_number);
+        checked_stream_event(&frame).unwrap_or_else(|_| {
+            error_sse_chunk("executor error event exceeded the response size limit", sequence_number)
+        })
     }
 
     fn should_emit_lifecycle(&mut self, event_type: SSEEventType) -> bool {
@@ -156,19 +170,31 @@ pub(super) fn synthetic_event(
         .ok_or_else(|| ExecutorError::StreamError("synthetic event has no wire representation".to_owned()))
 }
 
-pub(super) fn emit_sse_frame(
-    sender: &tokio::sync::mpsc::UnboundedSender<StreamEvent>,
+pub(super) async fn emit_sse_frame(
+    sender: &tokio::sync::mpsc::Sender<StreamEvent>,
     frame: &EventFrame,
 ) -> ExecutorResult<()> {
     let sequence_number = frame
         .sequence_number()
         .ok_or_else(|| ExecutorError::StreamError("stream event has no sequence number".to_owned()))?;
+    let content = checked_stream_event(frame)?;
     sender
         .send(StreamEvent {
-            content: serialize_sse_frame(frame)?,
+            content,
             sequence_number,
         })
+        .await
         .map_err(|_| ExecutorError::StreamError("stream receiver closed while emitting gateway event".to_owned()))
+}
+
+fn checked_stream_event(frame: &EventFrame) -> ExecutorResult<String> {
+    let content = serialize_sse_frame(frame)?;
+    if content.len() > MAX_STREAM_EVENT_BYTES {
+        return Err(ExecutorError::StreamError(format!(
+            "stream event exceeded {MAX_STREAM_EVENT_BYTES} bytes"
+        )));
+    }
+    Ok(content)
 }
 
 fn serialize_sse_frame(frame: &EventFrame) -> ExecutorResult<String> {
@@ -230,6 +256,82 @@ mod tests {
         assert_eq!(event["type"], "error");
         assert_eq!(event["sequence_number"], 7);
         assert_eq!(event["error"]["message"], "task failed: \"unexpected\"\nretry");
+    }
+
+    #[test]
+    fn executor_error_chunk_uses_the_consumers_next_sequence_number() {
+        let error = ExecutorError::StreamError("buffer limit".to_owned());
+        let chunk = GatewayStreamAccumulator::executor_error_chunk_at(&error, 4);
+        let (event_name, event) = parse_named_sse_event(&chunk);
+
+        assert_eq!(event_name, "error");
+        assert_eq!(event["sequence_number"], 4);
+    }
+
+    fn test_stream_event(sequence_number: u64) -> EventFrame {
+        let mut wire = WireEvent::new("test.event");
+        wire.sequence_number = Some(sequence_number);
+        EventFrame {
+            event_type: SSEEventType::Other,
+            payload: EventPayload::None,
+            wire,
+        }
+    }
+
+    #[tokio::test]
+    async fn stream_event_sender_waits_for_bounded_capacity() {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        emit_sse_frame(&sender, &test_stream_event(0))
+            .await
+            .expect("first event should fill the channel");
+
+        let blocked_sender = sender.clone();
+        let blocked = tokio::spawn(async move { emit_sse_frame(&blocked_sender, &test_stream_event(1)).await });
+        tokio::task::yield_now().await;
+        assert!(
+            !blocked.is_finished(),
+            "second event should wait for downstream capacity"
+        );
+
+        receiver.recv().await.expect("first buffered event");
+        blocked
+            .await
+            .expect("event task should not panic")
+            .expect("event should send after capacity is released");
+    }
+
+    #[tokio::test]
+    async fn bounded_stream_event_sender_handles_large_healthy_bursts() {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(STREAM_EVENT_BUFFER);
+        let producer = tokio::spawn(async move {
+            for sequence_number in 0..300 {
+                emit_sse_frame(&sender, &test_stream_event(sequence_number))
+                    .await
+                    .expect("drained event channel should remain writable");
+            }
+        });
+
+        for expected_sequence_number in 0..300 {
+            let event = receiver.recv().await.expect("all burst events should arrive");
+            assert_eq!(event.sequence_number, expected_sequence_number);
+        }
+        producer.await.expect("producer should not panic");
+    }
+
+    #[tokio::test]
+    async fn oversized_stream_event_fails_before_enqueue() {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        let mut frame = test_stream_event(0);
+        frame
+            .wire
+            .rest
+            .insert("delta".to_owned(), Value::String("x".repeat(MAX_STREAM_EVENT_BYTES)));
+
+        let error = emit_sse_frame(&sender, &frame)
+            .await
+            .expect_err("oversized event must be rejected");
+        assert!(error.to_string().contains("stream event exceeded"));
+        assert!(receiver.try_recv().is_err());
     }
 
     #[test]

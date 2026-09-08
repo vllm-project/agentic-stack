@@ -4,6 +4,8 @@ use std::pin::Pin;
 use crate::types::io::FunctionTool;
 use crate::types::io::output::{FunctionToolCall, GatewayCallStatus, OutputItem};
 
+pub(crate) const MAX_GATEWAY_TOOL_OUTPUT_BYTES: usize = 1024 * 1024;
+
 #[derive(Debug, Clone)]
 pub struct ToolOutput {
     pub call_id: String,

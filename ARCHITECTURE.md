@@ -159,11 +159,26 @@ building `ExecuteRequest`, preserving strict validation for in-process execution
 
 `GET /v1/responses` upgrades to a WebSocket. Structurally this is not a one-shot
 handler like the HTTP routes — `responses_ws_loop` is a long-lived session loop that
-reads `response.create` messages off the socket, queues any that arrive while a
-response is streaming, and drives the *same* `ExecuteRequest::run()` executor call the
-HTTP handler uses. WebSocket sessions always force `stream: true, store: true`. Because
-axum's built-in graceful shutdown doesn't wait for upgraded connections, `AppState`
-carries a separate `WebSocketTracker` so shutdown can drain in-flight sessions.
+reads `response.create` messages off the socket and drives the *same*
+`ExecuteRequest::run()` executor call the HTTP handler uses. Requests with distinct
+`stream_id` values run concurrently, while requests in the same lane remain FIFO;
+requests without a `stream_id` share a default FIFO lane. The session admits at most
+64 active or queued requests and 12 MiB of aggregate request data. WebSocket sessions
+always force `stream: true, store: true`. Because axum's built-in graceful shutdown
+doesn't wait for upgraded connections, `AppState` carries a separate
+`WebSocketTracker` so shutdown can drain in-flight sessions.
+
+Executor streams propagate downstream backpressure through a bounded event channel.
+Upstream SSE lines are capped at 256 KiB, while normalized events are capped at 1 MiB.
+Each request also shares a 1 MiB response budget across MCP discovery, upstream rounds,
+and normalized gateway tool output, so a slow consumer cannot turn a fixed event-count
+buffer into unbounded retained memory. MCP discovery participates in the same 16-permit
+materialization window as gateway calls and is capped at 64 server declarations and
+128 discovered tools per request.
+The WebSocket transport queues only serialized, size-checked events, capped at
+1 MiB each including routing metadata, in its 64-entry outbound queue. Local
+completion validates both lifecycle events before persistence. Authentication is
+rechecked at request dispatch so queued work cannot start after identity expiry.
 Errors are modeled by a dedicated `WsError` enum (`handler/websocket/error.rs`) rather
 than reusing the HTTP JSON-error path, since some failure modes (a dead socket) must
 not attempt to write a response.

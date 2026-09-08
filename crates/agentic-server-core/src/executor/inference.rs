@@ -10,6 +10,7 @@ use async_stream::stream;
 use futures::{Stream, StreamExt};
 
 use crate::executor::error::{ExecutorError, ExecutorResult};
+use crate::executor::response_budget::MAX_EXECUTOR_RESPONSE_BYTES;
 use crate::proxy::processed_response_headers;
 
 /// SSE stream of raw lines sent to the client (`data: …\n\n` per event).
@@ -17,6 +18,7 @@ pub type BoxStream = std::pin::Pin<Box<dyn Stream<Item = String> + Send>>;
 
 /// Wire-format marker signalling end-of-stream to the client.
 pub(super) const DONE_MARKER: &str = "data: [DONE]\n\n";
+const MAX_SSE_LINE_BYTES: usize = 256 * 1024;
 
 /// Fetch the next raw bytes chunk from a streaming response.
 ///
@@ -36,9 +38,14 @@ where
     item.transpose().map_err(ExecutorError::NetworkError)
 }
 
-fn drain_complete_utf8_lines(buffer: &mut Vec<u8>) -> Vec<String> {
+fn drain_complete_utf8_lines(buffer: &mut Vec<u8>) -> ExecutorResult<Vec<String>> {
     let mut lines = Vec::new();
     while let Some(pos) = buffer.iter().position(|byte| *byte == b'\n') {
+        if pos > MAX_SSE_LINE_BYTES {
+            return Err(ExecutorError::StreamError(format!(
+                "upstream SSE line exceeded {MAX_SSE_LINE_BYTES} bytes"
+            )));
+        }
         let line = buffer.drain(..=pos).collect::<Vec<_>>();
         let line_end = if pos > 0 && line.get(pos - 1) == Some(&b'\r') {
             pos - 1
@@ -49,13 +56,34 @@ fn drain_complete_utf8_lines(buffer: &mut Vec<u8>) -> Vec<String> {
             lines.push(line.to_string());
         }
     }
-    lines
+    if buffer.len() > MAX_SSE_LINE_BYTES {
+        return Err(ExecutorError::StreamError(format!(
+            "upstream SSE line exceeded {MAX_SSE_LINE_BYTES} bytes"
+        )));
+    }
+    Ok(lines)
+}
+
+async fn response_text_limited(resp: reqwest::Response) -> ExecutorResult<String> {
+    let mut stream = resp.bytes_stream();
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(ExecutorError::NetworkError)?;
+        if chunk.len() > MAX_EXECUTOR_RESPONSE_BYTES.saturating_sub(body.len()) {
+            return Err(ExecutorError::StreamError(format!(
+                "upstream response exceeded {MAX_EXECUTOR_RESPONSE_BYTES} bytes"
+            )));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    String::from_utf8(body)
+        .map_err(|_| ExecutorError::StreamError("upstream response body was not valid UTF-8".to_owned()))
 }
 
 /// Build, send, and validate an HTTP POST to the LLM backend.
 ///
-/// Shared by both the blocking path (caller reads `.text()`) and the streaming
-/// path (caller reads `.bytes_stream()`). Maps connect/timeout failures and
+/// Shared by both the blocking path (caller consumes a bounded byte stream) and
+/// the streaming path (caller reads `.bytes_stream()`). Maps connect/timeout failures and
 /// non-2xx status codes to [`ExecutorError::LLMRequest`] and connection
 /// failures to [`ExecutorError::LLMTransport`].
 pub(super) async fn send_request(
@@ -92,10 +120,9 @@ pub(super) async fn send_request(
         let headers = processed_response_headers(resp.headers());
         // Log and discard any error reading the error body — the status code
         // is the primary signal; an empty body is acceptable here.
-        let body = resp
-            .text()
+        let body = response_text_limited(resp)
             .await
-            .inspect_err(|e| tracing::debug!("failed to read error response body: {e}"))
+            .inspect_err(|error| tracing::debug!(%error, "failed to read bounded error response body"))
             .unwrap_or_default();
         return Err(ExecutorError::LLMRequest {
             status: http::StatusCode::from_u16(status).unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR),
@@ -118,7 +145,7 @@ pub(super) async fn fetch_response_json(
 ) -> ExecutorResult<String> {
     let resp = send_request(client, url, upstream_json, auth, None).await?;
     // Preserve the reqwest::Error as the typed source (NetworkError).
-    resp.text().await.map_err(ExecutorError::NetworkError)
+    response_text_limited(resp).await
 }
 
 /// Makes a non-streaming HTTP POST with caller-supplied upstream headers.
@@ -130,7 +157,7 @@ pub(super) async fn fetch_response_json_with_headers(
 ) -> ExecutorResult<(String, http::HeaderMap)> {
     let resp = send_request(client, url, upstream_json, None, Some(headers)).await?;
     let response_headers = processed_response_headers(resp.headers());
-    let body = resp.text().await.map_err(ExecutorError::NetworkError)?;
+    let body = response_text_limited(resp).await?;
     Ok((body, response_headers))
 }
 
@@ -181,7 +208,14 @@ pub(super) fn response_lines(
 
             buf.extend_from_slice(&chunk);
 
-            for line in drain_complete_utf8_lines(&mut buf) {
+            let lines = match drain_complete_utf8_lines(&mut buf) {
+                Ok(lines) => lines,
+                Err(error) => {
+                    yield Err(error);
+                    return;
+                }
+            };
+            for line in lines {
                 match line.as_str() {
                     "data: [DONE]" => return,
                     l if l.starts_with("data: ") => yield Ok(line),
@@ -194,7 +228,41 @@ pub(super) fn response_lines(
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
+
+    use axum::body::Body;
+    use axum::http::StatusCode;
+    use axum::response::Response;
+    use axum::routing::post;
+    use bytes::Bytes;
+    use futures::stream;
+
     use super::*;
+
+    async fn oversized_body_server(status: StatusCode) -> (String, tokio::task::JoinHandle<()>) {
+        let app = axum::Router::new().route(
+            "/v1/responses",
+            post(move || async move {
+                let half = MAX_EXECUTOR_RESPONSE_BYTES / 2;
+                let chunks = stream::iter([
+                    Ok::<_, Infallible>(Bytes::from(vec![b'x'; half + 1])),
+                    Ok(Bytes::from(vec![b'x'; MAX_EXECUTOR_RESPONSE_BYTES - half])),
+                ]);
+                Response::builder()
+                    .status(status)
+                    .body(Body::from_stream(chunks))
+                    .unwrap()
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind response limit server");
+        let address = listener.local_addr().expect("response limit server address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.ok();
+        });
+        (format!("http://{address}/v1/responses"), server)
+    }
 
     #[test]
     fn utf8_line_reader_preserves_split_multibyte_characters() {
@@ -208,13 +276,50 @@ mod tests {
             + 1;
         let mut buffer = bytes[..split_at].to_vec();
 
-        assert!(drain_complete_utf8_lines(&mut buffer).is_empty());
+        assert!(
+            drain_complete_utf8_lines(&mut buffer)
+                .expect("partial UTF-8 line")
+                .is_empty()
+        );
 
         buffer.extend_from_slice(&bytes[split_at..]);
-        let lines = drain_complete_utf8_lines(&mut buffer);
+        let lines = drain_complete_utf8_lines(&mut buffer).expect("complete UTF-8 line");
 
         assert!(buffer.is_empty());
         assert_eq!(lines, vec![line]);
         assert!(!lines[0].contains('\u{FFFD}'));
+    }
+
+    #[test]
+    fn utf8_line_reader_rejects_an_oversized_unterminated_line() {
+        let mut buffer = vec![b'x'; MAX_SSE_LINE_BYTES + 1];
+        let error = drain_complete_utf8_lines(&mut buffer).expect_err("oversized SSE line must fail");
+        assert!(error.to_string().contains("upstream SSE line exceeded"));
+    }
+
+    #[tokio::test]
+    async fn blocking_response_reader_rejects_a_cumulative_oversized_body() {
+        let (url, server) = oversized_body_server(StatusCode::OK).await;
+        let error = fetch_response_json("{}".to_owned(), &url, &reqwest::Client::new(), None)
+            .await
+            .expect_err("oversized successful response must fail");
+
+        assert!(error.to_string().contains("upstream response exceeded"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn non_success_response_discards_a_cumulative_oversized_body() {
+        let (url, server) = oversized_body_server(StatusCode::BAD_GATEWAY).await;
+        let error = send_request(&reqwest::Client::new(), &url, "{}".to_owned(), None, None)
+            .await
+            .expect_err("non-success response must fail");
+
+        let ExecutorError::LLMRequest { status, body, .. } = error else {
+            panic!("expected upstream request error");
+        };
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert!(body.is_empty());
+        server.abort();
     }
 }

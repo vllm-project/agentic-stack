@@ -15,6 +15,7 @@ use crate::executor::gateway::{
 use crate::executor::gateway_accumulator::{GatewayStreamAccumulator, StreamEvent, emit_sse_frame};
 use crate::executor::inference::{call_inference, fetch_response_json};
 use crate::executor::request::{ExecutionContext, RequestContext};
+use crate::executor::response_budget::ExecutorResponseBudget;
 use crate::tool::{ToolRegistry, ToolSearchHandler};
 use crate::types::io::OutputItem;
 use crate::types::request_response::ResponsePayload;
@@ -25,7 +26,7 @@ const MAX_DEFERRED_STREAM_BYTES: usize = 256 * 1024;
 struct StreamEmitContext<'a> {
     request: &'a RequestContext,
     registry: &'a ToolRegistry,
-    sender: &'a tokio::sync::mpsc::UnboundedSender<StreamEvent>,
+    sender: &'a tokio::sync::mpsc::Sender<StreamEvent>,
     accumulator: &'a mut GatewayStreamAccumulator,
     output_offset: usize,
 }
@@ -50,6 +51,7 @@ pub(super) async fn fetch_blocking_payload(
     exec_ctx: &ExecutionContext,
     auth: Option<&str>,
     registry: &ToolRegistry,
+    response_budget: Option<&ExecutorResponseBudget>,
 ) -> ExecutorResult<ResponsePayload> {
     let url = exec_ctx.responses_url();
     registry.ensure_request_prepared(&ctx.enriched_request)?;
@@ -57,6 +59,9 @@ pub(super) async fn fetch_blocking_payload(
     let upstream_json = upstream_request(ctx, false)?;
 
     let body = fetch_response_json(upstream_json, &url, &exec_ctx.client, auth).await?;
+    if let Some(response_budget) = response_budget {
+        response_budget.consume(body.len())?;
+    }
 
     registry.validate_blocking_response(&body)?;
     let mut payload = payload_from_upstream(ctx, UpstreamBody::Json(&body))?;
@@ -183,11 +188,9 @@ pub(super) async fn fetch_stream_payload(
     exec_ctx: &ExecutionContext,
     auth: Option<&str>,
     registry: &ToolRegistry,
-    mut stream: Option<(
-        &mut GatewayStreamAccumulator,
-        &tokio::sync::mpsc::UnboundedSender<StreamEvent>,
-    )>,
+    mut stream: Option<(&mut GatewayStreamAccumulator, &tokio::sync::mpsc::Sender<StreamEvent>)>,
     output_offset: usize,
+    response_budget: &ExecutorResponseBudget,
 ) -> ExecutorResult<StreamPayload> {
     let url = exec_ctx.responses_url();
     registry.ensure_request_prepared(&ctx.enriched_request)?;
@@ -206,6 +209,7 @@ pub(super) async fn fetch_stream_payload(
     let mut deferred_bytes = 0;
     while let Some(line_result) = line_stream.next().await {
         let line = line_result?;
+        response_budget.consume(line.len())?;
         if stream.is_none() && !registry.tool_search_is_active() {
             absorb_line(&mut acc, ctx, &line)?;
             continue;
@@ -233,9 +237,10 @@ pub(super) async fn fetch_stream_payload(
                             defer_from_output_index,
                             &mut deferred_events,
                             &mut deferred_bytes,
-                        )?;
+                        )
+                        .await?;
                         if event_type == SSEEventType::ResponseInProgress && emitted {
-                            emit_mcp_discovery_lifecycle(registry, emit_ctx.accumulator, emit_ctx.sender)?;
+                            emit_mcp_discovery_lifecycle(registry, emit_ctx.accumulator, emit_ctx.sender).await?;
                         }
                     }
                 }
@@ -245,7 +250,8 @@ pub(super) async fn fetch_stream_payload(
                         defer_from_output_index,
                         &mut deferred_events,
                         &mut deferred_bytes,
-                    )?;
+                    )
+                    .await?;
                 }
             }
         }
@@ -294,12 +300,12 @@ fn log_upstream_failure(frame: &EventFrame, gateway_response_id: &str) {
     );
 }
 
-pub(super) fn emit_deferred_stream_events(
+pub(super) async fn emit_deferred_stream_events(
     deferred_events: Vec<EventFrame>,
     request: &RequestContext,
     registry: &ToolRegistry,
     accumulator: &mut GatewayStreamAccumulator,
-    sender: &tokio::sync::mpsc::UnboundedSender<StreamEvent>,
+    sender: &tokio::sync::mpsc::Sender<StreamEvent>,
     output_offset: usize,
 ) -> ExecutorResult<()> {
     let mut emit_ctx = StreamEmitContext {
@@ -310,7 +316,7 @@ pub(super) fn emit_deferred_stream_events(
         output_offset,
     };
     for mut frame in deferred_events {
-        emit_stream_frame(&mut frame, &mut emit_ctx)?;
+        emit_stream_frame(&mut frame, &mut emit_ctx).await?;
     }
     Ok(())
 }
@@ -324,18 +330,18 @@ fn should_defer_stream_event(frame: &EventFrame, defer_from_output_index: Option
     })
 }
 
-fn emit_stream_frame(frame: &mut EventFrame, emit_ctx: &mut StreamEmitContext<'_>) -> ExecutorResult<bool> {
+async fn emit_stream_frame(frame: &mut EventFrame, emit_ctx: &mut StreamEmitContext<'_>) -> ExecutorResult<bool> {
     apply_context_response_ids(&mut frame.wire, emit_ctx.request);
     emit_ctx.registry.restore_tool_search_response_tools(&mut frame.wire)?;
     emit_ctx.registry.restore_stream_event_wire(&mut frame.wire);
     let emitted = emit_ctx.accumulator.process_event(frame, emit_ctx.output_offset);
     if emitted {
-        emit_sse_frame(emit_ctx.sender, frame)?;
+        emit_sse_frame(emit_ctx.sender, frame).await?;
     }
     Ok(emitted)
 }
 
-fn emit_or_defer_stream_frame(
+async fn emit_or_defer_stream_frame(
     mut frame: EventFrame,
     emit_ctx: &mut StreamEmitContext<'_>,
     defer_from_output_index: Option<u64>,
@@ -356,10 +362,10 @@ fn emit_or_defer_stream_frame(
         *deferred_bytes = next_bytes;
         return Ok(false);
     }
-    emit_stream_frame(&mut frame, emit_ctx)
+    emit_stream_frame(&mut frame, emit_ctx).await
 }
 
-fn flush_released_stream_frames(
+async fn flush_released_stream_frames(
     emit_ctx: &mut StreamEmitContext<'_>,
     defer_from_output_index: Option<u64>,
     deferred_events: &mut Vec<EventFrame>,
@@ -375,15 +381,16 @@ fn flush_released_stream_frames(
             defer_from_output_index,
             deferred_events,
             deferred_bytes,
-        )?;
+        )
+        .await?;
     }
     Ok(())
 }
 
-fn emit_mcp_discovery_lifecycle(
+async fn emit_mcp_discovery_lifecycle(
     registry: &ToolRegistry,
     stream_accumulator: &mut GatewayStreamAccumulator,
-    stream_sender: &tokio::sync::mpsc::UnboundedSender<StreamEvent>,
+    stream_sender: &tokio::sync::mpsc::Sender<StreamEvent>,
 ) -> ExecutorResult<()> {
     let discovered_output = registry
         .mcp_list_tool_items()
@@ -392,8 +399,8 @@ fn emit_mcp_discovery_lifecycle(
     let public_output = public_output_items(&discovered_output, registry, &[]);
     let event_plans = mcp_list_tools_event_plans(&public_output, 0);
 
-    emit_gateway_start_events(&event_plans, stream_accumulator, stream_sender)?;
-    emit_gateway_completed_events(&public_output, &event_plans, stream_accumulator, stream_sender)
+    emit_gateway_start_events(&event_plans, stream_accumulator, stream_sender).await?;
+    emit_gateway_completed_events(&public_output, &event_plans, stream_accumulator, stream_sender).await
 }
 
 fn is_terminal_response_event(event_type: SSEEventType) -> bool {
@@ -423,6 +430,8 @@ fn apply_context_response_ids(wire: &mut WireEvent, ctx: &RequestContext) {
 mod tests {
     use super::*;
     use crate::events::EventPayload;
+    use crate::executor::modes::{ConversationHandler, ResponseHandler};
+    use crate::storage::{ConversationStore, ResponseStore};
     use crate::types::io::ResponsesInput;
     use crate::types::request_response::RequestPayload;
 
@@ -470,11 +479,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn released_frames_are_emitted_in_output_index_order() {
+    #[tokio::test]
+    async fn released_frames_are_emitted_in_output_index_order() {
         let request = request_context();
         let registry = ToolRegistry::default();
-        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
         let mut accumulator = GatewayStreamAccumulator::new();
         let mut emit_ctx = StreamEmitContext {
             request: &request,
@@ -492,7 +501,9 @@ mod tests {
             .map(|frame| serialize_to_string(&frame.wire).unwrap().len())
             .sum();
 
-        flush_released_stream_frames(&mut emit_ctx, None, &mut deferred, &mut deferred_bytes).expect("flush succeeds");
+        flush_released_stream_frames(&mut emit_ctx, None, &mut deferred, &mut deferred_bytes)
+            .await
+            .expect("flush succeeds");
         assert_eq!(deferred_bytes, 0);
 
         let indices = [receiver.try_recv().unwrap(), receiver.try_recv().unwrap()].map(|event| {
@@ -508,11 +519,11 @@ mod tests {
         assert_eq!(indices, [2, 3]);
     }
 
-    #[test]
-    fn deferred_frames_have_a_shared_byte_limit() {
+    #[tokio::test]
+    async fn deferred_frames_have_a_shared_byte_limit() {
         let request = request_context();
         let registry = ToolRegistry::default();
-        let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (sender, _receiver) = tokio::sync::mpsc::channel(4);
         let mut accumulator = GatewayStreamAccumulator::new();
         let mut emit_ctx = StreamEmitContext {
             request: &request,
@@ -526,7 +537,72 @@ mod tests {
         let oversized = frame(0, Value::String("x".repeat(256 * 1024 + 1)));
 
         let error = emit_or_defer_stream_frame(oversized, &mut emit_ctx, Some(0), &mut deferred, &mut deferred_bytes)
+            .await
             .expect_err("oversized deferred stream must fail");
         assert!(error.to_string().contains("deferred stream exceeded"));
+    }
+
+    #[test]
+    fn executor_response_budget_is_shared_across_rounds() {
+        let budget = ExecutorResponseBudget::new();
+        budget
+            .consume(crate::executor::response_budget::MAX_EXECUTOR_RESPONSE_BYTES / 2)
+            .expect("first round should fit");
+        budget
+            .consume(crate::executor::response_budget::MAX_EXECUTOR_RESPONSE_BYTES / 2)
+            .expect("second round should consume the budget");
+        let error = budget.consume(1).expect_err("next round must exceed shared budget");
+        assert!(error.to_string().contains("executor response budget exceeded"));
+    }
+
+    #[tokio::test]
+    async fn streamed_response_reader_enforces_the_cumulative_budget() {
+        use std::fmt::Write as _;
+
+        let data = "x".repeat(200 * 1024);
+        let mut response = String::new();
+        for sequence_number in 0..6 {
+            write!(
+                &mut response,
+                "data: {{\"type\":\"test.event\",\"sequence_number\":{sequence_number},\"delta\":\"{data}\"}}\n\n"
+            )
+            .expect("writing to a String cannot fail");
+        }
+        let app = axum::Router::new().route(
+            "/v1/responses",
+            axum::routing::post(move || {
+                let response = response.clone();
+                async move { ([(axum::http::header::CONTENT_TYPE, "text/event-stream")], response) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind streaming response limit server");
+        let address = listener.local_addr().expect("streaming response limit server address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.ok();
+        });
+        let exec_ctx = ExecutionContext::new(
+            ConversationHandler::new(ConversationStore::disabled()),
+            ResponseHandler::new(ResponseStore::disabled()),
+            Arc::new(reqwest::Client::new()),
+            format!("http://{address}"),
+        );
+        let budget = ExecutorResponseBudget::new();
+
+        let error = fetch_stream_payload(
+            &request_context(),
+            &exec_ctx,
+            None,
+            &ToolRegistry::default(),
+            None,
+            0,
+            &budget,
+        )
+        .await
+        .err()
+        .expect("cumulative streamed response must be bounded");
+        assert!(error.to_string().contains("executor response budget exceeded"));
+        server.abort();
     }
 }

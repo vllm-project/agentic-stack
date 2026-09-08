@@ -55,6 +55,10 @@ with `store=true`, `previous_response_id`, `conversation_id`, compaction input,
 or `context_management` run through the executor. Other stateless `store=false`
 requests are passed directly to the configured vLLM backend.
 
+Executor-backed requests accept at most 64 MCP server declarations and 128
+discovered MCP tools. MCP discovery metadata shares the request's 1 MiB
+response budget with upstream rounds and gateway tool output.
+
 ### `POST /v1/responses/compact`
 
 Compacts direct input or a stored previous-response chain into a canonical
@@ -70,6 +74,7 @@ continuations. Send one JSON text frame per turn:
 ```json
 {
   "type": "response.create",
+  "stream_id": "turn-1",
   "model": "test-model",
   "input": [{"type": "message", "role": "user", "content": "hi"}],
   "previous_response_id": "resp_optional",
@@ -84,11 +89,29 @@ JSON Responses stream events, including `response.created`,
 `response.output_item.added`, `response.output_text.delta`, and
 `response.completed`.
 
+Set `stream_id` to a string containing 1 to 256 characters to multiplex
+responses over one connection. Requests with different `stream_id` values can
+run concurrently, while requests with the same value run first in, first out.
+Every event for an accepted request, including an execution error event, echoes
+its `stream_id`.
+Requests that omit `stream_id` share a default first-in, first-out lane for
+backward compatibility. A connection accepts at most 64 outstanding requests and
+12 MiB of aggregate request data; additional requests receive a `429` error event
+until capacity is available. Upstream SSE lines are limited to 256 KiB, normalized
+executor events are limited to 1 MiB, and each request shares a 1 MiB response
+budget across MCP discovery, upstream rounds, and normalized gateway tool output.
+Every outbound WebSocket event, including `stream_id`, is limited to 1 MiB of
+serialized JSON. Local `generate: false` requests validate both lifecycle events
+before storing the response or emitting either event. OIDC identity expiry is
+checked again when queued work starts, including work in the default lane;
+expired work receives a tagged `invalid_token` event without reaching inference.
+
 Invalid requests are returned as JSON WebSocket error events:
 
 ```json
 {
   "type": "error",
+  "stream_id": "turn-1",
   "status": 404,
   "error": {
     "message": "human-readable error details",
