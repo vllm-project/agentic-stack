@@ -16,6 +16,11 @@ pub struct ResponseMetadata {
     pub model: String,
     pub previous_response_id: Option<String>,
     pub effective_tools: Option<Vec<ResponsesTool>>,
+    /// Public definitions whose deferred availability was resolved by tool search.
+    ///
+    /// This is separate from `effective_tools` so public `defer_loading` stays
+    /// unchanged while compaction may remove the call/output pair that loaded it.
+    pub tool_search_loaded_tools: Option<Vec<ResponsesTool>>,
     pub effective_tool_choice: ToolChoice,
     pub effective_instructions: Option<String>,
 }
@@ -59,6 +64,11 @@ impl TryFrom<&ResponseMetadata> for String {
     fn try_from(metadata: &ResponseMetadata) -> Result<Self, Self::Error> {
         let mut persisted = metadata.clone();
         if let Some(tools) = persisted.effective_tools.as_mut() {
+            for tool in tools {
+                tool.sanitize_for_persistence();
+            }
+        }
+        if let Some(tools) = persisted.tool_search_loaded_tools.as_mut() {
             for tool in tools {
                 tool.sanitize_for_persistence();
             }
@@ -117,6 +127,7 @@ mod tests {
             model: "gpt-4".to_string(),
             previous_response_id: Some("resp_1".to_string()),
             effective_tools: None,
+            tool_search_loaded_tools: None,
             effective_tool_choice: ToolChoice::Auto,
             effective_instructions: Some("be helpful".to_string()),
         };
@@ -155,6 +166,7 @@ mod tests {
             });
         let metadata = ResponseMetadata {
             effective_tools: Some(vec![tool]),
+            tool_search_loaded_tools: None,
             ..ResponseMetadata::default()
         };
 
@@ -183,6 +195,7 @@ mod tests {
         assert_eq!(metadata.model, "");
         assert!(metadata.previous_response_id.is_none());
         assert!(metadata.effective_tools.is_none());
+        assert!(metadata.tool_search_loaded_tools.is_none());
         assert!(metadata.effective_instructions.is_none());
     }
 

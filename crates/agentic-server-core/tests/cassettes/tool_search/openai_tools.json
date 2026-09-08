@@ -1,0 +1,133 @@
+[
+  {
+    "type": "tool_search",
+    "execution": "client",
+    "description": "Search the client tool catalog for tools that can satisfy the request.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "A concise description of the needed capabilities."
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "get_weather",
+    "description": "Get the current weather for a city",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string"
+        }
+      },
+      "required": ["city"],
+      "additionalProperties": false
+    },
+    "strict": true,
+    "defer_loading": true
+  },
+  {
+    "type": "function",
+    "name": "get_exchange_rate",
+    "description": "Get the exchange rate between two currencies",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "base": {
+          "type": "string"
+        },
+        "quote": {
+          "type": "string"
+        }
+      },
+      "required": ["base", "quote"],
+      "additionalProperties": false
+    },
+    "strict": true,
+    "defer_loading": true
+  },
+  {
+    "type": "function",
+    "name": "search_hotels",
+    "description": "Search for hotels in a city",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string"
+        }
+      },
+      "required": ["city"],
+      "additionalProperties": false
+    },
+    "strict": true,
+    "defer_loading": true
+  },
+  {
+    "type": "namespace",
+    "name": "travel",
+    "description": "Travel location tools",
+    "tools": [
+      {
+        "type": "function",
+        "name": "get_timezone",
+        "description": "Get the IANA time zone for a city",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": ["city"],
+          "additionalProperties": false
+        },
+        "strict": true,
+        "defer_loading": true
+      },
+      {
+        "type": "function",
+        "name": "get_coordinates",
+        "description": "Get latitude and longitude for a city",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": ["city"],
+          "additionalProperties": false
+        },
+        "strict": true,
+        "defer_loading": true
+      },
+      {
+        "type": "function",
+        "name": "calculate_distance",
+        "description": "Calculate the distance between two cities",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string"
+            },
+            "destination": {
+              "type": "string"
+            }
+          },
+          "required": ["origin", "destination"],
+          "additionalProperties": false
+        },
+        "strict": true,
+        "defer_loading": true
+      }
+    ]
+  }
+]

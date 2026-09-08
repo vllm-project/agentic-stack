@@ -283,11 +283,12 @@ impl RequestPayload {
         });
         let tools = tools.filter(|tools| !tools.is_empty());
         let namespace_map = CodexNamespaceHandler.build_namespace_map(self.tools.as_deref())?;
+        let input = CodexNamespaceHandler.resolve_input(namespace_map.as_ref(), self.input.model_input());
         let tool_choice = CodexNamespaceHandler.resolve_tool_choice(namespace_map.as_ref(), self.tool_choice.as_ref());
         CustomHandler::validate_tool_choice(self.tools.as_deref(), &tool_choice)?;
         Ok(UpstreamRequest {
             model: &self.model,
-            input: self.input.model_input(),
+            input,
             stream,
             instructions: self.instructions.as_deref(),
             tools,
@@ -360,6 +361,10 @@ pub struct ResponsePayload {
     pub previous_response_id: Option<String>,
     pub conversation_id: Option<String>,
     pub instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ResponsesTool>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
 }
 
 impl ResponsePayload {
@@ -1082,6 +1087,8 @@ mod tests {
             previous_response_id: None,
             conversation_id: None,
             instructions: None,
+            tools: None,
+            tool_choice: None,
         };
 
         for (status, expected_type) in [
@@ -1115,6 +1122,8 @@ mod tests {
             previous_response_id: None,
             conversation_id: None,
             instructions: None,
+            tools: None,
+            tool_choice: None,
         };
 
         let chunk = payload.as_created_response_chunk();

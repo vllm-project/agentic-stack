@@ -15,8 +15,8 @@ use crate::config::DEFAULT_POSTGRES_MIGRATION_TIMEOUT_SECONDS;
 type DbResult<T> = Result<T, sqlx::Error>;
 
 const POSTGRES_SCHEMA_ADVISORY_LOCK: i64 = 7_194_963_546_799_751;
-const REQUIRED_POSTGRES_SCHEMA_COLUMN_COUNT: i64 = 19;
-const REQUIRED_POSTGRES_CONSTRAINT_COUNT: i64 = 6;
+const REQUIRED_POSTGRES_SCHEMA_COLUMN_COUNT: i64 = 20;
+const REQUIRED_POSTGRES_CONSTRAINT_COUNT: i64 = 7;
 const REQUIRED_POSTGRES_INTEGER_COLUMN_COUNT: i64 = 4;
 const POSTGRES_INTEGER_WIDENING_SQL: &str = "
     ALTER TABLE conversations
@@ -70,6 +70,7 @@ where
                  ('conversations', 'created_at', 'integer', 'NO'), \
                  ('conversations', 'tenant_id', 'text', 'YES'), \
                  ('conversations', 'metadata', 'text', 'YES'), \
+                 ('conversations', 'latest_response_id', 'text', 'YES'), \
                  ('items', 'id', 'text', 'NO'), \
                  ('items', 'data', 'text', 'NO'), \
                  ('items', 'created_at', 'integer', 'NO'), \
@@ -121,7 +122,9 @@ where
                  ('responses', 'f', \
                   'FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL'), \
                  ('responses', 'f', \
-                  'FOREIGN KEY (previous_response_id) REFERENCES responses(id) ON DELETE SET NULL') \
+                  'FOREIGN KEY (previous_response_id) REFERENCES responses(id) ON DELETE SET NULL'), \
+                 ('conversations', 'f', \
+                  'FOREIGN KEY (latest_response_id) REFERENCES responses(id) ON DELETE SET NULL') \
          ) \
          SELECT COUNT(*) \
          FROM required \
@@ -332,6 +335,12 @@ pub(crate) async fn verify_persistence_writable(pool: &DbPool) -> DbResult<()> {
             None,
             Some(&format!("[\"{item_id}\"]")),
             Some("{}"),
+        )
+        .await?;
+        crate::storage::models::conversation::set_latest_response_in_tx(
+            &mut transaction,
+            &conversation_id,
+            &response_id,
         )
         .await?;
         Ok(())
@@ -687,6 +696,7 @@ mod tests {
             include_str!("../../migrations/0001_initial.sql"),
             include_str!("../../migrations/0002_add_placeholders.sql"),
             include_str!("../../migrations/0003_index_conversation_sequence.sql"),
+            include_str!("../../migrations/0004_link_conversation_latest_response.sql"),
         ] {
             sqlx::raw_sql(migration)
                 .execute(&mut *connection)

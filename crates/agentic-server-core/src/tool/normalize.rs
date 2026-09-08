@@ -8,6 +8,7 @@ use super::function::FunctionHandler;
 use super::handler::{ToolError, ToolHandler, ToolOutput};
 use super::mcp::McpHandler;
 use super::registry::ToolType;
+use super::tool_search::ToolSearchHandler;
 use super::web_search::web_search_function_tool;
 
 impl ResponsesTool {
@@ -21,6 +22,7 @@ impl ResponsesTool {
         match self {
             Self::Function(param) => FunctionHandler.validate(param),
             Self::Mcp(param) => McpHandler::spec_from_param(param).validate(param),
+            Self::ToolSearch(param) => ToolSearchHandler.validate(param),
             Self::WebSearch(_) | Self::FileSearch(_) | Self::CodeInterpreter(_) | Self::Unknown => Ok(()),
             Self::Namespace(param) => CodexNamespaceHandler.validate(param),
             Self::Custom(param) => CustomHandler.validate(param),
@@ -32,6 +34,7 @@ impl ResponsesTool {
     pub fn tool_type(&self) -> Option<ToolType> {
         match self {
             Self::Function(_) => Some(ToolType::Function),
+            Self::ToolSearch(_) => Some(ToolType::ToolSearch),
             Self::Mcp(_) => Some(ToolType::Mcp),
             Self::WebSearch(_) => Some(ToolType::WebSearch),
             Self::FileSearch(_) => Some(ToolType::FileSearch),
@@ -51,6 +54,8 @@ impl ResponsesTool {
     ///
     /// - `Function` variants convert via [`From<&FunctionToolParam>`] for `FunctionTool`.
     ///   Returns an empty list and logs at `debug` level if the name is empty.
+    /// - `ToolSearch` variants lower through [`ToolSearchHandler`] to the
+    ///   synthetic client-executed function understood by vLLM.
     /// - `Mcp` variants convert gateway MCP built-ins to the function specs
     ///   vLLM can call.
     /// - Unformatted `Custom` variants become function tools with one string
@@ -68,6 +73,7 @@ impl ResponsesTool {
             // deserialization time, so no runtime check is needed here.
             Self::Function(param) => FunctionHandler.normalize(param).into_iter().take(1).collect(),
             Self::Mcp(param) => McpHandler::spec_from_param(param).normalize(param),
+            Self::ToolSearch(param) => ToolSearchHandler.normalize(param).into_iter().take(1).collect(),
             Self::WebSearch(_) => vec![web_search_function_tool()],
             Self::FileSearch(_) => {
                 tracing::debug!("file_search tool skipped in normalize - handler not yet registered");
