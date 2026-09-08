@@ -23,6 +23,44 @@ pub fn serialize_to_string<T: serde::Serialize>(value: &T) -> Result<String, ser
     serde_json::to_string(value)
 }
 
+/// Count serialized JSON bytes without allocating the complete JSON buffer.
+/// Returns `None` as soon as the serialization exceeds `limit`.
+///
+/// # Errors
+/// Returns a serialization error unrelated to the size limit.
+pub fn serialized_size_up_to<T: serde::Serialize>(value: &T, limit: usize) -> Result<Option<usize>, serde_json::Error> {
+    struct Counter {
+        used: usize,
+        limit: usize,
+        exceeded: bool,
+    }
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.limit.saturating_sub(self.used) {
+                self.exceeded = true;
+                return Err(std::io::Error::other("serialized size limit exceeded"));
+            }
+            self.used += bytes.len();
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = Counter {
+        used: 0,
+        limit,
+        exceeded: false,
+    };
+    let result = serde_json::to_writer(&mut counter, value);
+    if counter.exceeded {
+        return Ok(None);
+    }
+    result?;
+    Ok(Some(counter.used))
+}
+
 /// Serialize any type to a `serde_json::Value`.
 ///
 /// # Errors

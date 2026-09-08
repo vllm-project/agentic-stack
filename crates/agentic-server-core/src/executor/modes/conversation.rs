@@ -209,6 +209,7 @@ mod tests {
             response_id: "resp_test".into(),
             conversation_id: conversation_id.map(str::to_string),
             conversation_version: None,
+            continuation: None,
         }
     }
 

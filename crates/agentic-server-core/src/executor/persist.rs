@@ -18,7 +18,8 @@ use tracing::error;
 
 #[must_use]
 pub(crate) fn should_persist(ctx: &RequestContext) -> bool {
-    ctx.original_request.store
+    ctx.continuation.is_some()
+        || ctx.original_request.store
         || ctx.original_request.previous_response_id.is_some()
         || ctx.original_request.conversation_id.is_some()
 }
@@ -32,7 +33,7 @@ pub(crate) async fn persist_if_needed(
 ) -> ExecutorResult<()> {
     if should_persist(&ctx) {
         match persist_prepared_response(payload, ctx, tool_search_metadata, conv_handler, resp_handler).await {
-            Err(error @ ExecutorError::Conflict(_)) => Err(error),
+            Err(error @ (ExecutorError::Conflict(_) | ExecutorError::PayloadTooLarge(_))) => Err(error),
             Err(source) => {
                 error!(error = ?source, "failed to persist response");
                 Err(ExecutorError::Persistence(Box::new(source)))
@@ -203,17 +204,36 @@ async fn validate_output_call_ids(
         return Ok(());
     }
 
-    for (history_index, item) in resp_handler.rehydrate(ctx).await?.iter().enumerate() {
-        if let Some((output_index, item_type)) = stored_call_id(item).and_then(|call_id| call_ids.get(call_id)) {
-            return Err(ExecutorError::InvalidRequest(format!(
-                "upstream response output[{output_index}] {item_type} repeats 'call_id' from continued history item[{history_index}]"
-            )));
-        }
+    if let Some(continuation) = &ctx.continuation {
+        // Rehydration already pinned a coherent canonical parent. Re-reading the
+        // database here is both unnecessary and wrong for an unstored response.
+        let history = continuation
+            .parent
+            .as_ref()
+            .map_or(&[][..], |parent| parent.history.as_slice());
+        validate_history_call_ids(history.iter().map(input_call_id), &call_ids)?;
+    } else {
+        let history = resp_handler.rehydrate(ctx).await?;
+        validate_history_call_ids(history.iter().map(stored_call_id), &call_ids)?;
     }
     for (input_index, item) in ctx.new_input_items.iter().enumerate() {
         if let Some((output_index, item_type)) = input_call_id(item).and_then(|call_id| call_ids.get(call_id)) {
             return Err(ExecutorError::InvalidRequest(format!(
                 "upstream response output[{output_index}] {item_type} repeats 'call_id' from request input[{input_index}]"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_history_call_ids<'a>(
+    history: impl Iterator<Item = Option<&'a str>>,
+    call_ids: &HashMap<&str, (usize, &str)>,
+) -> ExecutorResult<()> {
+    for (history_index, call_id) in history.enumerate() {
+        if let Some((output_index, item_type)) = call_id.and_then(|id| call_ids.get(id)) {
+            return Err(ExecutorError::InvalidRequest(format!(
+                "upstream response output[{output_index}] {item_type} repeats 'call_id' from continued history item[{history_index}]"
             )));
         }
     }

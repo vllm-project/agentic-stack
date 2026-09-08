@@ -3,11 +3,13 @@
 //! Builds a [`RequestContext`] by loading prior turns from storage and
 //! injecting them into the enriched request before it is forwarded to the LLM.
 
+use super::session::{ResponseCheckpoint, ResponseContinuation, ResponseSession};
 use crate::executor::error::{ExecutorError, ExecutorResult};
 use crate::executor::pending_calls::pending_calls;
 use crate::executor::request::{ExecutionContext, RequestContext};
 use crate::storage::InOutItem;
 use crate::tool::ToolError;
+use crate::types::io::input::latest_compaction_window;
 use crate::types::io::{
     InputItem, ReasoningOutput, ReasoningTextContent, ResponsesInput, resolve_tool_choice, resolve_tools,
 };
@@ -98,6 +100,27 @@ pub async fn rehydrate_conversation(
     request: RequestPayload,
     exec_ctx: &ExecutionContext,
 ) -> ExecutorResult<RequestContext> {
+    rehydrate_with_continuation(request, exec_ctx, None).await
+}
+
+/// Resolve one turn in a transient session without changing the durable Conversations API.
+///
+/// # Errors
+/// Returns an error when the session is busy/closed or the requested history is unavailable.
+pub async fn rehydrate_in_session(
+    request: RequestPayload,
+    exec_ctx: &ExecutionContext,
+    session: &ResponseSession,
+) -> ExecutorResult<RequestContext> {
+    let continuation = session.begin(request.previous_response_id.as_deref())?;
+    rehydrate_with_continuation(request, exec_ctx, Some(continuation)).await
+}
+
+pub(crate) async fn rehydrate_with_continuation(
+    request: RequestPayload,
+    exec_ctx: &ExecutionContext,
+    continuation: Option<ResponseContinuation>,
+) -> ExecutorResult<RequestContext> {
     let response_id = uuid7_str("resp_");
     let new_input_items: Vec<InputItem> = Vec::from(&request.input);
 
@@ -110,6 +133,7 @@ pub async fn rehydrate_conversation(
         response_id,
         conversation_id: None,
         conversation_version: None,
+        continuation,
     };
 
     if ctx.original_request.conversation_id.is_some() && ctx.original_request.previous_response_id.is_some() {
@@ -135,6 +159,9 @@ pub async fn rehydrate_conversation(
 /// tools and tool choice from the stored metadata, and prepends the history to
 /// the enriched request input.
 async fn from_response(ctx: &mut RequestContext, exec_ctx: &ExecutionContext) -> ExecutorResult<()> {
+    if ctx.continuation.is_some() {
+        return from_session_response(ctx, exec_ctx).await;
+    }
     let stored = exec_ctx.resp_handler.get(ctx).await?;
     let history = exec_ctx.resp_handler.rehydrate(ctx).await?;
 
@@ -152,6 +179,86 @@ async fn from_response(ctx: &mut RequestContext, exec_ctx: &ExecutionContext) ->
     apply_effective_settings(ctx, &stored.metadata);
     ctx.conversation_id = stored.conversation_id;
     Ok(())
+}
+
+async fn from_session_response(ctx: &mut RequestContext, exec_ctx: &ExecutionContext) -> ExecutorResult<()> {
+    let cached = ctx
+        .continuation
+        .as_ref()
+        .and_then(|continuation| continuation.parent.clone());
+    let parent = if let Some(parent) = cached {
+        parent
+    } else {
+        let previous_id = ctx.original_request.previous_response_id.as_deref().unwrap_or_default();
+        if !ctx.original_request.store {
+            return Err(ExecutorError::PreviousResponseNotFound {
+                id: previous_id.to_owned(),
+            });
+        }
+        let map_missing = |error| match error {
+            ExecutorError::Storage(ref source) if source.is_not_found() => ExecutorError::PreviousResponseNotFound {
+                id: previous_id.to_owned(),
+            },
+            other => other,
+        };
+        let stored = exec_ctx.resp_handler.get(ctx).await.map_err(map_missing)?;
+        let history = exec_ctx.resp_handler.rehydrate(ctx).await.map_err(map_missing)?;
+        let checkpoint = ResponseCheckpoint {
+            response_id: stored.response_id,
+            conversation_id: stored.conversation_id,
+            history: canonical_session_history(InOutItem::into_input_items(history)),
+            metadata: stored.metadata,
+            durable: true,
+        };
+        let continuation = ctx.continuation.as_ref().ok_or_else(|| {
+            ExecutorError::InvalidRequest("session response requires a continuation lease".to_owned())
+        })?;
+        std::sync::Arc::new(continuation.retain_parent(checkpoint)?)
+    };
+    let mut items = parent.history.clone();
+    items.extend(ctx.new_input_items.iter().cloned());
+    if let Some(pending) = pending_calls(&items)?.into_iter().next() {
+        return Err(ExecutorError::Tool(ToolError::MissingOutput {
+            call_id: pending.call_id,
+        }));
+    }
+    ctx.enriched_request.previous_response_id = None;
+    ctx.enriched_request.input = ResponsesInput::Items(items);
+    ctx.enriched_request.tools = resolve_tools(
+        ctx.original_request.tools.as_deref(),
+        parent.metadata.effective_tools.as_deref(),
+        ctx.original_request.tools.is_some(),
+    );
+    ctx.enriched_request.tool_choice = Some(resolve_tool_choice(
+        ctx.original_request.tool_choice.as_ref(),
+        &parent.metadata.effective_tool_choice,
+        ctx.original_request.tool_choice.is_some(),
+    ));
+    ctx.conversation_id.clone_from(&parent.conversation_id);
+    if let Some(continuation) = ctx.continuation.as_mut() {
+        continuation.parent = Some(parent);
+    }
+    Ok(())
+}
+
+/// Restore only the current canonical window, while preserving orchestration
+/// records that the model-facing projection would strip. Durable response chains
+/// can still reference superseded parent rows; those must not consume the session
+/// checkpoint budget or introduce obsolete pending calls after reconnecting.
+fn canonical_session_history(history: Vec<InputItem>) -> Vec<InputItem> {
+    let Some(window) = latest_compaction_window(&history) else {
+        return history;
+    };
+    history
+        .into_iter()
+        .enumerate()
+        .filter(|(index, item)| {
+            *index >= window.latest_index()
+                || window.retains_user_item(*index, item)
+                || matches!(item, InputItem::McpListTools(_))
+        })
+        .map(|(_, item)| item)
+        .collect()
 }
 
 /// Hydrates `ctx` from the conversation store.
@@ -211,6 +318,72 @@ mod tests {
     use crate::tool::ToolError;
     use crate::types::io::output::{McpListTools, OutputItem};
     use crate::types::request_response::RequestPayload;
+
+    #[test]
+    fn session_history_without_compaction_is_unchanged() {
+        let history: Vec<InputItem> = serde_json::from_value(serde_json::json!([
+            {"role":"user", "content":"question"},
+            {"type":"mcp_list_tools", "id":"mcpl_1", "server_label":"counter", "tools":[]},
+            {"type":"function_call", "call_id":"pending", "name":"lookup", "arguments":"{}"}
+        ]))
+        .unwrap();
+        let expected = serde_json::to_value(&history).unwrap();
+        assert_eq!(
+            serde_json::to_value(canonical_session_history(history)).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn restored_session_keeps_canonical_compaction_and_mcp_discovery() {
+        let history: Vec<InputItem> = serde_json::from_value(serde_json::json!([
+            {"type":"mcp_list_tools", "id":"mcpl_1", "server_label":"counter", "tools":[]},
+            {"role":"assistant", "content":"obsolete detail"},
+            {"type":"function_call", "call_id":"obsolete", "name":"lookup", "arguments":"{}"},
+            {"role":"user", "content":"noncanonical old user"},
+            {"role":"user", "id":"msg_keep", "status":"completed", "content":"canonical user"},
+            {"type":"compaction", "id":"cmp_latest", "encrypted_content":"latest summary"},
+            {"type":"function_call", "call_id":"live", "name":"lookup", "arguments":"{}"},
+            {"type":"function_call_output", "call_id":"live", "output":"live result"}
+        ]))
+        .unwrap();
+        let history = canonical_session_history(history);
+        assert_eq!(history.len(), 5);
+        assert!(matches!(history[0], InputItem::McpListTools(_)));
+        assert!(matches!(&history[2], InputItem::Compaction(item)
+            if item.id.as_deref() == Some("cmp_latest") && item.encrypted_content == "latest summary"));
+        assert!(pending_calls(&history).unwrap().is_empty());
+        let serialized = serde_json::to_value(&history).unwrap();
+        assert_eq!(serialized[1]["id"], "msg_keep");
+        assert_eq!(serialized[3]["call_id"], "live");
+        assert_eq!(serialized[4]["call_id"], "live");
+        assert!(!serialized.to_string().contains("obsolete"));
+    }
+
+    #[test]
+    fn restored_session_uses_the_latest_window_and_preserves_live_pending_calls() {
+        let history: Vec<InputItem> = serde_json::from_value(serde_json::json!([
+            {"role":"user", "id":"msg_old", "status":"completed", "content":"old user"},
+            {"type":"mcp_list_tools", "id":"mcpl_old", "server_label":"old", "tools":[]},
+            {"type":"compaction", "id":"cmp_old", "encrypted_content":"old summary"},
+            {"role":"user", "id":"msg_keep", "status":"completed", "content":"retained user"},
+            {"role":"user", "id":"msg_incomplete", "status":"in_progress", "content":"superseded"},
+            {"type":"mcp_list_tools", "id":"mcpl_new", "server_label":"new", "tools":[]},
+            {"type":"compaction", "id":"cmp_new", "encrypted_content":"latest summary"},
+            {"type":"function_call", "call_id":"live", "name":"lookup", "arguments":"{}"}
+        ]))
+        .unwrap();
+        let history = canonical_session_history(history);
+        let serialized = serde_json::to_value(&history).unwrap();
+        assert_eq!(history.len(), 5);
+        assert_eq!(serialized[0]["id"], "mcpl_old");
+        assert_eq!(serialized[1]["id"], "msg_keep");
+        assert_eq!(serialized[2]["id"], "mcpl_new");
+        assert_eq!(serialized[3]["id"], "cmp_new");
+        let pending = pending_calls(&history).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].call_id, "live");
+    }
 
     fn reasoning_item(content: &[&str], encrypted_content: Option<serde_json::Value>) -> InputItem {
         InputItem::Reasoning(ReasoningOutput {

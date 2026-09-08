@@ -168,6 +168,47 @@ Errors are modeled by a dedicated `WsError` enum (`handler/websocket/error.rs`) 
 than reusing the HTTP JSON-error path, since some failure modes (a dead socket) must
 not attempt to write a response.
 
+### Opt-in core continuation sessions (`executor/session.rs`)
+
+Core callers can use `ExecuteRequest::with_session` or `rehydrate_in_session` to
+retain response state without durable storage. This is an opt-in API: the current
+WebSocket adapter above has not yet been connected to it, and no-session HTTP and
+split execution keep their existing behavior.
+
+A `ResponseSession` owns one latest canonical checkpoint and one execution slot.
+The executor pins a parent before inference and publishes completed or incomplete
+state before exposing terminal completion. Failed continuations discard only a
+referenced checkpoint owned by that session. Dropping the owner closes the session
+and rejects late publication. Callers still cancel and join active work explicitly;
+`wait_until_idle` waits for the execution lease to end, but does not cancel it.
+
+`ResponseSessionGroup` allows independent serial members to find and pin each
+other's latest checkpoints. Failed forks cannot evict the source member's state.
+The group bounds lifetime member count, each checkpoint's items and serialized
+bytes, and aggregate retained bytes. Shared parent references count once; replaced
+parents still pinned by active work and prepared checkpoints awaiting persistence
+remain charged until their last reference is released. Reservation happens before
+durable writes, and failure or cancellation returns unused capacity. Replacement
+requires room for both old and new snapshots until publication. These retention
+budgets are not a bound on temporary allocations, execution copies or process
+memory. Scheduling, FIFO queues and active-work limits remain caller concerns.
+
+Response-scoped session history records reasoning, messages and calls in inference-round order,
+then built-in call outputs. Public output is accumulated separately and is not
+appended to retained history twice. Compaction replaces the canonical window while
+preserving MCP discovery records needed for orchestration. Durable restoration
+also selects the effective compacted window before validating current calls;
+obsolete stored rows are not deleted or charged to that retained window.
+
+For response-scoped session execution, `store: false` has no durable writes or
+database fallback. A stored child of a transient parent persists the complete
+canonical window without creating a row or dangling database reference for that
+parent. Explicit `conversation_id` requests keep the existing durable Conversations
+policy and append output only through the conversation handler. Their session lease
+still serializes execution without recording a second copy. Core commit supports
+prewarming without inference; activating it in the WebSocket transport is a separate
+adapter change.
+
 ### `handler/common.rs`
 
 Transport helpers shared by the HTTP and WS handlers: body reading with a shared size

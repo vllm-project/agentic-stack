@@ -34,6 +34,11 @@ async fn restored_loaded_tools(
     }
 
     if ctx.original_request.previous_response_id.is_some() {
+        // Session parents may never have been written to durable storage.
+        // Their checkpoint retains the same public metadata as a stored response.
+        if let Some(parent) = ctx.continuation.as_ref().and_then(|lease| lease.parent.as_ref()) {
+            return Ok(parent.metadata.tool_search_loaded_tools.clone().unwrap_or_default());
+        }
         return Ok(resp_handler
             .get(ctx)
             .await?
@@ -54,4 +59,53 @@ async fn restored_loaded_tools(
         return Ok(restored);
     }
     Ok(Vec::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executor::ResponseSession;
+    use crate::storage::{ConversationStore, ResponseMetadata, ResponseStore};
+    use crate::types::request_response::RequestPayload;
+    use std::num::NonZeroUsize;
+
+    #[tokio::test]
+    async fn compacted_session_restores_loaded_tools_without_durable_storage() {
+        let session = ResponseSession::new(NonZeroUsize::new(100).unwrap(), NonZeroUsize::new(100_000).unwrap());
+        let loaded: ResponsesTool = serde_json::from_value(serde_json::json!({
+            "type": "function", "name": "weather", "parameters": {"type": "object"}
+        }))
+        .unwrap();
+        let metadata = ResponseMetadata {
+            tool_search_loaded_tools: Some(vec![loaded.clone()]),
+            ..ResponseMetadata::default()
+        };
+        let lease = session.begin(None).unwrap();
+        let checkpoint = lease
+            .checkpoint("resp_parent".to_owned(), None, &metadata, &[], false)
+            .unwrap();
+        lease.publish(checkpoint).unwrap();
+        let request: RequestPayload = serde_json::from_value(serde_json::json!({
+            "model": "test", "store": false, "previous_response_id": "resp_parent",
+            "input": [{"type": "compaction", "id": "cmp_1", "encrypted_content": "summary"}]
+        }))
+        .unwrap();
+        let mut ctx = RequestContext {
+            original_request: request.clone(),
+            enriched_request: request,
+            new_input_items: Vec::new(),
+            response_id: "resp_child".to_owned(),
+            conversation_id: None,
+            conversation_version: None,
+            continuation: Some(session.begin(Some("resp_parent")).unwrap()),
+        };
+        let restored = restored_loaded_tools(
+            &mut ctx,
+            &ConversationHandler::new(ConversationStore::disabled()),
+            &ResponseHandler::new(ResponseStore::disabled()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(serde_json::to_value(restored).unwrap(), serde_json::json!([loaded]));
+    }
 }

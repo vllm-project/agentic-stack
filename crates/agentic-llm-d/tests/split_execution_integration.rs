@@ -287,12 +287,12 @@ async fn a_function_call_stream_passes_strict_validation() {
 
 #[tokio::test]
 async fn relayed_json_tool_call_ids_are_validated_before_persistence() {
-    assert_relayed_tool_call_ids_are_validated(false).await;
+    Box::pin(assert_relayed_tool_call_ids_are_validated(false)).await;
 }
 
 #[tokio::test]
 async fn relayed_sse_tool_call_ids_are_validated_before_persistence() {
-    assert_relayed_tool_call_ids_are_validated(true).await;
+    Box::pin(assert_relayed_tool_call_ids_are_validated(true)).await;
 }
 
 async fn assert_relayed_tool_call_ids_are_validated(stream: bool) {
@@ -402,12 +402,12 @@ async fn assert_relayed_tool_call_ids_are_validated(stream: bool) {
 
 #[tokio::test]
 async fn relayed_json_call_id_cannot_reuse_continued_history() {
-    assert_relayed_call_id_cannot_reuse_continued_history(false).await;
+    Box::pin(assert_relayed_call_id_cannot_reuse_continued_history(false)).await;
 }
 
 #[tokio::test]
 async fn relayed_sse_call_id_cannot_reuse_continued_history() {
-    assert_relayed_call_id_cannot_reuse_continued_history(true).await;
+    Box::pin(assert_relayed_call_id_cannot_reuse_continued_history(true)).await;
 }
 
 async fn assert_relayed_call_id_cannot_reuse_continued_history(stream: bool) {

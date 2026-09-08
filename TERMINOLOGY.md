@@ -92,7 +92,8 @@ round.
 ### conversation state
 
 The prior items and metadata made available to a later turn. State may be managed with a conversation, chained with
-`previous_response_id`, or replayed manually.
+`previous_response_id`, or replayed manually. WebSocket response state may also be
+retained transiently by the active connection; it is distinct from durable conversation storage.
 
 ### stored response
 
@@ -106,7 +107,8 @@ mechanism could be either `previous_response_id` or a conversation.
 
 ### previous response ID
 
-The response identifier passed in the `previous_response_id` field to continue from a prior stored response. In prose,
+The response identifier passed in the `previous_response_id` field to continue from prior response state. That state
+may be durable or cached on the active WebSocket connection. In prose,
 write **previous response ID**; in code and wire-format discussion, use `previous_response_id`.
 
 ### rehydration
@@ -127,7 +129,8 @@ Describes a flow in which the service retains or resolves prior state, such as R
 ### stateless
 
 Describes a flow in which the request supplies all required context and the service does not rely on retained response
-or conversation state. `store: false` disables stored-response state, although callers may still replay prior items.
+or conversation state. `store: false` disables durable response storage, although callers may still replay prior items
+or continue from the active WebSocket connection's transient checkpoint. An explicit conversation remains durable.
 
 ### compaction
 

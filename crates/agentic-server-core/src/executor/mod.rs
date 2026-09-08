@@ -14,6 +14,7 @@ pub mod persist;
 mod prepare;
 pub mod rehydrate;
 pub mod request;
+pub mod session;
 
 mod gateway;
 pub mod gateway_accumulator;
@@ -29,7 +30,8 @@ pub use messages_request::{normalize_native_web_search_for_upstream, validate_na
 pub use messages_stream::run_messages_stream;
 pub use modes::{ConversationHandler, ResponseHandler};
 pub use persist::{commit, persist_response, persist_turn};
-pub use rehydrate::rehydrate_conversation;
+pub use rehydrate::{rehydrate_conversation, rehydrate_in_session};
 pub use request::ExecutionContext;
 pub use request::RequestContext;
+pub use session::{ResponseSession, ResponseSessionGroup};
 pub use upstream::{UpstreamBody, decode_upstream, upstream_request};

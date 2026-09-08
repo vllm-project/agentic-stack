@@ -60,11 +60,12 @@ impl ResponseHandler {
         self.store.rehydrate(prev_id).await.map_err(ExecutorError::Storage)
     }
 
-    /// Persists a response record — only the new items from this turn.
+    /// Completes response-scoped persistence and optional transient checkpoint retention.
     ///
     /// Takes `ctx` and `output_items` by value so fields can be moved directly
-    /// into [`crate::storage::ResponseMetadata`]. Prior history must not be
-    /// re-inserted; the response store records item IDs for this response only.
+    /// into [`ResponseMetadata`]. Normally only this turn's items are inserted;
+    /// promoting a transient parent to a stored child requires its full canonical
+    /// history because there are no durable parent item IDs to reference.
     ///
     /// # Errors
     /// Returns `ExecutorError` if the store is disabled or the database operation fails.
@@ -84,31 +85,80 @@ impl ResponseHandler {
     /// Persists a response using metadata prepared by request-scoped tool behavior.
     pub(crate) async fn execute_turn_with_metadata(
         &self,
-        ctx: RequestContext,
+        mut ctx: RequestContext,
         output_items: Vec<OutputItem>,
         metadata: ResponseMetadata,
     ) -> ExecutorResult<()> {
+        let continuation = ctx.continuation.take();
+        let write_durable = continuation.is_none() || ctx.original_request.store;
         let mut new_items = Vec::with_capacity(ctx.new_input_items.len() + output_items.len());
         new_items.extend(ctx.new_input_items.into_iter().map(InOutItem::Input));
-        new_items.extend(output_items.into_iter().map(InOutItem::Output));
+        new_items.extend(
+            output_items
+                .into_iter()
+                .enumerate()
+                .filter(|(index, item)| {
+                    continuation
+                        .as_ref()
+                        .is_none_or(|lease| lease.retains_output(*index, item))
+                })
+                .map(|(_, item)| InOutItem::Output(item)),
+        );
 
-        let result = self
-            .store
-            .persist_with_conversation_id(
-                &ctx.response_id,
-                ctx.conversation_id.as_deref(),
-                metadata.previous_response_id.as_deref(),
-                new_items,
-                &metadata,
-            )
-            .await;
+        let checkpoint = continuation
+            .as_ref()
+            .map(|lease| {
+                lease.checkpoint(
+                    ctx.response_id.clone(),
+                    ctx.conversation_id.clone(),
+                    &metadata,
+                    &new_items,
+                    write_durable,
+                )
+            })
+            .transpose()?;
+
+        // A stored child of a transient parent needs its complete canonical
+        // checkpoint, not a database reference to a response that was never stored.
+        let transient_parent = continuation
+            .as_ref()
+            .filter(|lease| lease.parent.as_ref().is_some_and(|parent| !parent.durable));
+        let previous_durable_id = if let Some(lease) = transient_parent {
+            if write_durable {
+                let mut full_items = lease.parent_items().cloned().map(InOutItem::Input).collect::<Vec<_>>();
+                full_items.append(&mut new_items);
+                new_items = full_items;
+            }
+            None
+        } else {
+            metadata.previous_response_id.as_deref()
+        };
+
+        let result = if write_durable {
+            self.store
+                .persist_with_conversation_id(
+                    &ctx.response_id,
+                    ctx.conversation_id.as_deref(),
+                    previous_durable_id,
+                    new_items,
+                    &metadata,
+                )
+                .await
+        } else {
+            Ok(())
+        };
         match result {
             Err(error) if error.is_unique_violation() => Err(ExecutorError::Conflict(format!(
                 "a turn is already stored under '{}'",
                 ctx.response_id
             ))),
             Err(error) => Err(ExecutorError::Storage(error)),
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                if let Some((lease, checkpoint)) = continuation.zip(checkpoint) {
+                    lease.publish(checkpoint)?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -153,6 +203,7 @@ mod tests {
             response_id: "resp_test".into(),
             conversation_id: None,
             conversation_version: None,
+            continuation: None,
         }
     }
 
