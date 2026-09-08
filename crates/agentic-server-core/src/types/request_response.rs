@@ -287,7 +287,7 @@ impl RequestPayload {
         CustomHandler::validate_tool_choice(self.tools.as_deref(), &tool_choice)?;
         Ok(UpstreamRequest {
             model: &self.model,
-            input: self.input.model_input(),
+            input: crate::tool::ShellHandler::model_input(self.input.model_input())?,
             stream,
             instructions: self.instructions.as_deref(),
             tools,

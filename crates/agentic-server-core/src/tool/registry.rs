@@ -80,9 +80,8 @@ impl std::fmt::Debug for ToolEntry {
 }
 
 impl ToolEntry {
-    /// Builds a client-owned entry. `tool_type.is_gateway_owned()` is the
-    /// single source of truth for the ownership discriminant; this asserts
-    /// the caller picked the constructor matching its own tool type.
+    /// Builds a client-owned entry using the declaration-level ownership default.
+    /// Shell may instead opt into gateway execution through explicit registration.
     pub(crate) fn client(tool_type: ToolType, server_label: Option<String>) -> Self {
         debug_assert!(!tool_type.is_gateway_owned());
         Self {
@@ -95,7 +94,7 @@ impl ToolEntry {
     /// Builds a gateway-owned entry. `binding` is `None` for tool types that
     /// are gateway-owned in principle but have no executor yet.
     pub(crate) fn gateway(tool_type: ToolType, server_label: Option<String>, binding: Option<GatewayBinding>) -> Self {
-        debug_assert!(tool_type.is_gateway_owned());
+        debug_assert!(tool_type.is_gateway_owned() || tool_type == ToolType::Shell);
         Self {
             tool_type,
             server_label,
@@ -247,7 +246,9 @@ impl ToolRegistry {
                     })?;
                 }
                 ResponsesTool::Shell(p) => {
-                    insert_unique_tool_entries(&mut entries, |resolved| insert_shell_entry(resolved, p))?;
+                    insert_unique_tool_entries(&mut entries, |resolved| {
+                        insert_shell_entry(resolved, p, executors.shell_executor());
+                    })?;
                 }
                 ResponsesTool::Namespace(p) => {
                     insert_unique_tool_entries(&mut entries, |resolved| insert_namespace_entries(resolved, p))?;
@@ -369,7 +370,7 @@ impl ToolRegistry {
     pub fn is_client_shell_name(&self, name: &str) -> bool {
         self.entries
             .get(name)
-            .is_some_and(|entry| entry.tool_type == ToolType::Shell)
+            .is_some_and(|entry| entry.tool_type == ToolType::Shell && !entry.ownership.is_gateway())
     }
 
     /// Returns the subset of `calls` whose names map to client-owned tools

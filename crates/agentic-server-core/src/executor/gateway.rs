@@ -519,11 +519,10 @@ pub(super) fn emit_gateway_completed_events<'a, T: GatewayPublicOutputSource>(
                 },
                 list_tools.id.as_str(),
             )),
-            OutputItem::Compaction(_) => None,
+            OutputItem::Compaction(_) | OutputItem::ShellCall(_) => None,
             OutputItem::Message(_)
             | OutputItem::FunctionCall(_)
             | OutputItem::CustomToolCall(_)
-            | OutputItem::ShellCall(_)
             | OutputItem::Reasoning(_)
             | OutputItem::Unknown => continue,
         };

@@ -219,6 +219,32 @@ impl TryFrom<&EventPayload> for CompactionItem {
     }
 }
 
+impl TryFrom<&EventPayload> for ShellCall {
+    type Error = ExecutorError;
+
+    fn try_from(payload: &EventPayload) -> Result<Self, Self::Error> {
+        let EventPayload::OutputItemAdded {
+            shell_call: Some(call), ..
+        } = payload
+        else {
+            return Err(ExecutorError::ParseError("expected OutputItemAdded payload".into()));
+        };
+        Ok(call.as_ref().clone())
+    }
+}
+
+impl ApplyDone for ShellCall {
+    fn apply_done(&mut self, payload: &EventPayload, _buffer: &mut String) {
+        let EventPayload::OutputItemDone { item, .. } = payload else {
+            return;
+        };
+        // Deserialize through the tagged enum so `type` cannot enter flattened extras.
+        if let Some(OutputItem::ShellCall(call)) = deserialize_from_value_opt(item.clone()) {
+            *self = call;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GatewayCallStatus {
@@ -1069,6 +1095,7 @@ mod tests {
     #[test]
     fn reasoning_output_builds_from_added_and_applies_indexed_done_events() {
         let added = EventPayload::OutputItemAdded {
+            shell_call: None,
             item_id: "rs_1".to_owned(),
             item_type: crate::events::SSEItemType::Reasoning,
             output_index: 2,
@@ -1270,6 +1297,7 @@ mod tests {
     #[test]
     fn mcp_list_tools_builds_from_added_and_applies_done_item() {
         let added = EventPayload::OutputItemAdded {
+            shell_call: None,
             item_id: "mcpl_1".to_owned(),
             item_type: crate::events::SSEItemType::McpListTools,
             output_index: 0,

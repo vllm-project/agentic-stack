@@ -209,8 +209,10 @@ fn test_output_item_added_function_call() {
         name,
         namespace,
         call_id,
+        shell_call,
     } = &frame.payload
     {
+        assert!(shell_call.is_none());
         assert_eq!(item_id, "fc_1");
         assert_eq!(item_type, "function_call");
         assert_eq!(*output_index, 1);

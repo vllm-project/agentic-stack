@@ -193,7 +193,13 @@ pub(super) async fn fetch_stream_payload(
         exec_ctx.streaming_timeout,
     ));
     let mut acc = ResponseAccumulator::new(ctx.response_id.clone(), ctx.conversation_id.clone());
-    let mut function_sse = FunctionSseTranslator::new(registry.tool_type_map());
+    let tool_types = registry.tool_type_map();
+    let gateway_names = tool_types
+        .keys()
+        .filter(|name| registry.is_gateway_owned_name(name))
+        .cloned()
+        .collect();
+    let mut function_sse = FunctionSseTranslator::new(tool_types).with_gateway_names(gateway_names);
     let mut defer_from_output_index = None;
     let mut deferred_events = Vec::new();
     let mut deferred_bytes = 0;

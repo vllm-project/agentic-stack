@@ -236,8 +236,10 @@ impl<'de> Deserialize<'de> for InputItem {
     where
         D: serde::Deserializer<'de>,
     {
-        let value = Value::deserialize(deserializer)?;
-        let item = match value.get("type").and_then(Value::as_str) {
+        let mut value = Value::deserialize(deserializer)?;
+        // Consume the enum discriminator before a flattened payload can retain it.
+        let kind = value.as_object_mut().and_then(|object| object.remove("type"));
+        let item = match kind.as_ref().and_then(Value::as_str) {
             None | Some("message") => deserialize_from_value(value).map(Self::Message),
             Some("function_call") => deserialize_from_value(value).map(Self::FunctionCall),
             Some("function_call_output") => deserialize_from_value(value).map(Self::FunctionCallOutput),

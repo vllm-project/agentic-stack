@@ -133,6 +133,14 @@ fn extract_output_item_added(json: &Value) -> EventPayload {
         name: json_str_opt(item, "name"),
         namespace: json_str_opt(item, "namespace"),
         call_id: json_str_opt(item, "call_id"),
+        shell_call: if item["type"] == "shell_call" {
+            match deserialize_from_value_opt::<crate::types::io::OutputItem>(item.clone()) {
+                Some(crate::types::io::OutputItem::ShellCall(call)) => Some(Box::new(call)),
+                _ => None,
+            }
+        } else {
+            None
+        },
     }
 }
 

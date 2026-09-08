@@ -12,6 +12,15 @@ pub enum ShellCallStatus {
     Incomplete,
 }
 
+impl From<crate::types::event::MessageStatus> for ShellCallStatus {
+    fn from(status: crate::types::event::MessageStatus) -> Self {
+        match status {
+            crate::types::event::MessageStatus::InProgress => Self::InProgress,
+            crate::types::event::MessageStatus::Completed => Self::Completed,
+        }
+    }
+}
+
 /// Commands and execution limits requested by a model-generated shell call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShellCallAction {

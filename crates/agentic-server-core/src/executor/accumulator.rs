@@ -40,6 +40,7 @@ enum InFlight {
     Reasoning { item: ReasoningOutput },
     FunctionCall { item: FunctionToolCall, arguments: String },
     CustomToolCall { item: CustomToolCall, input: String },
+    ShellCall { item: crate::types::io::ShellCall },
     WebSearchCall { item: Option<WebSearchCall> },
     McpCall { item: McpCall },
     McpListTools { item: McpListTools },
@@ -53,6 +54,7 @@ impl std::fmt::Debug for InFlight {
             Self::Reasoning { .. } => write!(f, "InFlight::Reasoning {{ .. }}"),
             Self::FunctionCall { .. } => write!(f, "InFlight::FunctionCall {{ .. }}"),
             Self::CustomToolCall { .. } => write!(f, "InFlight::CustomToolCall {{ .. }}"),
+            Self::ShellCall { .. } => write!(f, "InFlight::ShellCall {{ .. }}"),
             Self::WebSearchCall { .. } => write!(f, "InFlight::WebSearchCall {{ .. }}"),
             Self::McpCall { .. } => write!(f, "InFlight::McpCall {{ .. }}"),
             Self::McpListTools { .. } => write!(f, "InFlight::McpListTools {{ .. }}"),
@@ -87,6 +89,7 @@ impl InFlight {
                 Some(OutputItem::CustomToolCall(item))
             }
             Self::WebSearchCall { item } => item.map(OutputItem::WebSearchCall),
+            Self::ShellCall { item } => Some(OutputItem::ShellCall(item)),
             Self::McpCall { item } => Some(OutputItem::McpCall(item)),
             Self::McpListTools { item } => Some(OutputItem::McpListTools(item)),
             Self::Compaction { item } => Some(OutputItem::Compaction(item)),
@@ -938,7 +941,10 @@ impl ResponseAccumulator {
             SSEItemType::Compaction => CompactionItem::try_from(payload)
                 .ok()
                 .map(|item| InFlight::Compaction { item }),
-            SSEItemType::WebSearchCall | SSEItemType::ShellCall => None,
+            SSEItemType::WebSearchCall => None,
+            SSEItemType::ShellCall => crate::types::io::ShellCall::try_from(payload)
+                .ok()
+                .map(|item| InFlight::ShellCall { item }),
             SSEItemType::McpCall => McpCall::try_from(payload).ok().map(|item| InFlight::McpCall { item }),
             SSEItemType::McpListTools => McpListTools::try_from(payload)
                 .ok()
@@ -1196,6 +1202,8 @@ fn apply_output_item_done(
             }
             *item = Some(done);
         }
+        (InFlight::ShellCall { item }, Some(OutputItem::ShellCall(done))) => item.clone_from(done),
+        (InFlight::ShellCall { item }, None) => item.apply_done(payload, &mut String::new()),
         (InFlight::McpCall { item }, Some(OutputItem::McpCall(done))) => item.clone_from(done),
         (InFlight::McpListTools { item }, Some(OutputItem::McpListTools(done))) => item.clone_from(done),
         (InFlight::Compaction { item }, Some(OutputItem::Compaction(done))) => {
@@ -1411,6 +1419,7 @@ mod tests {
         acc.process_event(&EventFrame {
             event_type: SSEEventType::OutputItemAdded,
             payload: EventPayload::OutputItemAdded {
+                shell_call: None,
                 item_id: "msg_1".into(),
                 item_type: "message".into(),
                 output_index: 0,
@@ -2260,6 +2269,7 @@ mod tests {
         acc.process_event(&EventFrame {
             event_type: SSEEventType::OutputItemAdded,
             payload: EventPayload::OutputItemAdded {
+                shell_call: None,
                 item_id: "fc_1".into(),
                 item_type: "function_call".into(),
                 output_index: 0,
@@ -2335,6 +2345,7 @@ mod tests {
         acc.process_event(&EventFrame {
             event_type: SSEEventType::OutputItemAdded,
             payload: EventPayload::OutputItemAdded {
+                shell_call: None,
                 item_id: "fc_1".into(),
                 item_type: "function_call".into(),
                 output_index: 0,
@@ -2384,6 +2395,7 @@ mod tests {
         acc.process_event(&EventFrame {
             event_type: SSEEventType::OutputItemAdded,
             payload: EventPayload::OutputItemAdded {
+                shell_call: None,
                 item_id: "fc_1".into(),
                 item_type: "function_call".into(),
                 output_index: 0,
@@ -2408,6 +2420,7 @@ mod tests {
         acc.process_event(&EventFrame {
             event_type: SSEEventType::OutputItemAdded,
             payload: EventPayload::OutputItemAdded {
+                shell_call: None,
                 item_id: "fc_2".into(),
                 item_type: "function_call".into(),
                 output_index: 1,
@@ -2451,6 +2464,7 @@ mod tests {
         acc.process_event(&EventFrame {
             event_type: SSEEventType::OutputItemAdded,
             payload: EventPayload::OutputItemAdded {
+                shell_call: None,
                 item_id: "msg_1".into(),
                 item_type: "message".into(),
                 output_index: 0,
@@ -2474,6 +2488,7 @@ mod tests {
         acc.process_event(&EventFrame {
             event_type: SSEEventType::OutputItemAdded,
             payload: EventPayload::OutputItemAdded {
+                shell_call: None,
                 item_id: "fc_1".into(),
                 item_type: "function_call".into(),
                 output_index: 1,
@@ -2517,6 +2532,7 @@ mod tests {
         acc.process_event(&EventFrame {
             event_type: SSEEventType::OutputItemAdded,
             payload: EventPayload::OutputItemAdded {
+                shell_call: None,
                 item_id: "fc_1".into(),
                 item_type: "function_call".into(),
                 output_index: 0,
@@ -2612,6 +2628,7 @@ mod tests {
         acc.process_event(&EventFrame {
             event_type: SSEEventType::OutputItemAdded,
             payload: EventPayload::OutputItemAdded {
+                shell_call: None,
                 item_id: String::new(),
                 item_type: "function_call".into(),
                 output_index: 0,
@@ -2669,6 +2686,7 @@ mod tests {
         acc.process_event(&EventFrame {
             event_type: SSEEventType::OutputItemAdded,
             payload: EventPayload::OutputItemAdded {
+                shell_call: None,
                 item_id: "fc_1".into(),
                 item_type: "function_call".into(),
                 output_index: 0,

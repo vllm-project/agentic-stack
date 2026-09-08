@@ -283,6 +283,8 @@ pub enum EventPayload {
         name: Option<String>,
         namespace: Option<String>,
         call_id: Option<String>,
+        /// Shell actions have no delta events; preserve the typed initial item.
+        shell_call: Option<Box<crate::types::io::ShellCall>>,
     },
 
     /// `response.output_item.done`

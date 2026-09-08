@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -53,6 +53,7 @@ pub(super) struct FunctionSseTranslation {
 #[derive(Debug, Default)]
 pub(super) struct FunctionSseTranslator {
     tool_types: HashMap<String, ToolType>,
+    gateway_names: HashSet<String>,
     active: HashMap<u32, FunctionCallShape>,
     pending_unnamed: HashMap<u32, PendingFunctionCall>,
     pending_bytes: usize,
@@ -65,6 +66,11 @@ impl FunctionSseTranslator {
             tool_types,
             ..Self::default()
         }
+    }
+
+    pub(super) fn with_gateway_names(mut self, gateway_names: HashSet<String>) -> Self {
+        self.gateway_names = gateway_names;
+        self
     }
 
     pub(super) fn translate(
@@ -148,12 +154,16 @@ impl FunctionSseTranslator {
                     defer_from_output_index: None,
                 })
             }
-            ToolType::Shell => {
+            ToolType::Shell if !self.gateway_names.contains(name) => {
                 self.active
                     .insert(output_index, FunctionCallShape::Shell(ShellCallState { added: false }));
                 Ok(FunctionSseTranslation::default())
             }
-            ToolType::Mcp | ToolType::WebSearch | ToolType::FileSearch | ToolType::CodeInterpreter => {
+            ToolType::Shell
+            | ToolType::Mcp
+            | ToolType::WebSearch
+            | ToolType::FileSearch
+            | ToolType::CodeInterpreter => {
                 if self.first_gateway_output_index.is_none_or(|first| output_index < first) {
                     self.first_gateway_output_index = Some(output_index);
                 }
@@ -365,7 +375,7 @@ fn shell_done_frame(call: &AccumulatedFunctionCall<'_>) -> ExecutorResult<EventF
     shell_frame(
         SSEEventType::OutputItemDone,
         call.output_index,
-        crate::types::io::ShellCallStatus::InProgress,
+        call.item.status.into(),
         call,
     )
 }
@@ -886,7 +896,7 @@ mod tests {
         assert_eq!(frames[0].wire.rest["item"]["id"], "sh_shell");
         assert_eq!(frames[0].wire.rest["item"]["status"], "in_progress");
         assert_eq!(frames[0].wire.rest["item"]["action"]["commands"][0], "pwd");
-        assert_eq!(frames[1].wire.rest["item"]["status"], "in_progress");
+        assert_eq!(frames[1].wire.rest["item"]["status"], "completed");
     }
 
     #[test]
